@@ -1,0 +1,152 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <title>Herrenhäuser Gärten - AR.js Marker-Erkennung</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+    </style>
+</head>
+<body>
+    <!-- Diese Version ist speziell für die robuste Marker-Erkennung mit AR.js. -->
+    <!-- Sie dient als direkter Vergleich zur GPS/Hit-Test-Methode. -->
+
+    <!-- Three.js Bibliothek -->
+    <script src="https://unpkg.com/three@0.128.0/build/three.min.js"></script>
+    <!-- AR.js Bibliothek (speziell für Three.js) -->
+    <script src="https://jeromeetienne.github.io/AR.js/three.js/build/ar-threex.js"></script>
+
+    <script>
+        // --- GLOBALE VARIABLEN ---
+        let scene, camera, renderer;
+        let arToolkitContext, arToolkitSource;
+        let markerRoot; // Die Anker-Gruppe, die an den Marker gebunden wird
+
+        // Die physische Größe des Markers in Metern (100mm = 0.1)
+        const MARKER_SIZE_METERS = 0.10;
+
+        // --- INITIALISIERUNG ---
+        init();
+
+        function init() {
+            // --- 1. Grundlegendes Three.js Setup ---
+            scene = new THREE.Scene();
+            camera = new THREE.Camera(); // AR.js steuert die Kamera-Projektion selbst
+            scene.add(camera);
+
+            renderer = new THREE.WebGLRenderer({
+                antialias: true,
+                alpha: true
+            });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            document.body.appendChild(renderer.domElement);
+
+            // Fügt eine einfache Beleuchtung hinzu
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
+            scene.add(light);
+            
+            // --- 2. AR.js Setup ---
+
+            // a) Initialisiert die AR-Quelle (das Kamerabild)
+            arToolkitSource = new THREEx.ArToolkitSource({
+                sourceType: 'webcam',
+            });
+
+            arToolkitSource.init(() => {
+                // Sobald die Kamera läuft, passe die Größe des Renderers an
+                setTimeout(() => onResize(), 100);
+            });
+
+            // b) Initialisiert den AR-Kontext (der die Marker-Erkennung durchführt)
+            arToolkitContext = new THREEx.ArToolkitContext({
+                cameraParametersUrl: THREEx.ArToolkitContext.baseURL + 'data/camera_para.dat',
+                detectionMode: 'mono',
+            });
+
+            arToolkitContext.init(() => {
+                // Kopiert die Projektionsmatrix von AR.js auf unsere Three.js-Kamera
+                camera.projectionMatrix.copy(arToolkitContext.getProjectionMatrix());
+            });
+
+            // Event-Listener, um die Größe bei Fensteränderung anzupassen
+            window.addEventListener('resize', onResize);
+
+            // --- 3. Marker und 3D-Objekte erstellen ---
+
+            // a) Erstellt die Anker-Gruppe ("Marker Root").
+            // AR.js wird die Position und Rotation dieser Gruppe automatisch an den Marker anpassen.
+            markerRoot = new THREE.Group();
+            scene.add(markerRoot);
+
+            // b) Initialisiert die Marker-Steuerung.
+            // Dies ist die entscheidende Verbindung zwischen dem physischen Marker und unserer 3D-Gruppe.
+            const markerControls = new THREEx.ArMarkerControls(arToolkitContext, markerRoot, {
+                type: 'pattern',
+                // WICHTIG: Der Pfad zur .patt-Datei, die Sie generiert haben!
+                patternUrl: 'marker.patt', 
+                changeMatrixMode: 'modelViewMatrix',
+            });
+
+            // c) Erstellt die 3D-Objekte, die auf dem Marker angezeigt werden sollen.
+            // Wir fügen sie zur `markerRoot`-Gruppe hinzu.
+            const cylinderGeo = new THREE.CylinderGeometry(
+                MARKER_SIZE_METERS / 2, // Radius oben/unten
+                MARKER_SIZE_METERS / 2,
+                MARKER_SIZE_METERS,     // Höhe
+                32
+            );
+            const cylinderMat = new THREE.MeshStandardMaterial({
+                color: 0xff00ff, // Magenta
+                roughness: 0.4
+            });
+            const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
+            // Positioniere den Zylinder, sodass er auf dem Marker steht (Y-Achse ist "hoch")
+            cylinder.position.y = MARKER_SIZE_METERS / 2;
+            markerRoot.add(cylinder);
+
+            // d) Erstellt den AxesHelper, um das lokale Koordinatensystem anzuzeigen.
+            // X-Achse = Rot, Y-Achse = Grün, Z-Achse = Blau
+            const axesHelper = new THREE.AxesHelper(MARKER_SIZE_METERS);
+            // Positioniere den Helper ebenfalls leicht über dem Marker, um ihn besser zu sehen.
+            axesHelper.position.y = 0.01;
+            markerRoot.add(axesHelper);
+
+            // --- 4. Render-Schleife starten ---
+            animate();
+        }
+
+        /**
+         * Passt die Größe von Kamera und Renderer an.
+         * Muss für AR.js spezielle Funktionen aufrufen.
+         */
+        function onResize() {
+            arToolkitSource.onResizeElement();
+            arToolkitSource.copyElementSizeTo(renderer.domElement);
+            if (arToolkitContext.arController !== null) {
+                arToolkitSource.copyElementSizeTo(arToolkitContext.arController.canvas);
+            }
+        }
+
+        /**
+         * Die Haupt-Animationsschleife.
+         */
+        function animate() {
+            requestAnimationFrame(animate);
+
+            // Prüft, ob die AR-Quelle (Kamera) bereit ist und ein neues Bild hat
+            if (arToolkitSource.ready === false) {
+                return;
+            }
+
+            // Aktualisiert den AR-Kontext mit dem neuen Kamerabild.
+            // Hier findet die eigentliche Marker-Erkennung statt.
+            arToolkitContext.update(arToolkitSource.domElement);
+
+            // Rendert die Szene
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>

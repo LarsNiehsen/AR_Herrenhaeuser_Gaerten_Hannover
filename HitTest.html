@@ -1,391 +1,191 @@
 <!DOCTYPE html>
 <html lang="de">
 <head>
-  <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten Hannover - AR</title>
-  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
-  <style>
-    html,body{height:100%;margin:0;background:#000;color:#fff;font-family:Inter,system-ui,-apple-system,"Segoe UI",Roboto,Arial}
-    #info {position:absolute;left:50%;top:14px;transform:translateX(-50%);z-index:2;background:rgba(0,0,0,0.25);padding:8px 12px;border-radius:8px;font-weight:600;text-align:center;min-width:280px;}
-    .overlay {position:absolute;right:14px;top:14px;z-index:2}
-    button {appearance:none;border:0;background:#0d6efd;color:#fff;padding:8px 12px;border-radius:8px;font-weight:700;cursor:pointer}
-    canvas {display:block;width:100%;height:100%}
-  </style>
+    <title>Three.js + ArUco Marker-Erkennung</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        /* Stil für den AR-Button, damit er über dem Video liegt */
+        #ar-button { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; }
+    </style>
 </head>
 <body>
-  <div id="info">AR-Anwendung starten: GNSS-Position wird geprüft, Standortzugriff erlauben.</div>
-  <div class="overlay"><button id="exitBtn">Beenden</button></div>
+    <!-- Bibliotheken für die Bildanalyse (js-aruco) -->
+    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
+    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
 
-  <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
-  <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
+    <script type="module">
+        // Three.js Kernkomponenten importieren
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+        import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
 
-  <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
-    import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
+        // --- EINSTELLUNGEN ---
+        // WICHTIG: Die exakte Kantenlänge des ausgedruckten Markers in Metern (100mm = 0.10m)
+        const MARKER_SIZE_METERS = 0.10;
 
-    // --- EINSTELLUNGEN ---
-    const TARGET = { lat: 52.388829, lon: 9.8177 };
-    const SHOW_WITHIN_METERS = 30;
-    const MARKER_SIZE_METERS = 0.10; // 100 mm
+        // --- GLOBALE VARIABLEN ---
+        let camera, scene, renderer;
+        let arucoDetector, markerRoot;
+        let cameraImageCanvas, cameraImageContext; // Hilfs-Canvas zur Analyse des Kamerabildes
 
-    // --- GLOBALE VARIABLEN ---
-    let camera, scene, renderer;
-    let reticle, arrow;
-    let hitTestSource = null, hitTestSourceRequested = false;
-    let userPos = null;
-    let targetCube, targetLabel, isTargetPlaced = false;
-    const clickableObjects = [];
-    let raycaster;
-    const rotatingObjects = [];
+        // --- INITIALISIERUNG ---
+        init();
 
-    // ArUco-Variablen
-    let arucoDetector, markerRoot;
-    let cameraImageCanvas, cameraImageContext, imageData; // Hilfs-Canvas und Bilddaten
-    let cameraTexture; // Hält die Kameratextur von Three.js
+        function init() {
+            // --- 1. Three.js Szene aufbauen ---
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+            scene.add(camera);
 
-    init();
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true; // WebXR aktivieren
+            document.body.appendChild(renderer.domElement);
 
-    function init(){
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
-      raycaster = new THREE.Raycaster();
+            // Fügt eine Beleuchtung hinzu, damit die 3D-Objekte nicht schwarz sind
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
+            scene.add(light);
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-      renderer.setPixelRatio(window.devicePixelRatio);
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.xr.enabled = true;
-      document.body.appendChild(renderer.domElement);
-      
-      // Fordert 'camera-access' an, was für die neue, robustere Methode essentiell ist.
-      document.body.appendChild(ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test', 'dom-overlay', 'camera-access'],
-        domOverlay: { root: document.body },
-        // Optional: Stellt sicher, dass das richtige Datenformat für die Analyse verfügbar ist
-        optionalFeatures: [ 'dom-overlay-for-handheld-ar' ]
-      }));
+            // --- 2. AR-Button im WebXR-Stil hinzufügen ---
+            const arButton = ARButton.createButton(renderer, {
+                requiredFeatures: ['camera-access', 'dom-overlay'], // 'camera-access' ist hier der Schlüssel
+                domOverlay: { root: document.body }
+            });
+            arButton.id = 'ar-button';
+            document.body.appendChild(arButton);
+            
+            // --- 3. ArUco-spezifische Objekte initialisieren ---
+            arucoDetector = new AR.Detector();
+            
+            // Die Anker-Gruppe ("Marker Root"), die auf dem Marker platziert wird.
+            // Alle Objekte, die auf dem Marker erscheinen sollen, werden hier hinzugefügt.
+            markerRoot = new THREE.Group();
+            markerRoot.visible = false; // Zu Beginn unsichtbar
+            scene.add(markerRoot);
 
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
-      light.position.set(0.5, 1, 0.25);
-      scene.add(light);
+            // Erstellt den Zylinder
+            const cylinderGeo = new THREE.CylinderGeometry(MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS, 32);
+            const cylinderMat = new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.4 });
+            const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
+            cylinder.position.y = MARKER_SIZE_METERS / 2; // Positioniert den Zylinder, sodass er auf dem Marker steht
+            markerRoot.add(cylinder);
 
-      const reticleGeo = new THREE.RingGeometry(0.06, 0.08, 32).rotateX(-Math.PI / 2);
-      const reticleMat = new THREE.MeshBasicMaterial();
-      reticle = new THREE.Mesh(reticleGeo, reticleMat);
-      reticle.matrixAutoUpdate = false;
-      reticle.visible = false;
-      scene.add(reticle);
+            // Erstellt den AxesHelper, um das lokale Koordinatensystem des Markers anzuzeigen
+            const axesHelper = new THREE.AxesHelper(MARKER_SIZE_METERS * 1.5);
+            markerRoot.add(axesHelper);
 
-      arrow = createArrow();
-      arrow.position.set(0, -0.4, -1.2);
-      camera.add(arrow);
-      scene.add(camera);
-      
-      targetCube = createTargetCube();
-      targetLabel = createFountainLabel();
-      scene.add(targetCube);
-      scene.add(targetLabel);
-      clickableObjects.push(targetCube);
-      rotatingObjects.push(targetCube);
+            // Initialisiert das Hilfs-Canvas, das wir zum Analysieren der Kamerabilder benötigen
+            cameraImageCanvas = document.createElement('canvas');
+            cameraImageContext = cameraImageCanvas.getContext('2d', { willReadFrequently: true });
 
-      // --- ArUco-Objekte initialisieren ---
-      arucoDetector = new AR.Detector();
-      markerRoot = new THREE.Group(); // Die Anker-Gruppe für alle Objekte auf dem Marker
-      markerRoot.visible = false; // Zu Beginn unsichtbar
-      scene.add(markerRoot);
-
-      // Erstellt den Zylinder
-      const cylinderGeo = new THREE.CylinderGeometry(MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS, 32);
-      const cylinderMat = new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.4, metalness: 0.2 });
-      const arucoCylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
-      arucoCylinder.position.y = MARKER_SIZE_METERS / 2; // Positioniert den Zylinder auf dem Marker
-      markerRoot.add(arucoCylinder);
-
-      // NEU: Erstellt einen AxesHelper, um das lokale Koordinatensystem des Markers anzuzeigen
-      // X-Achse = Rot, Y-Achse = Grün, Z-Achse = Blau
-      const axesHelper = new THREE.AxesHelper(MARKER_SIZE_METERS);
-      markerRoot.add(axesHelper);
-      
-      // Hilfs-Canvas wird weiterhin benötigt, um die Bilddaten zu halten
-      cameraImageCanvas = document.createElement('canvas');
-      cameraImageContext = cameraImageCanvas.getContext('2d', { willReadFrequently: true });
-      
-      document.getElementById('exitBtn').addEventListener('click', () => {
-        renderer.xr.getSession()?.end();
-        window.close();
-      });
-
-      if (navigator.geolocation) {
-        navigator.geolocation.watchPosition((p) => {
-          userPos = { lat: p.coords.latitude, lon: p.coords.longitude, alt: p.coords.altitude };
-          if (!isTargetPlaced) updateInfoAndArrow();
-        }, (err) => {
-          updateInfo('Standortzugriff verweigert oder fehlgeschlagen.');
-        }, { enableHighAccuracy: true, maximumAge: 5000, timeout: 10000 });
-      } else {
-        updateInfo('Geolocation nicht verfügbar.');
-      }
-
-      const controller = renderer.xr.getController(0);
-      controller.addEventListener('select', onSelect);
-      scene.add(controller);
-
-      window.addEventListener('resize', onWindowResize);
-      renderer.setAnimationLoop(render);
-    }
-
-    function onSelect() {
-      raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-      const intersects = raycaster.intersectObjects(clickableObjects);
-      if (intersects.length > 0 && intersects[0].object === targetCube) {
-        window.open('https://de.wikipedia.org/wiki/Gro%C3%9Fe_Font%C3%A4ne_(Herrenhausen)', '_blank');
-        return;
-      }
-      if (reticle.visible) {
-        const cube = new THREE.Mesh(
-          new THREE.BoxGeometry(0.1, 0.1, 0.1),
-          new THREE.MeshStandardMaterial({ color: 0xffffff * Math.random(), roughness: 0.7, metalness: 0.3 })
-        );
-        reticle.matrix.decompose(cube.position, cube.quaternion, cube.scale);
-        scene.add(cube);
-        if (userPos) {
-            const label = createCoordinateLabel(userPos);
-            label.position.copy(cube.position).add(new THREE.Vector3(0, 0.12, 0));
-            scene.add(label);
+            // Event-Listener für Fenstergrößenänderung
+            window.addEventListener('resize', onWindowResize);
+            
+            // Startet die Render-Schleife
+            renderer.setAnimationLoop(render);
         }
-      }
-    }
-    
-    // --- Alle `create...`, `update...` und Geolocation-Funktionen bleiben unverändert ---
-    function createArrow() {
-        const arrowGroup = new THREE.Group();
-        const headGeo = new THREE.ConeGeometry(0.08, 0.15, 16);
-        const shaftGeo = new THREE.CylinderGeometry(0.04, 0.04, 0.25, 16);
-        const material = new THREE.MeshStandardMaterial({ color: 0xff5500, metalness: 0.4, roughness: 0.6 });
-        const head = new THREE.Mesh(headGeo, material);
-        head.position.y = 0.125;
-        const shaft = new THREE.Mesh(shaftGeo, material);
-        shaft.position.y = -0.05;
-        arrowGroup.add(head);
-        arrowGroup.add(shaft);
-        arrowGroup.rotation.x = -Math.PI / 4;
-        arrowGroup.scale.set(0.2, 0.2, 0.2);
-        return arrowGroup;
-    }
-    function createTargetCube() {
-        const geometry = new THREE.BoxGeometry(0.4, 0.4, 0.4);
-        const material = new THREE.MeshStandardMaterial({ color: 0x0077ff, metalness: 0.3, roughness: 0.6 });
-        const mesh = new THREE.Mesh(geometry, material);
-        mesh.visible = false;
-        return mesh;
-    }
-    function createFountainLabel() {
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        const padding = 20;
-        const titleFont = 'bold 40px Inter, sans-serif';
-        const subtitleFont = '28px Inter, sans-serif';
-        context.font = titleFont;
-        const titleWidth = context.measureText('Große Fontäne').width;
-        context.font = subtitleFont;
-        const subtitleWidth = context.measureText('Height of water jet: 72 m').width;
-        const textWidth = Math.max(titleWidth, subtitleWidth);
-        canvas.width = textWidth + padding * 2;
-        canvas.height = 40 + 28 + padding * 2 + 10;
-        context.fillStyle = 'white';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.textAlign = 'center';
-        context.fillStyle = 'black';
-        context.font = titleFont;
-        context.fillText('Große Fontäne', canvas.width / 2, padding + 40);
-        context.font = subtitleFont;
-        context.fillText('Height of water jet: 72 m', canvas.width / 2, padding + 40 + 10 + 28);
-        const texture = new THREE.CanvasTexture(canvas);
-        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-        const sprite = new THREE.Sprite(material);
-        const aspect = canvas.width / canvas.height;
-        sprite.scale.set(0.6 * aspect, 0.6, 1);
-        sprite.visible = false;
-        return sprite;
-    }
-    function createCoordinateLabel(positionData) {
-        const canvas = document.createElement('canvas');
-        const context = canvas.getContext('2d');
-        const fontSize = 16;
-        const lineHeight = fontSize * 1.2;
-        context.font = `bold ${fontSize}px Inter, sans-serif`;
-        const lat = positionData.lat.toFixed(6);
-        const lon = positionData.lon.toFixed(6);
-        const height = positionData.alt ? `${positionData.alt.toFixed(2)}m` : 'N/A';
-        const line1 = `Lat: ${lat}, Lon: ${lon}`;
-        const line2 = `Höhe: ${height}`;
-        const width1 = context.measureText(line1).width;
-        const width2 = context.measureText(line2).width;
-        const textWidth = Math.max(width1, width2);
-        canvas.width = textWidth + 20;
-        canvas.height = (lineHeight * 2) + 20;
-        context.font = `bold ${fontSize}px Inter, sans-serif`;
-        context.fillStyle = 'rgba(0, 0, 0, 0.6)';
-        context.fillRect(0, 0, canvas.width, canvas.height);
-        context.textAlign = 'center';
-        context.textBaseline = 'middle';
-        context.fillStyle = 'white';
-        context.fillText(line1, canvas.width / 2, canvas.height / 2 - lineHeight / 2);
-        context.fillText(line2, canvas.width / 2, canvas.height / 2 + lineHeight / 2);
-        const texture = new THREE.CanvasTexture(canvas);
-        const material = new THREE.SpriteMaterial({ map: texture, transparent: true });
-        const sprite = new THREE.Sprite(material);
-        const aspect = canvas.width / canvas.height;
-        sprite.scale.set(0.25 * aspect, 0.25, 1);
-        return sprite;
-    }
-    function updateInfo(msg) { document.getElementById('info').textContent = msg; }
-    function updateInfoAndArrow() {
-      if (!userPos || !arrow) return;
-      const distance = distanceMeters(userPos.lat, userPos.lon, TARGET.lat, TARGET.lon);
-      updateInfo(`Distanz zum Ziel: ${Math.round(distance)} m`);
-      const enu = latLonToEastNorthMeters(userPos.lat, userPos.lon, TARGET.lat, TARGET.lon);
-      const bearing = Math.atan2(enu.e, -enu.n);
-      camera.getWorldQuaternion(arrow.quaternion);
-      arrow.quaternion.invert();
-      arrow.rotation.y += bearing;
-    }
-    function placeTargetObjectIfNeeded() {
-        if (!userPos || isTargetPlaced || !reticle.visible) return;
-        const distance = distanceMeters(userPos.lat, userPos.lon, TARGET.lat, TARGET.lon);
-        if (distance <= SHOW_WITHIN_METERS) {
-            const mat = new THREE.Matrix4().fromArray(reticle.matrix.elements);
-            targetCube.position.setFromMatrixPosition(mat);
-            targetLabel.position.copy(targetCube.position).add(new THREE.Vector3(0, 0.65, 0));
-            targetCube.visible = true;
-            targetLabel.visible = true;
-            isTargetPlaced = true;
-            updateInfo(`Objekt "Große Fontäne" platziert! Klicke es an.`);
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
         }
-    }
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-    function distanceMeters(lat1, lon1, lat2, lon2) {
-      const R = 6371000;
-      const toRad = Math.PI/180;
-      const dLat = (lat2-lat1)*toRad;
-      const dLon = (lon2-lon1)*toRad;
-      const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*toRad)*Math.cos(lat2*toRad)*Math.sin(dLon/2)*Math.sin(dLon/2);
-      const c = 2*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-      return R*c;
-    }
-    function latLonToEastNorthMeters(lat1, lon1, lat2, lon2) {
-      const toRad = Math.PI/180;
-      const dLat = (lat2 - lat1) * toRad;
-      const dLon = (lon2 - lon1) * toRad;
-      const meanLat = (lat1 + lat2)/2 * toRad;
-      const R = 6378137;
-      const north = dLat * R;
-      const east = dLon * R * Math.cos(meanLat);
-      return { e: east, n: north };
-    }
 
-    /**
-     * Die Haupt-Render-Schleife, die bei jedem Frame aufgerufen wird.
-     */
-    function render(timestamp, frame) {
-      if (!frame) return;
+        /**
+         * Die Haupt-Render-Schleife, wird für jeden Frame aufgerufen.
+         */
+        function render(timestamp, frame) {
+            // Nur ausführen, wenn wir uns in einer aktiven AR-Session befinden
+            if (frame) {
+                try {
+                    // --- SCHRITT 1: KAMERABILD AUSLESEN (DER KOMPLEXE TEIL) ---
+                    const viewerPose = frame.getViewerPose(renderer.xr.getReferenceSpace());
+                    if (viewerPose) {
+                        const gl = renderer.getContext();
+                        const session = renderer.xr.getSession();
+                        const xrGlBinding = new XRWebGLBinding(session, gl);
+                        const cameraImage = xrGlBinding.getCameraImage(viewerPose.views[0].camera);
 
-      // --- 1. Logik für Hit-Testing (Platzieren auf Oberflächen) ---
-      const session = renderer.xr.getSession();
-      if (!hitTestSourceRequested) {
-        session.requestReferenceSpace('viewer').then((referenceSpace) => {
-          session.requestHitTestSource({ space: referenceSpace }).then((source) => { hitTestSource = source; });
-        });
-        session.addEventListener('end', () => { hitTestSourceRequested = false; hitTestSource = null; });
-        hitTestSourceRequested = true;
-      }
-      if (hitTestSource && !markerRoot.visible) {
-        const referenceSpace = renderer.xr.getReferenceSpace();
-        const hitTestResults = frame.getHitTestResults(hitTestSource);
-        if (hitTestResults.length > 0) {
-          const hit = hitTestResults[0];
-          reticle.visible = true;
-          reticle.matrix.fromArray(hit.getPose(referenceSpace).transform.matrix);
-        } else {
-          reticle.visible = false;
-        }
-      }
+                        if (cameraImage) {
+                            // Kopiere die Pixeldaten aus der WebGL-Textur in unser 2D-Canvas
+                            cameraImageCanvas.width = cameraImage.width;
+                            cameraImageCanvas.height = cameraImage.height;
+                            
+                            const tempFramebuffer = gl.createFramebuffer();
+                            gl.bindFramebuffer(gl.FRAMEBUFFER, tempFramebuffer);
+                            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, cameraImage.texture, 0);
+                            const pixelData = new Uint8Array(cameraImage.width * cameraImage.height * 4);
+                            gl.readPixels(0, 0, cameraImage.width, cameraImage.height, gl.RGBA, gl.UNSIGNED_BYTE, pixelData);
+                            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                            gl.deleteFramebuffer(tempFramebuffer);
+                            
+                            const imageData = new ImageData(new Uint8ClampedArray(pixelData.buffer), cameraImage.width, cameraImage.height);
+                            cameraImageContext.putImageData(imageData, 0, 0);
 
-      // --- 2. VERBESSERTE ArUco Marker-Erkennung ---
-      try {
-        // Schritt 1: Hole die Kameratextur auf die moderne, von Three.js empfohlene Weise.
-        cameraTexture = renderer.xr.getCamera(camera).textures[0];
-        
-        // Führe den Code nur aus, wenn die Textur tatsächlich ein Bild enthält.
-        if (cameraTexture && cameraTexture.image) {
-            const img = cameraTexture.image;
-            // Passe die Größe des Hilfs-Canvas an das Kamerabild an, falls noch nicht geschehen.
-            if (cameraImageCanvas.width !== img.width || cameraImageCanvas.height !== img.height) {
-                cameraImageCanvas.width = img.width;
-                cameraImageCanvas.height = img.height;
-                // Erstelle ein ImageData-Objekt, das wir wiederverwenden können.
-                imageData = cameraImageContext.createImageData(img.width, img.height);
-            }
-            // Kopiere die Pixeldaten aus der Kameratextur in unser ImageData-Objekt.
-            imageData.data.set(img.data);
-            // Zeichne diese Bilddaten auf den Canvas (obwohl nicht sichtbar, ist dies für den Detektor notwendig)
-            cameraImageContext.putImageData(imageData, 0, 0);
+                            // --- SCHRITT 2: MARKER-ERKENNUNG ---
+                            const markers = arucoDetector.detect(imageData);
+                            const targetMarker = markers.find(m => m.id === 0);
 
-            // Schritt 2: Führe die Marker-Erkennung auf dem Canvas aus.
-            const markers = arucoDetector.detect(imageData);
-            const targetMarker = markers.find(m => m.id === 0);
+                            if (targetMarker) {
+                                markerRoot.visible = true;
+                                
+                                // --- SCHRITT 3: 3D-POSE BERECHNEN (solvePnP) ---
+                                // Dies ist die eigentliche "Intelligenz" zur Posenschätzung.
+                                const corners = targetMarker.corners;
+                                const objectPoints = [
+                                    -MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, 0,
+                                     MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, 0,
+                                     MARKER_SIZE_METERS / 2, -MARKER_SIZE_METERS / 2, 0,
+                                    -MARKER_SIZE_METERS / 2, -MARKER_SIZE_METERS / 2, 0
+                                ];
+                                const imagePoints = corners.flatMap(p => [p.x, p.y]);
 
-            if (targetMarker) {
-                // MARKER GEFUNDEN!
-                markerRoot.visible = true;
-                reticle.visible = false; // Verstecke das normale Zielkreuz
+                                // Annäherung der Kamera-Parameter aus der WebXR-Projektionsmatrix
+                                const pMat = viewerPose.views[0].projectionMatrix;
+                                const fx = (pMat[0] * cameraImage.width) / 2;
+                                const fy = (pMat[5] * cameraImage.height) / 2;
+                                const cx = cameraImage.width / 2;
+                                const cy = cameraImage.height / 2;
+                                const cameraMatrixData = [fx, 0, cx, 0, fy, cy, 0, 0, 1];
 
-                // Schritt 3: Berechne die 3D-Pose des Markers
-                const pose = renderer.xr.getFrame().getPose(camera.parent.parent, renderer.xr.getReferenceSpace());
-                if(pose) {
-                    const model = new THREE.Matrix4();
-                    const corners = targetMarker.corners;
-                    const center = {x:0, y:0};
-                    corners.forEach(c => { center.x += c.x; center.y += c.y; });
-                    center.x /= 4;
-                    center.y /= 4;
-                    
-                    // Annäherung der Pose (weniger präzise als solvePnP, aber oft ausreichend und stabiler ohne Kalibrierung)
-                    // Dies ist eine Vereinfachung. Für höchste Präzision ist `solvePnP` mit Kamerakalibrierung nötig.
-                    const hitTest = frame.getHitTestResultsForTransientInput(center.x/img.width * 2 - 1, center.y/img.height * -2 + 1);
-                    if(hitTest.length > 0) {
-                        model.fromArray(hitTest[0].results[0].pose.transform.matrix);
-                        markerRoot.position.setFromMatrixPosition(model);
-                        // Eine einfache Rotation wird hier weggelassen, da die Ausrichtung ohne solvePnP schwer zu bestimmen ist.
-                        // Für die Anzeige des Koordinatensystems reicht dies aber oft aus.
-                        markerRoot.quaternion.setFromRotationMatrix(model);
+                                const distCoeffs = cv.matFromArray(4, 1, cv.CV_64F, [0, 0, 0, 0]);
+                                const cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, cameraMatrixData);
+                                const rvec = new cv.Mat();
+                                const tvec = new cv.Mat();
+                                const cvObjectPoints = cv.matFromArray(4, 3, cv.CV_64F, objectPoints);
+                                const cvImagePoints = cv.matFromArray(4, 2, cv.CV_64F, imagePoints);
+                                
+                                cv.solvePnP(cvObjectPoints, cvImagePoints, cameraMatrix, distCoeffs, rvec, tvec);
+                                
+                                // --- SCHRITT 4: POSE AUF 3D-OBJEKT ANWENDEN ---
+                                // Konvertiere die Rotations- und Translationsvektoren in Three.js-Formate
+                                const position = new THREE.Vector3(tvec.data64F[0], -tvec.data64F[1], -tvec.data64F[2]);
+                                const axis = new THREE.Vector3(rvec.data64F[0], -rvec.data64F[1], -rvec.data64F[2]);
+                                const angle = Math.sqrt(axis.x ** 2 + axis.y ** 2 + axis.z ** 2);
+                                axis.normalize();
+                                const quaternion = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                                
+                                // Wende die Pose auf die Anker-Gruppe an. Die Kamera ist der Ursprung (0,0,0).
+                                markerRoot.position.copy(position);
+                                markerRoot.quaternion.copy(quaternion);
+
+                            } else {
+                                markerRoot.visible = false;
+                            }
+                        }
                     }
+                } catch (error) {
+                    // Fängt Fehler ab, die beim Zugriff auf das Kamerabild auftreten können
+                    markerRoot.visible = false;
                 }
-            } else {
-                // KEIN MARKER GEFUNDEN
-                markerRoot.visible = false;
             }
+            
+            // Rendert die finale Szene
+            renderer.render(scene, camera);
         }
-      } catch (error) {
-          // Dieser Block fängt Fehler ab, die auftreten können, wenn die Kamera-API noch nicht bereit ist.
-          // console.error("Fehler bei der Marker-Erkennung:", error);
-          markerRoot.visible = false;
-      }
-
-      // --- 3. Bestehende Logik für die GPS-Ziele ---
-      placeTargetObjectIfNeeded();
-      if(!isTargetPlaced) updateInfoAndArrow();
-      
-      // --- 4. Animationen ---
-      if (arrow) arrow.position.y = -0.4 + Math.sin(timestamp / 500) * 0.05;
-      rotatingObjects.forEach(obj => { obj.rotation.y += 0.01; });
-      
-      // --- 5. Rendert die finale Szene ---
-      renderer.render(scene, camera);
-    }
-  </script>
+    </script>
 </body>
 </html>
