@@ -1,137 +1,168 @@
-const video = document.getElementById("video");
-const canvas = document.getElementById("canvas");
-const renderer = new THREE.WebGLRenderer({ canvas, alpha: true });
-renderer.setSize(window.innerWidth, window.innerHeight);
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <title>Three.js + ArUco Marker-Erkennung (Korrigiert)</title>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <style>
+        body { margin: 0; overflow: hidden; }
+        canvas { display: block; }
+        #ar-button { position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); z-index: 10; }
+    </style>
+</head>
+<body>
+    <!-- Bibliotheken für die Bildanalyse (js-aruco) -->
+    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
+    <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
 
-const scene = new THREE.Scene();
+    <script type="module">
+        import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+        import { ARButton } from 'https://unpkg.com/three@0.128.0/examples/jsm/webxr/ARButton.js';
 
-// --- camera ---
-const camera = new THREE.PerspectiveCamera(60, window.innerWidth / window.innerHeight, 0.01, 1000);
-scene.add(camera);
+        // --- EINSTELLUNGEN ---
+        const MARKER_SIZE_METERS = 0.10;
 
-// --- cylinder ---
-const cylinder = new THREE.Mesh(
-    new THREE.CylinderGeometry(0.03, 0.03, 0.1, 32),
-    new THREE.MeshNormalMaterial()
-);
-cylinder.position.y = 0.05;  // raise so it sits on marker
-const markerGroup = new THREE.Group();
-markerGroup.add(cylinder);
+        // --- GLOBALE VARIABLEN ---
+        let camera, scene, renderer;
+        let arucoDetector, markerRoot;
+        let cameraImageCanvas, cameraImageContext;
 
-// --- axes helper ---
-const axes = new THREE.AxesHelper(0.1); // 10cm axes
-markerGroup.add(axes);
+        init();
 
-// Hide at start
-markerGroup.visible = false;
-scene.add(markerGroup);
+        function init() {
+            scene = new THREE.Scene();
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 40);
+            scene.add(camera);
 
-// --- start video ---
-navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-    .then(stream => {
-        video.srcObject = stream;
-        video.play();
-    });
+            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.xr.enabled = true;
+            document.body.appendChild(renderer.domElement);
 
-// --- openCV init wait loop ---
-let cvReady = false;
-cv['onRuntimeInitialized'] = () => cvReady = true;
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
+            scene.add(light);
 
-// --- main render loop ---
-function tick() {
-    requestAnimationFrame(tick);
+            const arButton = ARButton.createButton(renderer, {
+                requiredFeatures: ['camera-access', 'dom-overlay'],
+                domOverlay: { root: document.body }
+            });
+            arButton.id = 'ar-button';
+            document.body.appendChild(arButton);
+            
+            // --- ArUco-spezifische Objekte initialisieren ---
 
-    if (cvReady && video.videoWidth > 0) {
-        detectAruco();
-    }
-    renderer.render(scene, camera);
-}
-tick();
+            // =======================================================================
+            // DIE ENTSCHEIDENDE KORREKTUR:
+            // Wir müssen dem Detektor sagen, welches Wörterbuch er verwenden soll!
+            // Ihr Marker wurde mit DICT_6X6_250 generiert.
+            // =======================================================================
+            arucoDetector = new AR.Detector({
+                dictionaryName: 'AR_DICT_6X6_250'
+            });
+            
+            markerRoot = new THREE.Group();
+            markerRoot.visible = false;
+            scene.add(markerRoot);
 
+            const cylinderGeo = new THREE.CylinderGeometry(MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS, 32);
+            const cylinderMat = new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.4 });
+            const cylinder = new THREE.Mesh(cylinderGeo, cylinderMat);
+            cylinder.position.y = MARKER_SIZE_METERS / 2;
+            markerRoot.add(cylinder);
 
-// --- ArUco detection + pose ---
-function detectAruco() {
+            const axesHelper = new THREE.AxesHelper(MARKER_SIZE_METERS * 1.5);
+            markerRoot.add(axesHelper);
 
-    const src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
-    const cap = new cv.VideoCapture(video);
-    cap.read(src);
+            cameraImageCanvas = document.createElement('canvas');
+            cameraImageContext = cameraImageCanvas.getContext('2d', { willReadFrequently: true });
 
-    const gray = new cv.Mat();
-    cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
+            window.addEventListener('resize', onWindowResize);
+            renderer.setAnimationLoop(render);
+        }
 
-    const dictionary = new cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250);
-    const markerCorners = new cv.MatVector();
-    const markerIds = new cv.Mat();
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
 
-    cv.aruco.detectMarkers(gray, dictionary, markerCorners, markerIds);
+        function render(timestamp, frame) {
+            if (frame) {
+                try {
+                    const viewerPose = frame.getViewerPose(renderer.xr.getReferenceSpace());
+                    if (viewerPose) {
+                        const gl = renderer.getContext();
+                        const session = renderer.xr.getSession();
+                        const xrGlBinding = new XRWebGLBinding(session, gl);
+                        const cameraImage = xrGlBinding.getCameraImage(viewerPose.views[0].camera);
 
-    if (markerIds.rows > 0) {
+                        if (cameraImage) {
+                            cameraImageCanvas.width = cameraImage.width;
+                            cameraImageCanvas.height = cameraImage.height;
+                            
+                            const tempFramebuffer = gl.createFramebuffer();
+                            gl.bindFramebuffer(gl.FRAMEBUFFER, tempFramebuffer);
+                            gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, cameraImage.texture, 0);
+                            const pixelData = new Uint8Array(cameraImage.width * cameraImage.height * 4);
+                            gl.readPixels(0, 0, cameraImage.width, cameraImage.height, gl.RGBA, gl.UNSIGNED_BYTE, pixelData);
+                            gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+                            gl.deleteFramebuffer(tempFramebuffer);
+                            
+                            const imageData = new ImageData(new Uint8ClampedArray(pixelData.buffer), cameraImage.width, cameraImage.height);
+                            
+                            const markers = arucoDetector.detect(imageData);
+                            const targetMarker = markers.find(m => m.id === 0);
 
-        // camera intrinsics (you should calibrate!)
-        let fx = 700, fy = 700, cx = video.videoWidth / 2, cy = video.videoHeight / 2;
-        const cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
-            fx, 0, cx,
-            0, fy, cy,
-            0, 0, 1
-        ]);
-        const distCoeffs = cv.Mat.zeros(1, 5, cv.CV_64F);
+                            if (targetMarker) {
+                                markerRoot.visible = true;
+                                
+                                const corners = targetMarker.corners;
+                                const objectPoints = [
+                                    -MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, 0,
+                                     MARKER_SIZE_METERS / 2, MARKER_SIZE_METERS / 2, 0,
+                                     MARKER_SIZE_METERS / 2, -MARKER_SIZE_METERS / 2, 0,
+                                    -MARKER_SIZE_METERS / 2, -MARKER_SIZE_METERS / 2, 0
+                                ];
+                                const imagePoints = corners.flatMap(p => [p.x, p.y]);
 
-        const rvec = new cv.Mat();
-        const tvec = new cv.Mat();
+                                const pMat = viewerPose.views[0].projectionMatrix;
+                                const fx = (pMat[0] * cameraImage.width) / 2;
+                                const fy = (pMat[5] * cameraImage.height) / 2;
+                                const cx = cameraImage.width / 2;
+                                const cy = cameraImage.height / 2;
+                                const cameraMatrixData = [fx, 0, cx, 0, fy, cy, 0, 0, 1];
 
-        const markerLength = 0.1; // 100 mm = 0.1 m
+                                const distCoeffs = cv.matFromArray(4, 1, cv.CV_64F, [0, 0, 0, 0]);
+                                const cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, cameraMatrixData);
+                                const rvec = new cv.Mat();
+                                const tvec = new cv.Mat();
+                                const cvObjectPoints = cv.matFromArray(4, 3, cv.CV_64F, objectPoints);
+                                const cvImagePoints = cv.matFromArray(4, 2, cv.CV_64F, imagePoints);
+                                
+                                cv.solvePnP(cvObjectPoints, cvImagePoints, cameraMatrix, distCoeffs, rvec, tvec);
+                                
+                                const position = new THREE.Vector3(tvec.data64F[0], -tvec.data64F[1], -tvec.data64F[2]);
+                                const axis = new THREE.Vector3(rvec.data64F[0], -rvec.data64F[1], -rvec.data64F[2]);
+                                const angle = Math.sqrt(axis.x ** 2 + axis.y ** 2 + axis.z ** 2);
+                                axis.normalize();
+                                const quaternion = new THREE.Quaternion().setFromAxisAngle(axis, angle);
+                                
+                                markerRoot.position.copy(position);
+                                markerRoot.quaternion.copy(quaternion);
 
-        cv.aruco.estimatePoseSingleMarkers(
-            markerCorners,
-            markerLength,
-            cameraMatrix,
-            distCoeffs,
-            rvec,
-            tvec
-        );
-
-        // Convert pose to Three.js matrix
-        const rotation = new THREE.Matrix4();
-        const translation = new THREE.Matrix4();
-
-        // Rodrigues -> rotation matrix
-        let R = new cv.Mat();
-        cv.Rodrigues(rvec.row(0), R);
-
-        const r = R.data64F;
-        rotation.set(
-            r[0], r[1], r[2], 0,
-            r[3], r[4], r[5], 0,
-            r[6], r[7], r[8], 0,
-            0,    0,    0,    1
-        );
-
-        const t = tvec.data64F;
-        translation.set(
-            1, 0, 0, t[0],
-            0, 1, 0, t[1],
-            0, 0, 1, t[2],
-            0, 0, 0, 1
-        );
-
-        // Marker in camera coordinates
-        const markerInCamera = new THREE.Matrix4().multiplyMatrices(translation, rotation);
-
-        // Invert to get camera→marker (world)
-        const cameraToMarker = new THREE.Matrix4().copy(markerInCamera).invert();
-
-        markerGroup.matrixAutoUpdate = false;
-        markerGroup.matrix.copy(cameraToMarker);
-        markerGroup.visible = true;
-
-        // Cleanup
-        R.delete();
-    } else {
-        markerGroup.visible = false;
-    }
-
-    src.delete();
-    gray.delete();
-    markerCorners.delete();
-    markerIds.delete();
-}
+                            } else {
+                                markerRoot.visible = false;
+                            }
+                        }
+                    }
+                } catch (error) {
+                    markerRoot.visible = false;
+                }
+            }
+            
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
