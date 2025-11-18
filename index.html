@@ -73,12 +73,9 @@
 
       <div class="controls-row" style="margin-top:12px;" id="controlsRow">
         <div style="margin-right:auto;color:#666;">Start Augmented Reality on Smartphones (Android & IOS)</div>
-        <button id="startARBtn" class="btn-primary">Start AR (Positionsbasiert)</button>
-      </div>
-
-      <div class="controls-row" style="margin-top:12px;" id="controlsRow">
-        <div style="margin-right:auto;color:#666;">Start Augmented Reality on Smartphones (Android & IOS)</div>
-        <button id="startARBt" class="btn-primary">Start AR</button>
+        <button id="startARBtp" class="btn-primary">Start AR (Positionsbasiert)</button>
+        <button id="startARBtm" class="btn-primary">Start AR (Markerbasiert)</button>
+        <button id="startARBtIT" class="btn-primary">Start AR (Image-Tracking)</button>
       </div>
     </div>
 
@@ -109,7 +106,7 @@
   <!-- START AR: neues Tab synchron öffnen -->
   <script>
     (function () {
-      const startBtn = document.getElementById('startARBtn');
+      const startBtn = document.getElementById('startARBtp');
       startBtn.addEventListener('click', (ev) => {
         // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
@@ -124,7 +121,7 @@
 
     <script>
     (function () {
-      const startBtn = document.getElementById('startARBt');
+      const startBtn = document.getElementById('startARBtm');
       startBtn.addEventListener('click', (ev) => {
         // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
