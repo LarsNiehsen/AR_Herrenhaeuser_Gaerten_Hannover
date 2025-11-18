@@ -3,11 +3,12 @@
 <head>
 <meta charset="utf-8"/>
 <meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>ArUco (DICT_6X6_250) + OpenCV.js + Three.js — Beispiel</title>
+<title>ArUco (DICT_6X6_250) + OpenCV.js + Three.js — Korrigiert & Funktional</title>
 <style>
   body { margin: 0; overflow: hidden; font-family: sans-serif; }
   #overlay { position: absolute; top: 10px; left: 10px; z-index: 20; background: rgba(0,0,0,0.4); color: #fff; padding:8px; border-radius:6px; }
-  #video, #videoCanvas { display: none; } /* video & internal canvas hidden */
+  /* Das Video und der Canvas werden versteckt, da sie nur als Datenquelle dienen */
+  #video, #videoCanvas { display: none; }
   #three-container { width:100vw; height:100vh; }
   button { padding:8px 12px; font-size:14px; }
 </style>
@@ -18,122 +19,116 @@
     <div id="status">Status: bereit</div>
   </div>
 
-  <!-- Hidden video + canvas used als Quelle für OpenCV -->
-  <video id="video" autoplay playsinline></video>
+  <!-- WICHTIG: 'autoplay' und 'playsinline' sind für Mobilgeräte entscheidend! -->
+  <video id="video" autoplay playsinline muted></video>
   <canvas id="videoCanvas"></canvas>
 
   <div id="three-container"></div>
 
-  <!-- OpenCV.js (offizielle build) -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();" ></script>
+  <!-- OpenCV.js (offizielle Build) -->
+  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
 
   <script type="module">
     import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
 
     // === Einstellungen ===
-    const MARKER_SIZE_M = 0.10; // 10 cm Marker — passe an, falls dein gedruckter Marker andere Größe hat
+    const MARKER_SIZE_M = 0.10; // 10 cm Marker
 
-    // DOM
+    // DOM-Elemente
     const startBtn = document.getElementById('startBtn');
     const statusEl = document.getElementById('status');
     const video = document.getElementById('video');
     const videoCanvas = document.getElementById('videoCanvas');
     const videoCtx = videoCanvas.getContext('2d');
-
-    // Three.js
     const container = document.getElementById('three-container');
-    let renderer, scene, camera, markerRoot;
 
-    // OpenCV
+    // Three.js Variablen
+    let renderer, scene, camera, markerRoot, videoTexture;
+
+    // OpenCV Variablen
     let cvReady = false;
     let dictionary = null;
 
-    // Helper: set status
-    function setStatus(s){ statusEl.innerText = 'Status: '+s; }
+    function setStatus(s){ statusEl.innerText = 'Status: ' + s; }
 
-    // OpenCV ready callback (von <script onload>)
-    function onOpenCvReady(){
-      // opencv.js global: cv
-      if (typeof cv === 'undefined') {
-        setStatus('OpenCV.js konnte nicht geladen werden');
-        return;
-      }
-      setStatus('OpenCV geladen — warte auf Benutzeraktion');
-      cv['onRuntimeInitialized'] = () => {
+    // Globale Funktion, die vom OpenCV-Skript aufgerufen wird
+    window.onOpenCvReady = function() {
+      if (typeof cv === 'undefined') { setStatus('OpenCV.js konnte nicht geladen werden'); return; }
+      setStatus('OpenCV geladen, initialisiere...');
+      cv.onRuntimeInitialized = () => {
         cvReady = true;
-        // Erstelle ArUco-Dictionary DICT_6X6_250
         try {
-          dictionary = new cv.aruco.Dictionary_get(cv.aruco.DICT_6X6_250);
+          dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250);
+          setStatus('Bereit. Drücke "Kamera starten".');
         } catch(e) {
-          // Fallback: je nach OpenCV.js-Build kann alternative API nötig sein
-          try {
-            dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250);
-          } catch(e2) {
-            console.error('Dictionary create error', e, e2);
-            setStatus('OpenCV.js build ohne aruco? (benötigt opencv_contrib).');
-            return;
-          }
+          console.error(e);
+          setStatus('Fehler beim Erstellen des ArUco-Wörterbuchs.');
         }
-        setStatus('OpenCV bereit. Drücke "Kamera starten".');
       };
     }
 
-    // Start: Kamera anfordern, Three.js aufsetzen und Loop beginnen
     startBtn.addEventListener('click', async () => {
       if (!cvReady) { setStatus('OpenCV noch nicht initialisiert'); return; }
-      startBtn.disabled = true;
+      startBtn.style.display = 'none'; // Button nach Klick ausblenden
       setStatus('Starte Kamera...');
 
       try {
         const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
         video.srcObject = stream;
-        await video.play();
 
-        // set canvas sizing
+        // --- KORREKTUR 1: AUF METADATEN WARTEN ---
+        // Wir warten, bis das Video seine Größe kennt, bevor wir weitermachen.
+        await new Promise(resolve => {
+            video.onloadedmetadata = () => {
+                resolve();
+            };
+        });
+        
+        video.play();
+        
         videoCanvas.width = video.videoWidth;
         videoCanvas.height = video.videoHeight;
 
         initThree();
         requestAnimationFrame(processFrame);
 
-        setStatus('Läuft — Marker scannen (DICT_6X6_250)');
+        setStatus('Läuft — Scanne einen ArUco 6x6 Marker (ID 0)');
       } catch (err) {
         console.error(err);
         setStatus('Kamerafehler: ' + err.message);
+        startBtn.style.display = 'block';
       }
     });
 
-    // Three.js initialisieren
     function initThree() {
       scene = new THREE.Scene();
-
-      const fov = 70;
-      const aspect = window.innerWidth / window.innerHeight;
-      camera = new THREE.PerspectiveCamera(fov, aspect, 0.01, 50);
+      camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.01, 100);
       scene.add(camera);
+      
+      // Das Kamerabild wird als Hintergrund der Szene angezeigt.
+      // Das ist der Schlüssel, um den weißen Bildschirm loszuwerden.
+      videoTexture = new THREE.VideoTexture(video);
+      scene.background = videoTexture;
 
-      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer = new THREE.WebGLRenderer({ antialias: true });
       renderer.setSize(window.innerWidth, window.innerHeight);
       renderer.setPixelRatio(window.devicePixelRatio);
       container.appendChild(renderer.domElement);
 
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.2);
+      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
       scene.add(light);
 
-      // Marker root (wird die Pose vom ArUco erhalten)
       markerRoot = new THREE.Group();
       markerRoot.visible = false;
       scene.add(markerRoot);
 
-      // Zylinder
       const cylGeo = new THREE.CylinderGeometry(MARKER_SIZE_M / 2, MARKER_SIZE_M / 2, MARKER_SIZE_M, 32);
       const cylMat = new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.5 });
       const cyl = new THREE.Mesh(cylGeo, cylMat);
-      cyl.position.y = MARKER_SIZE_M / 2; // steht auf Marker
+      cyl.position.y = MARKER_SIZE_M / 2;
       markerRoot.add(cyl);
 
-      // Achsen
-      const axes = new THREE.AxesHelper(MARKER_SIZE_M * 1.3);
+      const axes = new THREE.AxesHelper(MARKER_SIZE_M);
       markerRoot.add(axes);
 
       window.addEventListener('resize', onWindowResize);
@@ -145,149 +140,104 @@
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    // Frame-Loop: Bild holen, OpenCV ArUco detect, solvePnP, Three.js update
     function processFrame() {
-      if (video.readyState === video.HAVE_ENOUGH_DATA) {
-        // Kopiere Video in Canvas
-        videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
-
-        try {
-          detectAndPose();
-        } catch (e) {
-          console.error('Frame-Fehler', e);
-        }
+      // Nur fortfahren, wenn das Video bereit ist
+      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
+          requestAnimationFrame(processFrame);
+          return;
       }
-
+      
+      videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
+      const imageData = videoCtx.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
+      
+      try {
+        detectAndPose(imageData);
+      } catch (e) {
+        // Ignoriere Fehler, die auftreten können, bevor OpenCV vollständig initialisiert ist
+      }
+      
+      // --- KORREKTUR 2: TEXTUR AKTUALISIEREN ---
+      // Dieser Befehl ist entscheidend, damit das Video live angezeigt wird!
+      videoTexture.needsUpdate = true;
+      
       renderer.render(scene, camera);
       requestAnimationFrame(processFrame);
     }
 
-    // Kerndefinition: Erkennung + Pose
-    function detectAndPose() {
-      // Lese Frame in OpenCV Mat
-      let src = cv.imread(videoCanvas); // cv.Mat, CV_8UC4 (RGBA)
-      let gray = new cv.Mat();
+    function detectAndPose(imageData) {
+      const src = cv.matFromImageData(imageData);
+      const gray = new cv.Mat();
       cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
 
-      // ArUco detect
-      let corners = new cv.MatVector();
-      let ids = new cv.Mat();
-      let rejected = new cv.MatVector();
-      let parameters = new cv.aruco.DetectorParameters();
+      const corners = new cv.MatVector();
+      const ids = new cv.Mat();
+      const parameters = new cv.aruco.DetectorParameters();
 
-      try {
-        // detectMarkers(image, dictionary, corners, ids, parameters, rejectedCandidates)
-        cv.aruco.detectMarkers(gray, dictionary, corners, ids, parameters, rejected);
+      cv.aruco.detectMarkers(gray, dictionary, corners, ids, parameters);
+      
+      if (ids.rows > 0) {
+          // Kamera-Parameter (grobe, aber funktionierende Annäherung)
+          const w = imageData.width;
+          const h = imageData.height;
+          const f = Math.max(w, h); // Brennweite grob als längere Kante annehmen
+          const cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [f, 0, w/2, 0, f, h/2, 0, 0, 1]);
+          const distCoeffs = cv.Mat.zeros(4, 1, cv.CV_64F);
 
-        if (ids.rows > 0) {
-          // Wir suchen gezielt nach ID 0 — du kannst das anpassen
+          // Schätze die Pose für ALLE gefundenen Marker
+          const rvecs = new cv.Mat();
+          const tvecs = new cv.Mat();
+          cv.aruco.estimatePoseSingleMarkers(corners, MARKER_SIZE_M, cameraMatrix, distCoeffs, rvecs, tvecs);
+          
+          // Suche nach der ID 0
           let foundIndex = -1;
           for (let i = 0; i < ids.rows; i++) {
-            if (ids.intAt(i, 0) === 0) { foundIndex = i; break; }
+              if (ids.data32S[i] === 0) {
+                  foundIndex = i;
+                  break;
+              }
           }
-
+          
           if (foundIndex !== -1) {
-            // Lese imagePoints (4 Ecken)
-            const cornerMat = corners.get(foundIndex); // Mat mit 4x1x2 (?) - wir extrahieren Daten32F
-            // cornerMat.data32F enthält x0,y0,x1,y1,...
-            const pts = Array.from(cornerMat.data32F);
-            // reorganisiere in [ [x,y], ... ] für solvePnP
-            const imagePoints = new cv.Mat(4, 2, cv.CV_32F);
-            for (let i = 0; i < 4; i++) {
-              imagePoints.floatPtr(i)[0] = pts[i*2];
-              imagePoints.floatPtr(i)[1] = pts[i*2 + 1];
-            }
+              // Extrahiere die Pose für den Marker mit ID 0
+              const rvec = cv.matFromArray(3, 1, cv.CV_64F, [rvecs.data64F[foundIndex * 3], rvecs.data64F[foundIndex * 3 + 1], rvecs.data64F[foundIndex * 3 + 2]]);
+              const tvec = cv.matFromArray(3, 1, cv.CV_64F, [tvecs.data64F[foundIndex * 3], tvecs.data64F[foundIndex * 3 + 1], tvecs.data64F[foundIndex * 3 + 2]]);
 
-            // Objektpunkte (Marker-Koordinaten in Metern)
-            // Wir definieren Marker in Marker-Koordinatensystem: (−s/2, s/2, 0), (s/2, s/2, 0), (s/2, −s/2, 0), (−s/2, −s/2, 0)
-            const s = MARKER_SIZE_M;
-            const objPtsData = new Float32Array([
-              -s/2,  s/2, 0,
-               s/2,  s/2, 0,
-               s/2, -s/2, 0,
-              -s/2, -s/2, 0
-            ]);
-            const objectPoints = cv.matFromArray(4, 3, cv.CV_32F, objPtsData);
+              // Konvertiere die Pose zu Three.js Koordinaten
+              const position = new THREE.Vector3(tvec.data64F[0], -tvec.data64F[1], -tvec.data64F[2]);
+              const R = new cv.Mat();
+              cv.Rodrigues(rvec, R); // Konvertiert Rotationsvektor zu Rotationsmatrix
+              const matrix = new THREE.Matrix4().fromArray([
+                  R.data64F[0], R.data64F[1], R.data64F[2], 0,
+                 -R.data64F[3],-R.data64F[4],-R.data64F[5], 0,
+                 -R.data64F[6],-R.data64F[7],-R.data64F[8], 0,
+                  0, 0, 0, 1
+              ]);
+              const quaternion = new THREE.Quaternion().setFromRotationMatrix(matrix);
+              
+              markerRoot.position.copy(position);
+              markerRoot.quaternion.copy(quaternion);
+              
+              // Aktualisiere die Three.js Kamera-Perspektive basierend auf der Kalibrierung
+              camera.fov = 2 * Math.atan(h / (2 * f)) * (180 / Math.PI);
+              camera.aspect = w / h;
+              camera.updateProjectionMatrix();
 
-            // Kamera-Matrix (grob abgeschätzt)
-            // Bessere Ergebnisse mit echter Kalibrierung.
-            const w = videoCanvas.width;
-            const h = videoCanvas.height;
-            // Näherung: fx = fy = focal_length_pixels
-            // Eine sinnvolle Schätzung: f = 0.5 * width / tan(fov/2). Wir nehmen fov ~ 60°.
-            const fovRad = (60 * Math.PI/180);
-            const f = 0.5 * w / Math.tan(fovRad/2);
-            const cx = w / 2;
-            const cy = h / 2;
-            const cameraMat = cv.matFromArray(3, 3, cv.CV_32F, [f, 0, cx, 0, f, cy, 0, 0, 1]);
-
-            const distCoeffs = cv.Mat.zeros(4, 1, cv.CV_32F);
-
-            // solvePnP
-            let rvec = new cv.Mat();
-            let tvec = new cv.Mat();
-            const useExtrinsicGuess = false;
-            cv.solvePnP(objectPoints, imagePoints, cameraMat, distCoeffs, rvec, tvec, useExtrinsicGuess, cv.SOLVEPNP_ITERATIVE);
-
-            // Rodrigues -> Rotationsmatrix 3x3
-            let rotMat = new cv.Mat();
-            cv.Rodrigues(rvec, rotMat);
-
-            // Konvertiere rotMat + tvec zu three.js Matrix / Quaternion / Position
-            // rotMat.data32F: [r00,r01,r02, r10,r11,r12, r20,r21,r22]
-            const rm = rotMat.data32F;
-            // Erzeuge THREE.Matrix4 (row-major -> set in column-major order)
-            const threeMat = new THREE.Matrix4();
-            // Three.js uses column-major. We'll set elements accordingly:
-            // [ r00 r01 r02 0
-            //   r10 r11 r12 0
-            //   r20 r21 r22 0
-            //   0   0   0   1 ]
-            threeMat.set(
-              rm[0], rm[1], rm[2], 0,
-              rm[3], rm[4], rm[5], 0,
-              rm[6], rm[7], rm[8], 0,
-              0,     0,     0,     1
-            );
-
-            // In OpenCV: +X rechts, +Y down, +Z forwards (camera view).
-            // In three.js: +X right, +Y up, -Z forward.
-            // Wir convertieren Position: invertiere y und z
-            const tv = tvec.data32F; // [tx,ty,tz]
-            const position = new THREE.Vector3(tv[0], -tv[1], -tv[2]);
-
-            // Für Rotation benötigen wir eventuell eine Achsenspiegelung.
-            // Erzeuge Quaternion aus dreiMat, dann spiegele Y und Z
-            const quaternion = new THREE.Quaternion();
-            quaternion.setFromRotationMatrix(threeMat);
-
-            // Anpassung: da wir y und z in Position gespiegelt haben, müssen wir die Rotation anpassen:
-            // Spiegelung um X-Achse (negiert Y & Z) -> multipliziere mit Quaternion, welche 180° um X dreht?
-            // Einfacher: invertiere Y und Z Achse in der Matrix:
-            const fix = new THREE.Matrix4().makeScale(1, -1, -1);
-            threeMat.premultiply(fix);
-            quaternion.setFromRotationMatrix(threeMat);
-
-            // Update markerRoot
-            markerRoot.position.copy(position);
-            markerRoot.quaternion.copy(quaternion);
-            markerRoot.visible = true;
-
-            // Cleanups (MUST)
-            objectPoints.delete(); imagePoints.delete(); cameraMat.delete();
-            distCoeffs.delete(); rvec.delete(); tvec.delete(); rotMat.delete();
+              markerRoot.visible = true;
+              
+              // Speicher freigeben
+              rvec.delete(); tvec.delete(); R.delete();
           } else {
-            markerRoot.visible = false;
+              markerRoot.visible = false;
           }
-        } else {
-          markerRoot.visible = false;
-        }
-      } finally {
-        // free mats
-        corners.delete(); ids.delete(); rejected.delete();
-        parameters.delete();
-        gray.delete(); src.delete();
+
+          // Speicher freigeben
+          rvecs.delete(); tvecs.delete(); cameraMatrix.delete(); distCoeffs.delete();
+
+      } else {
+        markerRoot.visible = false;
       }
+      
+      src.delete(); gray.delete(); corners.delete(); ids.delete();
     }
   </script>
 </body>
