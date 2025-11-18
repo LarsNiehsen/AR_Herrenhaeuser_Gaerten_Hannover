@@ -73,7 +73,12 @@
 
       <div class="controls-row" style="margin-top:12px;" id="controlsRow">
         <div style="margin-right:auto;color:#666;">Start Augmented Reality on Smartphones (Android & IOS)</div>
-        <button id="startARBtn" class="btn-primary">Start AR</button>
+        <button id="startARBtn" class="btn-primary">Start AR (Positionsbasiert)</button>
+      </div>
+
+      <div class="controls-row" style="margin-top:12px;" id="controlsRow">
+        <div style="margin-right:auto;color:#666;">Start Augmented Reality on Smartphones (Android & IOS)</div>
+        <button id="startARBt" class="btn-primary">Start AR</button>
       </div>
     </div>
 
@@ -105,6 +110,21 @@
   <script>
     (function () {
       const startBtn = document.getElementById('startARBtn');
+      startBtn.addEventListener('click', (ev) => {
+        // Must open synchronously on the click event so browser treats it as user-initiated
+        const newWin = window.open('', '_blank');
+        if (!newWin) {
+          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
+          return;
+        }
+        newWin.location.href = 'AR_HitTest_Positionsbasiert.html';
+      });
+    })();
+  </script>
+
+    <script>
+    (function () {
+      const startBtn = document.getElementById('startARBt');
       startBtn.addEventListener('click', (ev) => {
         // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
