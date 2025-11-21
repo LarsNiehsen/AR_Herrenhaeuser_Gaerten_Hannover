@@ -1,223 +1,201 @@
-<!doctype html>
-<html lang="de">
+<!DOCTYPE html>
+<html>
 <head>
-<meta charset="utf-8"/>
-<meta name="viewport" content="width=device-width,initial-scale=1.0"/>
-<title>ArUco (DICT_6X6_250) + OpenCV.js + Three.js — Robuste Initialisierung</title>
-<style>
-  body { margin: 0; overflow: hidden; font-family: sans-serif; }
-  #overlay { position: absolute; top: 10px; left: 10px; z-index: 20; background: rgba(0,0,0,0.7); color: #fff; padding:8px; border-radius:6px; }
-  #video, #videoCanvas { display: none; }
-  #three-container { width:100vw; height:100vh; }
-  button { padding:8px 12px; font-size:14px; cursor: pointer; }
-  button:disabled { cursor: not-allowed; opacity: 0.6; }
-</style>
+    <meta charset="utf-8">
+    <title>OpenCV 4.10.0 ArUco Pose Estimation</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <style>
+        body { margin: 0; padding: 0; background-color: #1a1a1a; overflow: hidden; }
+        #container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        video { display: none; }
+        #status {
+            position: absolute; top: 20px; left: 20px; color: #00ff00; 
+            background: rgba(0,0,0,0.8); padding: 12px; font-family: monospace; font-size: 14px; 
+            z-index: 10; border-radius: 4px; pointer-events: none;
+        }
+    </style>
 </head>
 <body>
-  <div id="overlay">
-    <!-- KORREKTUR 1: Button ist anfangs deaktiviert, um Klicks zu früh zu verhindern -->
-    <button id="startBtn" disabled>Kamera starten</button>
-    <div id="status">Status: bereit</div>
-  </div>
 
-  <video id="video" autoplay playsinline muted></video>
-  <canvas id="videoCanvas"></canvas>
-  <div id="three-container"></div>
+<div id="status">Initializing WebAssembly...</div>
 
-  <!-- OpenCV.js wird geladen und ruft nach dem Download onOpenCvReady auf -->
-  <script async src="https://docs.opencv.org/4.x/opencv.js" onload="onOpenCvReady();"></script>
+<div id="container">
+    <video id="videoInput" playsinline webkit-playsinline></video>
+    <canvas id="canvasOutput"></canvas>
+</div>
 
-  <script type="module">
-    import * as THREE from 'https://unpkg.com/three@0.128.0/build/three.module.js';
+<script type="text/javascript">
+    // Configuration
+    const MARKER_SIZE = 1.0; // The size of the marker in 3D units (arbitrary)
 
-    const MARKER_SIZE_M = 0.10;
+    let video = document.getElementById('videoInput');
+    let canvas = document.getElementById('canvasOutput');
+    let status = document.getElementById('status');
+    let streaming = false;
 
-    const startBtn = document.getElementById('startBtn');
-    const statusEl = document.getElementById('status');
-    const video = document.getElementById('video');
-    const videoCanvas = document.getElementById('videoCanvas');
-    const videoCtx = videoCanvas.getContext('2d');
-    const container = document.getElementById('three-container');
-
-    let renderer, scene, camera, markerRoot, videoTexture;
+    // OpenCV Objects
+    let cap = null;
+    let src = null;
     let dictionary = null;
+    let markerCorners = null;
+    let markerIds = null;
+    let rvecs = null;
+    let tvecs = null;
+    let cameraMatrix = null;
+    let distCoeffs = null;
 
-    function setStatus(s){ statusEl.innerText = 'Status: ' + s; }
-
-    // Diese Funktion wird global aufgerufen, sobald das opencv.js-Skript heruntergeladen ist
-    window.onOpenCvReady = function() {
-      if (typeof cv === 'undefined') {
-        setStatus('OpenCV.js konnte nicht geladen werden');
-        return;
-      }
-      setStatus('OpenCV geladen, initialisiere Laufzeit...');
-
-      // Dies ist der entscheidende Callback: Er wird aufgerufen, wenn die WebAssembly-Laufzeit bereit ist
-      cv.onRuntimeInitialized = () => {
-        try {
-          // Jetzt ist es sicher, auf cv.aruco zuzugreifen
-          dictionary = cv.aruco.getPredefinedDictionary(cv.aruco.DICT_6X6_250);
-          
-          // KORREKTUR 2: Button erst freischalten, wenn alles bereit ist
-          startBtn.disabled = false;
-          setStatus('Bereit. Kamera starten.');
-        } catch(e) {
-          console.error("Fehler beim Erstellen des ArUco-Wörterbuchs:", e);
-          setStatus('Fehler: ArUco-Modul nicht gefunden.');
+    // 1. Define the Module config BEFORE loading the script
+    var Module = {
+        onRuntimeInitialized: function() {
+            status.innerText = "OpenCV 4.10.0 Ready. Starting Camera...";
+            startCamera();
         }
-      };
+    };
+</script>
+
+<!-- Load OpenCV 4.10.0 -->
+<script async src="https://docs.opencv.org/4.10.0/opencv.js" type="text/javascript"></script>
+
+<script type="text/javascript">
+    async function startCamera() {
+        // Pixel phones work best with "environment" facing mode
+        const constraints = {
+            video: {
+                facingMode: { exact: "environment" },
+                width: { ideal: 1280 }, // HD resolution for better detection
+                height: { ideal: 720 }
+            },
+            audio: false
+        };
+
+        try {
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            video.srcObject = stream;
+            video.play();
+            
+            video.addEventListener("canplay", onVideoCanPlay, false);
+        } catch(err) {
+            status.innerText = "Camera Error: " + err.name;
+            console.error(err);
+            // Fallback for devices that don't support 'exact'
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                .then(stream => {
+                    video.srcObject = stream;
+                    video.play();
+                    video.addEventListener("canplay", onVideoCanPlay, false);
+                })
+                .catch(e => status.innerText = "Fatal Camera Error: " + e);
+        }
     }
 
-    startBtn.addEventListener('click', async () => {
-      startBtn.style.display = 'none';
-      setStatus('Starte Kamera...');
-
-      try {
-        const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' }, audio: false });
-        video.srcObject = stream;
+    function onVideoCanPlay() {
+        if (streaming) return;
         
-        await new Promise(resolve => { video.onloadedmetadata = resolve; });
-        video.play();
+        // Match canvas size to video resolution
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
         
-        videoCanvas.width = video.videoWidth;
-        videoCanvas.height = video.videoHeight;
+        streaming = true;
+        initOpenCV();
+        requestAnimationFrame(processVideo);
+    }
 
-        initThree();
-        requestAnimationFrame(processFrame);
+    function initOpenCV() {
+        status.innerText = "Detecting Marker ID 0 (6x6)...";
 
-        setStatus('Läuft — Scanne ArUco 6x6 Marker (ID 0)');
-      } catch (err) {
-        console.error(err);
-        setStatus('Kamerafehler: ' + err.message);
-        startBtn.style.display = 'block';
-      }
+        // Initialize Matrices
+        src = new cv.Mat(video.videoHeight, video.videoWidth, cv.CV_8UC4);
+        markerCorners = new cv.MatVector();
+        markerIds = new cv.Mat();
+        rvecs = new cv.Mat();
+        tvecs = new cv.Mat();
+
+        // Load ArUco Dictionary 6x6
+        // Modern OpenCV Syntax: use getPredefinedDictionary
+        dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
+
+        // --- Approximate Camera Calibration ---
+        // We fake the camera intrinsics based on screen size
+        let width = video.videoWidth;
+        let height = video.videoHeight;
+        let cx = width / 2;
+        let cy = height / 2;
+        let fx = width; // Approx focal length
+        let fy = width; 
+
+        cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
+            fx, 0, cx,
+            0, fy, cy,
+            0, 0, 1
+        ]);
+
+        distCoeffs = cv.matFromArray(5, 1, cv.CV_64F, [0, 0, 0, 0, 0]);
+    }
+
+    function processVideo() {
+        if (!streaming) return;
+
+        try {
+            // Capture frame
+            if (!cap) cap = new cv.VideoCapture(video);
+            cap.read(src);
+
+            // Detect Markers
+            cv.detectMarkers(src, dictionary, markerCorners, markerIds);
+
+            if (markerIds.rows > 0) {
+                // Draw 2D Squares
+                cv.drawDetectedMarkers(src, markerCorners, markerIds);
+
+                // Pose Estimation
+                // rvecs and tvecs are the Rotation and Translation vectors
+                cv.estimatePoseSingleMarkers(markerCorners, MARKER_SIZE, cameraMatrix, distCoeffs, rvecs, tvecs);
+
+                for (let i = 0; i < markerIds.rows; ++i) {
+                    let id = markerIds.data32S[i];
+                    
+                    // Extract vectors for this specific marker
+                    let rvec = rvecs.row(i);
+                    let tvec = tvecs.row(i);
+
+                    // Draw 3D Axis (Length of 1.0)
+                    cv.drawFrameAxes(src, cameraMatrix, distCoeffs, rvec, tvec, 1.0);
+
+                    if (id === 0) {
+                        status.innerText = `ID 0 Found | Z-Dist: ${tvec.data64F[2].toFixed(2)}`;
+                    }
+                    
+                    // Note: In C++ we clean up rows, but in JS 'row()' returns a view or a temp mat.
+                    // Ideally we let them be GC'd or delete if explicitly creating new Mat objects per row.
+                    rvec.delete(); 
+                    tvec.delete();
+                }
+            } else {
+                status.innerText = "Searching for Marker ID 0...";
+            }
+
+            // Render
+            cv.imshow('canvasOutput', src);
+
+        } catch (err) {
+            console.error(err);
+            status.innerText = "Error: " + err;
+        }
+
+        requestAnimationFrame(processVideo);
+    }
+
+    // Cleanup on exit (optional for web, but good practice)
+    window.addEventListener('unload', () => {
+        if(src) src.delete();
+        if(markerCorners) markerCorners.delete();
+        if(markerIds) markerIds.delete();
+        if(rvecs) rvecs.delete();
+        if(tvecs) tvecs.delete();
+        if(dictionary) dictionary.delete();
     });
+</script>
 
-    function initThree() {
-      scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(40, window.innerWidth / window.innerHeight, 0.01, 100);
-      scene.add(camera);
-      
-      videoTexture = new THREE.VideoTexture(video);
-      scene.background = videoTexture;
-
-      renderer = new THREE.WebGLRenderer({ antialias: true });
-      renderer.setSize(window.innerWidth, window.innerHeight);
-      renderer.setPixelRatio(window.devicePixelRatio);
-      container.appendChild(renderer.domElement);
-
-      const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1.5);
-      scene.add(light);
-
-      markerRoot = new THREE.Group();
-      markerRoot.visible = false;
-      scene.add(markerRoot);
-
-      const cylGeo = new THREE.CylinderGeometry(MARKER_SIZE_M / 2, MARKER_SIZE_M / 2, MARKER_SIZE_M, 32);
-      const cylMat = new THREE.MeshStandardMaterial({ color: 0xff00ff, roughness: 0.5 });
-      const cyl = new THREE.Mesh(cylGeo, cylMat);
-      cyl.position.y = MARKER_SIZE_M / 2;
-      markerRoot.add(cyl);
-
-      const axes = new THREE.AxesHelper(MARKER_SIZE_M);
-      markerRoot.add(axes);
-
-      window.addEventListener('resize', onWindowResize);
-    }
-
-    function onWindowResize() {
-      camera.aspect = window.innerWidth / window.innerHeight;
-      camera.updateProjectionMatrix();
-      renderer.setSize(window.innerWidth, window.innerHeight);
-    }
-
-    function processFrame() {
-      if (video.readyState !== video.HAVE_ENOUGH_DATA) {
-          requestAnimationFrame(processFrame);
-          return;
-      }
-      
-      videoCtx.drawImage(video, 0, 0, videoCanvas.width, videoCanvas.height);
-      const imageData = videoCtx.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
-      
-      try {
-        detectAndPose(imageData);
-      } catch (e) {
-        // Ignoriere Fehler
-      }
-      
-      videoTexture.needsUpdate = true;
-      renderer.render(scene, camera);
-      requestAnimationFrame(processFrame);
-    }
-
-    function detectAndPose(imageData) {
-      const src = cv.matFromImageData(imageData);
-      const gray = new cv.Mat();
-      cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-      const corners = new cv.MatVector();
-      const ids = new cv.Mat();
-      const parameters = new cv.aruco.DetectorParameters();
-
-      cv.aruco.detectMarkers(gray, dictionary, corners, ids, parameters);
-      
-      if (ids.rows > 0) {
-          const w = imageData.width;
-          const h = imageData.height;
-          const f = Math.max(w, h);
-          const cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [f, 0, w/2, 0, f, h/2, 0, 0, 1]);
-          const distCoeffs = cv.Mat.zeros(4, 1, cv.CV_64F);
-
-          const rvecs = new cv.Mat();
-          const tvecs = new cv.Mat();
-          cv.aruco.estimatePoseSingleMarkers(corners, MARKER_SIZE_M, cameraMatrix, distCoeffs, rvecs, tvecs);
-          
-          let foundIndex = -1;
-          for (let i = 0; i < ids.rows; i++) {
-              if (ids.data32S[i] === 0) {
-                  foundIndex = i;
-                  break;
-              }
-          }
-          
-          if (foundIndex !== -1) {
-              const rvec = cv.matFromArray(3, 1, cv.CV_64F, [rvecs.data64F[foundIndex * 3], rvecs.data64F[foundIndex * 3 + 1], rvecs.data64F[foundIndex * 3 + 2]]);
-              const tvec = cv.matFromArray(3, 1, cv.CV_64F, [tvecs.data64F[foundIndex * 3], tvecs.data64F[foundIndex * 3 + 1], tvecs.data64F[foundIndex * 3 + 2]]);
-
-              const position = new THREE.Vector3(tvec.data64F[0], -tvec.data64F[1], -tvec.data64F[2]);
-              const R = new cv.Mat();
-              cv.Rodrigues(rvec, R);
-              const matrix = new THREE.Matrix4().fromArray([
-                  R.data64F[0], R.data64F[1], R.data64F[2], 0,
-                 -R.data64F[3],-R.data64F[4],-R.data64F[5], 0,
-                 -R.data64F[6],-R.data64F[7],-R.data64F[8], 0,
-                  0, 0, 0, 1
-              ]);
-              const quaternion = new THREE.Quaternion().setFromRotationMatrix(matrix);
-              
-              markerRoot.position.copy(position);
-              markerRoot.quaternion.copy(quaternion);
-              
-              camera.fov = 2 * Math.atan(h / (2 * f)) * (180 / Math.PI);
-              camera.aspect = w / h;
-              camera.updateProjectionMatrix();
-
-              markerRoot.visible = true;
-              
-              rvec.delete(); tvec.delete(); R.delete();
-          } else {
-              markerRoot.visible = false;
-          }
-
-          rvecs.delete(); tvecs.delete(); cameraMatrix.delete(); distCoeffs.delete();
-
-      } else {
-        markerRoot.visible = false;
-      }
-      
-      src.delete(); gray.delete(); corners.delete(); ids.delete();
-    }
-  </script>
 </body>
 </html>
