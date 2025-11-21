@@ -2,367 +2,395 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <!-- Viewport-Einstellungen für mobile Geräte: Verhindert Zoomen durch den Nutzer -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Herrenhäuser Gärten Hannover - AR mit ArUco</title>
+    <title>ArUco mit Three.js</title>
     <style>
-        /* Grundeinstellungen: Reset von Rändern und Vollbild-Setup */
         body, html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #000; /* Schwarzer Hintergrund */
-            overflow: hidden;       /* Scrollbalken verhindern */
+            background-color: #000;
+            overflow: hidden;
         }
 
-        /* Das Canvas-Element füllt den gesamten Bildschirm aus */
-        canvas {
-            display: block;
-            width: 100%;
-            height: 100%;
+        /* Container für Video und 3D-Canvas übereinander */
+        #container {
+            position: relative;
+            width: 100vw;
+            height: 100vh;
         }
 
-        /* 
-           Das Video-Element wird benötigt, um den Stream zu empfangen,
-           aber wir zeigen es nicht direkt an. Statt "display: none" nutzen wir
-           Deckkraft 0, damit Browser (wie iOS Safari) das Video weiter rendern.
-        */
-        video {
+        /* Das Webcam-Video im Hintergrund */
+        #video {
             position: absolute;
             top: 0;
             left: 0;
-            width: 1px;
-            height: 1px;
-            opacity: 0;
-            pointer-events: none;
+            width: 100%;
+            height: 100%;
+            object-fit: cover; /* Füllt den Bildschirm */
+            z-index: 1;
         }
 
-        /* Styling für den schwebenden Button zum Wechseln der Kamera */
+        /* Das Three.js Canvas transparent darüber */
+        #canvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            z-index: 2;
+            pointer-events: none; /* Klicks gehen durch zum Video/UI */
+        }
+
+        /* UI Button */
         #camBtn {
             position: absolute;
             bottom: 30px;
             right: 20px;
-            z-index: 100; /* Über dem Canvas */
-            background: rgba(40, 40, 40, 0.6); /* Halbtransparenter Hintergrund */
-            border: 1px solid #888;
+            z-index: 100;
+            background: rgba(40, 40, 40, 0.8);
+            border: 1px solid #fff;
             color: white;
             padding: 12px 24px;
             border-radius: 30px;
             font-family: sans-serif;
-            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            backdrop-filter: blur(4px); /* Unschärfe-Effekt hinter dem Button */
-            -webkit-backdrop-filter: blur(4px);
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+        
+        #loadingText {
+            position: absolute;
+            top: 50%; left: 50%;
+            transform: translate(-50%, -50%);
+            color: white;
+            font-family: sans-serif;
+            z-index: 50;
+            display: block;
         }
     </style>
 </head>
 <body>
 
-    <!-- Button zum Umschalten zwischen Front- und Rückkamera -->
-    <button id="camBtn">Kamera wechseln</button>
+    <div id="container">
+        <div id="loadingText">Kamera wird geladen...</div>
+        <button id="camBtn">Kamera wechseln</button>
+        
+        <!-- Video sichtbar im Hintergrund -->
+        <video id="video" playsinline muted autoplay></video>
+        
+        <!-- Three.js rendert hier hinein -->
+        <canvas id="canvas"></canvas>
+    </div>
 
-    <!-- Unsichtbares Video-Element (Quelle für Bildverarbeitung) -->
-    <video id="video" playsinline muted autoplay></video>
-    
-    <!-- Zeichenfläche für das Kamerabild und die 3D-Objekte -->
-    <canvas id="canvas"></canvas>
-
-    <!-- Laden der benötigten Bibliotheken direkt von GitHub via CDN -->
+    <!-- 1. JS-ArUco Bibliotheken -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
 
+    <!-- 2. Three.js Bibliothek -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+
     <script>
         // --- KONFIGURATION ---
-        
-        // WÄHLBARE WÖRTERBÜCHER: 
-        // 'ARUCO_MIP_36h12' (Standard für diese Bibliothek, sehr robust)
-        // 'ARUCO' (Das originale 7x7 ArUco Wörterbuch)
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-
-        // Die reale Größe des Markers in Millimetern (wichtig für korrekte 3D-Position)
-        const markerSize = 100.0; 
-        
-        // FILTER: Ignoriere Marker, die auf dem Bildschirm kleiner als X Pixel sind.
-        // Dies verhindert, dass zufällige Muster (Rauschen) innerhalb des echten Markers
-        // als "ID 97" oder ähnlich erkannt werden.
-        const minMarkerPixelSize = 30; 
-
+        const markerSize = 50.0; // mm
         // ---------------------
 
-        // Referenzen auf die HTML-Elemente holen
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        // 'willReadFrequently' optimiert den Zugriff auf Bilddaten für die Erkennung
-        const context = canvas.getContext('2d', { willReadFrequently: true });
         const camBtn = document.getElementById('camBtn');
+        const loadingText = document.getElementById('loadingText');
 
-        // Globale Variablen
-        let currentFacingMode = 'environment'; // 'environment' = Rückkamera, 'user' = Frontkamera
-        let detector = null; // Der ArUco-Erkenner
-        let posit = null;    // Der 3D-Pose-Schätzer
-        let stream = null;   // Der Webcam-Stream
-        let isVideoReady = false; // Status-Flag
+        // ArUco Variablen
+        let detector, posit;
+        
+        // Three.js Variablen
+        let renderer, scene, camera;
+        let cubeGroup; // Container für den gelben Würfel (ID 0)
+        let axisHelper; // Standard Achsenkreuz für andere IDs
+        let rotatingMesh; // Der eigentliche Würfel, der sich dreht
 
-        // 1. Initialisierung, sobald die Seite geladen ist
+        let currentFacingMode = 'environment';
+        let stream = null;
+        let isVideoReady = false;
+
+        // Initialisierung
         window.onload = () => {
-            // Detektor mit dem gewählten Wörterbuch initialisieren
+            // 1. ArUco initialisieren
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
-            
-            // Kamera starten
+
+            // 2. Three.js initialisieren
+            initThreeJS();
+
+            // 3. Kamera starten
             startCamera();
-            
-            // Animationsschleife starten
+
+            // 4. Loop starten
             requestAnimationFrame(tick);
         };
 
-        // Bei Fenstergrößenänderung das Canvas anpassen
-        window.addEventListener('resize', resizeCanvas);
+        window.addEventListener('resize', onResize);
 
-        // Klick-Event für den Kamera-Button
         camBtn.addEventListener('click', () => {
-            // Wechsle zwischen Rück- und Frontkamera
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
         });
 
-        // Funktion zum Anpassen der Canvas-Größe an das Browserfenster
-        function resizeCanvas() {
-            canvas.width = window.innerWidth;
-            canvas.height = window.innerHeight;
+        function initThreeJS() {
+            // Renderer mit transparentem Hintergrund
+            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+
+            // Szene
+            scene = new THREE.Scene();
+
+            // Kamera
+            // Wir setzen FOV auf ca 40-45 Grad. Das POSIT-System nimmt die Bildbreite als Brennweite an.
+            // Um das exakt zu matchen, müsste man FOV dynamisch berechnen, aber 42° ist ein guter Startwert für Handys.
+            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 10000);
+            scene.add(camera);
+
+            // Licht
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
+            scene.add(ambientLight);
+            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
+            dirLight.position.set(0, 10, 10);
+            scene.add(dirLight);
+
+            // --- OBJEKT 1: Der gelbe Würfel (für ID 0) ---
+            cubeGroup = new THREE.Group(); // Container für Positionierung
             
-            // Wenn das Canvas eine Breite hat, initialisieren wir das POSIT-Objekt neu.
-            // Wir nehmen die Canvas-Breite als Annäherung für die Brennweite (Focal Length).
-            if (canvas.width > 0) {
-                posit = new POS.Posit(markerSize, canvas.width);
+            // Geometrie
+            const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
+            // Halbtransparentes gelbes Material
+            const material = new THREE.MeshPhongMaterial({ 
+                color: 0xffff00, 
+                opacity: 0.7, 
+                transparent: true,
+                side: THREE.DoubleSide
+            });
+            
+            rotatingMesh = new THREE.Mesh(geometry, material);
+            // Den Würfel um die Hälfte nach oben schieben, damit er AUF dem Marker steht, nicht halb darin
+            rotatingMesh.position.z = markerSize / 2; 
+            
+            // Drahtgitter (Edges) für schönere Optik
+            const edges = new THREE.EdgesGeometry(geometry);
+            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
+            line.position.z = markerSize / 2;
+            
+            // Alles in eine Gruppe packen, damit wir "rotatingMesh" drehen können, 
+            // während "cubeGroup" dem Marker folgt.
+            const innerGroup = new THREE.Group();
+            innerGroup.add(rotatingMesh);
+            innerGroup.add(line);
+            
+            cubeGroup.add(innerGroup);
+            
+            scene.add(cubeGroup);
+            cubeGroup.visible = false; // Startet unsichtbar
+
+            // --- OBJEKT 2: Achsenkreuz (für andere IDs) ---
+            axisHelper = new THREE.AxesHelper(markerSize * 1.5);
+            scene.add(axisHelper);
+            axisHelper.visible = false;
+        }
+
+        function onResize() {
+            const w = window.innerWidth;
+            const h = window.innerHeight;
+            
+            renderer.setSize(w, h);
+            camera.aspect = w / h;
+            camera.updateProjectionMatrix();
+
+            if (w > 0) {
+                // POSIT neu initialisieren mit aktueller Breite als Brennweite
+                posit = new POS.Posit(markerSize, w);
             }
         }
 
-        // Funktion zum Starten der Webcam
         function startCamera() {
             isVideoReady = false;
+            if (stream) stream.getTracks().forEach(t => t.stop());
 
-            // Falls bereits ein Stream läuft, stoppen wir ihn
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
-
-            // Einstellungen für den Videostream anfordern
             const constraints = {
-                audio: false, // Kein Ton benötigt
+                audio: false,
                 video: {
-                    facingMode: currentFacingMode, // Kamera-Richtung
-                    width: { ideal: 1280 }, // Bevorzugte Auflösung
+                    facingMode: currentFacingMode,
+                    width: { ideal: 1280 },
                     height: { ideal: 720 }
                 }
             };
 
-            // Zugriff auf die Webcam anfordern
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
-                    // WICHTIG: play() muss explizit aufgerufen werden
-                    video.play().catch(e => console.log("Fehler beim Abspielen:", e));
+                    video.play();
                 })
                 .catch(err => {
-                    console.error("Kamera Fehler:", err);
-                    alert("Kamerazugriff fehlgeschlagen. Bitte HTTPS verwenden.");
+                    alert("Kamera Fehler: " + err.name);
                 });
         }
 
-        // Event-Listener: Wenn Metadaten (Größe) des Videos bekannt sind
-        video.addEventListener('loadedmetadata', resizeCanvas);
-        
-        // Event-Listener: Wenn das Video bereit zum Abspielen ist
-        video.addEventListener('canplay', () => {
+        video.addEventListener('loadedmetadata', () => {
+            onResize();
+            loadingText.style.display = 'none';
             isVideoReady = true;
         });
 
-        // Die Hauptschleife (wird ca. 60 Mal pro Sekunde aufgerufen)
         function tick() {
-            requestAnimationFrame(tick); // Nächsten Frame anfordern
+            requestAnimationFrame(tick);
 
-            // Canvas komplett leeren
-            context.clearRect(0, 0, canvas.width, canvas.height);
-
-            // Wenn Video bereit und Dimensionen > 0 sind
-            if (isVideoReady && video.videoWidth > 0) {
-                drawVideoFullscreen(); // Video zeichnen
-                processFrame();        // Marker erkennen und Overlay zeichnen
-            } else {
-                drawLoading();         // Ladebildschirm anzeigen
+            // 1. Drehanimation aktualisieren (Mesh dreht sich im lokalen System)
+            if (rotatingMesh) {
+                rotatingMesh.rotation.z += 0.05;
+                rotatingMesh.rotation.x += 0.02;
+                // Das Drahtgitter auch mitdrehen (es ist im gleichen Parent, aber wir haben es getrennt angelegt)
+                // Besser: Wir drehen die innerGroup, siehe initThreeJS.
+                rotatingMesh.parent.rotation.z += 0.02; 
             }
+
+            // 2. Objekte ausblenden (werden aktiviert, wenn Marker gefunden)
+            cubeGroup.visible = false;
+            axisHelper.visible = false;
+
+            if (isVideoReady && video.videoWidth > 0) {
+                
+                // --- AR Logik ---
+                // Wir nutzen ein unsichtbares 2D-Canvas für die Bilddaten-Analyse
+                // Hier erstellen wir es on-the-fly oder nutzen ein kleines Helper-Canvas
+                // Da getImageData teuer ist, ist es besser, ein kleines Canvas zu haben.
+                // Der Einfachheit halber lesen wir direkt vom Renderer-Canvas Kontext? Nein, das ist leer.
+                // Wir müssen ein temporäres Canvas erstellen, um das Video zu lesen.
+                
+                const cvCanvas = document.createElement('canvas');
+                cvCanvas.width = video.videoWidth;
+                cvCanvas.height = video.videoHeight;
+                const cvContext = cvCanvas.getContext('2d', { willReadFrequently: true });
+                cvContext.drawImage(video, 0, 0);
+                const imageData = cvContext.getImageData(0, 0, cvCanvas.width, cvCanvas.height);
+
+                let markers = detector.detect(imageData);
+
+                // Filter: Kleine Marker ignorieren
+                markers = markers.filter(m => {
+                    const dx = m.corners[0].x - m.corners[1].x;
+                    const dy = m.corners[0].y - m.corners[1].y;
+                    return Math.sqrt(dx*dx + dy*dy) > 30;
+                });
+
+                markers.forEach(marker => {
+                    // Pose berechnen
+                    // POSIT erwartet zentrierte Koordinaten relativ zum Bild
+                    const corners = marker.corners;
+                    
+                    // Skalierung beachten! Das Video hat videoWidth, der Screen hat window.innerWidth.
+                    // POSIT arbeitet auf Pixeln. Wir müssen die Pose basierend auf den Videopixeln berechnen
+                    // und dann Three.js anpassen.
+                    // Da unser Three.js Canvas den ganzen Screen füllt und das Video "covered",
+                    // ist es einfacher, die Pose basierend auf der angezeigten Größe zu berechnen.
+                    
+                    // Wir müssen die Video-Koordinaten in Screen-Koordinaten umrechnen ("object-fit: cover" Logik)
+                    const screenCorners = convertVideoToScreenCoords(corners);
+
+                    const cornersCentered = screenCorners.map(c => ({
+                        x: c.x - (canvas.width / 2),
+                        y: (canvas.height / 2) - c.y
+                    }));
+
+                    const pose = posit.pose(cornersCentered);
+
+                    if (pose) {
+                        const rot = pose.bestRotation;
+                        const trans = pose.bestTranslation;
+
+                        let targetObj = null;
+
+                        if (marker.id === 0) {
+                            targetObj = cubeGroup;
+                        } else {
+                            targetObj = axisHelper;
+                        }
+
+                        if (targetObj) {
+                            targetObj.visible = true;
+                            updateObjectPose(targetObj, rot, trans);
+                        }
+                    }
+                });
+            }
+
+            renderer.render(scene, camera);
         }
 
-        // Funktion: Video so zeichnen, dass es den Bildschirm füllt (wie CSS object-fit: cover)
-        function drawVideoFullscreen() {
-            const cw = canvas.width;
-            const ch = canvas.height;
+        // Hilfsfunktion: Video-Pixelkoordinaten -> Screen-Koordinaten (wegen object-fit: cover)
+        function convertVideoToScreenCoords(corners) {
             const vw = video.videoWidth;
             const vh = video.videoHeight;
+            const cw = canvas.width;
+            const ch = canvas.height;
 
-            const rV = vw / vh; // Seitenverhältnis Video
-            const rC = cw / ch; // Seitenverhältnis Canvas
+            const rV = vw / vh;
+            const rC = cw / ch;
 
-            let sx, sy, sw, sh;
+            // Skalierungsfaktor berechnen
+            let scale, offsetX, offsetY;
 
-            // Berechnung des Ausschnitts (Cropping)
             if (rV < rC) {
-                sw = vw; 
-                sh = vw / rC; 
-                sx = 0; 
-                sy = (vh - sh) / 2;
+                // Video ist schmaler als Screen -> Breite wird angepasst
+                scale = cw / vw;
+                offsetX = 0;
+                offsetY = (ch - (vh * scale)) / 2;
             } else {
-                sh = vh; 
-                sw = vh * rC; 
-                sx = (vw - sw) / 2; 
-                sy = 0;
+                // Video ist breiter als Screen -> Höhe wird angepasst
+                scale = ch / vh;
+                offsetX = (cw - (vw * scale)) / 2;
+                offsetY = 0;
             }
 
-            // Zeichne den Ausschnitt des Videos auf das gesamte Canvas
-            context.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+            return corners.map(c => ({
+                x: c.x * scale + offsetX,
+                y: c.y * scale + offsetY
+            }));
         }
 
-        // Funktion: Bildverarbeitung und Marker-Erkennung
-        function processFrame() {
-            // Aktuelle Bilddaten vom Canvas holen
-            const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
+        // Kernfunktion: Überträgt ArUco Pose auf Three.js Objekt
+        function updateObjectPose(object3D, rotation, translation) {
+            // 1. Position übertragen
+            // ArUco: X rechts, Y unten, Z vorwärts
+            // Three.js Kamera schaut nach -Z. 
+            // Umrechnung: x -> x, y -> -y, z -> -z
             
-            // ArUco-Bibliothek sucht nach Markern
-            let markers = detector.detect(imageData);
+            object3D.position.x = translation[0];
+            object3D.position.y = -translation[1]; // Y invertieren
+            object3D.position.z = -translation[2]; // Z invertieren
 
-            // --- FILTER-SCHRITT ---
-            // Entferne Marker, die zu klein sind (wahrscheinlich Rauschen im Bild)
-            markers = markers.filter(marker => {
-                const c = marker.corners;
-                // Berechne Abstand zwischen Ecke 0 und Ecke 1 (Pythagoras)
-                const dx = c[0].x - c[1].x;
-                const dy = c[0].y - c[1].y;
-                const distance = Math.sqrt(dx*dx + dy*dy);
-                
-                // Behalte nur Marker, die größer als der eingestellte Schwellenwert sind
-                return distance > minMarkerPixelSize;
-            });
-            // ----------------------
+            // 2. Rotation übertragen
+            // ArUco liefert eine 3x3 Rotationsmatrix [row][col]
+            // Wir bauen eine Three.js Matrix4
+            const m = new THREE.Matrix4();
+            const r = rotation;
 
-            // Für jeden übrig gebliebenen Marker:
-            markers.forEach(marker => {
-                // 1. Zeichne die rote Box um den Marker
-                drawRedBox(marker.corners);
+            // Wir füllen die Matrix. 
+            // Dabei müssen wir die gleichen Achsen-Invertierungen (Y und Z) auf die Rotation anwenden.
+            // Das entspricht einer Rotation der Basisvektoren.
+            
+            m.set(
+                 r[0][0],  r[0][1],  r[0][2],  0,
+                -r[1][0], -r[1][1], -r[1][2],  0, // Y-Zeile invertiert
+                -r[2][0], -r[2][1], -r[2][2],  0, // Z-Zeile invertiert
+                 0,        0,        0,        1
+            );
 
-                // 2. Bereite Koordinaten für 3D-Berechnung vor
-                // Der Algorithmus erwartet, dass (0,0) in der Bildmitte ist
-                const cornersCentered = marker.corners.map(c => ({
-                    x: c.x - (canvas.width / 2),
-                    y: (canvas.height / 2) - c.y // Y-Achse ist in 3D invertiert
-                }));
-
-                // 3. Berechne die Pose (Position und Rotation)
-                const pose = posit.pose(cornersCentered);
-
-                if (pose) {
-                    const rot = pose.bestRotation;       // Rotations-Matrix
-                    const trans = pose.bestTranslation;  // Translations-Vektor (x,y,z)
-
-                    // 4. Zeichne Koordinatensystem (X, Y, Z Achsen)
-                    drawAxis(rot, trans, markerSize);
-                    
-                    // 5. Zeichne die Marker-ID
-                    drawMarkerID(rot, trans, marker.id);
-                }
-            });
+            // Da die Rotation relativ zum Objektzentrum ist, wenden wir sie an
+            object3D.quaternion.setFromRotationMatrix(m);
         }
 
-        // Hilfsfunktion: Zeichnet einen roten Rahmen um die 4 Ecken
-        function drawRedBox(corners) {
-            context.lineWidth = 4;
-            context.strokeStyle = "red"; // Rote Farbe
-            context.beginPath();
-            
-            corners.forEach((c, i) => {
-                if (i === 0) context.moveTo(c.x, c.y);
-                else context.lineTo(c.x, c.y);
-            });
-            
-            context.closePath(); // Letzten Punkt mit erstem verbinden
-            context.stroke();
-        }
-
-        // Hilfsfunktion: Projiziert einen 3D-Punkt [x,y,z] auf 2D-Canvas-Koordinaten
-        function project(point3d, rot, trans) {
-            // 3D-Transformation (Rotation + Translation)
-            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
-            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
-            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
-
-            // Wenn Z negativ oder 0 ist (hinter der Kamera), nicht zeichnen
-            if (z <= 0) return { x: -100, y: -100 };
-
-            // Perspektivische Projektion
-            const scale = canvas.width / z;
-            
-            // Zurückrechnen auf Canvas-Pixel-Koordinaten
-            return { 
-                x: x * scale + (canvas.width / 2), 
-                y: (canvas.height / 2) - y * scale 
-            };
-        }
-
-        // Hilfsfunktion: Zeichnet das 3-achsige Koordinatensystem
-        function drawAxis(rot, trans, len) {
-            // Definiere 3D-Punkte für Ursprung und Achsen-Enden
-            const origin = project([0, 0, 0], rot, trans);
-            const axisX = project([len, 0, 0], rot, trans);
-            const axisY = project([0, len, 0], rot, trans);
-            const axisZ = project([0, 0, len], rot, trans);
-
-            context.lineWidth = 5;
-            
-            // X-Achse (Rot)
-            context.strokeStyle = "red";
-            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisX.x, axisX.y); context.stroke();
-
-            // Y-Achse (Grün)
-            context.strokeStyle = "green";
-            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisY.x, axisY.y); context.stroke();
-
-            // Z-Achse (Blau)
-            context.strokeStyle = "blue";
-            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisZ.x, axisZ.y); context.stroke();
-        }
-
-        // Hilfsfunktion: Zeichnet die ID neben den Marker
-        function drawMarkerID(rot, trans, id) {
-            const p0 = project([0, 0, 0], rot, trans); // Ursprung
-            
-            context.font = "bold 28px monospace";
-            context.textAlign = "left";
-            context.textBaseline = "bottom";
-            
-            // Schwarzer Rand um den Text für bessere Lesbarkeit
-            context.lineWidth = 4;
-            context.strokeStyle = "black";
-            context.strokeText(`ID:${id}`, p0.x + 15, p0.y);
-            
-            // Text füllen (Cyan)
-            context.fillStyle = "#00FFFF";
-            context.fillText(`ID:${id}`, p0.x + 15, p0.y);
-        }
-
-        // Hilfsfunktion: Ladebildschirm zeichnen
-        function drawLoading() {
-            context.fillStyle = "black";
-            context.fillRect(0, 0, canvas.width, canvas.height);
-            context.fillStyle = "white";
-            context.font = "20px sans-serif";
-            context.textAlign = "center";
-            context.fillText("Kamera wird geladen...", canvas.width / 2, canvas.height / 2);
-        }
     </script>
 </body>
 </html>
