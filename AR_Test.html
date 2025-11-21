@@ -4,7 +4,8 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
-    <title>Herrenhäuser Gärten Hannover - AR mit ArUco & threeJs</title>
+    <!-- NEUER TITEL WIE GEWÜNSCHT -->
+    <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
         body, html {
@@ -22,34 +23,29 @@
             height: 100%;
         }
 
-        /* Layer 1: 2D Canvas (Video + Rote Boxen + Text) */
+        /* Layer 1: 2D Canvas (Video-Hintergrund, Roter Rahmen, ID-Text) */
         #videoCanvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0; width: 100%; height: 100%;
             z-index: 1;
         }
 
-        /* Layer 2: 3D Canvas (Würfel + Achsen) */
+        /* Layer 2: 3D Canvas (Würfel, Koordinatenachsen) */
         #threeCanvas {
             position: absolute;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            top: 0; left: 0; width: 100%; height: 100%;
             z-index: 2;
-            pointer-events: none; /* Klicks durchlassen */
+            pointer-events: none; /* Klicks gehen durch zum UI */
         }
 
+        /* Verstecktes Video-Element für den Stream */
         video {
             position: absolute;
-            top: 0; left: 0;
-            width: 1px; height: 1px;
+            top: 0; left: 0; width: 1px; height: 1px;
             opacity: 0; pointer-events: none;
         }
 
+        /* Button unten rechts */
         #camBtn {
             position: absolute;
             bottom: 30px; right: 20px;
@@ -81,17 +77,12 @@
         <div id="loadingText">Kamera wird geladen...</div>
         <button id="camBtn">Kamera wechseln</button>
 
-        <!-- Video-Quelle -->
         <video id="video" playsinline muted autoplay></video>
-        
-        <!-- Layer 1 -->
         <canvas id="videoCanvas"></canvas>
-        
-        <!-- Layer 2 -->
         <canvas id="threeCanvas"></canvas>
     </div>
 
-    <!-- ArUco & Three.js -->
+    <!-- Externe Bibliotheken -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -101,7 +92,7 @@
     <script>
         // --- KONFIGURATION ---
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const markerSize = 100.0; // mm
+        const markerSize = 100.0; // mm (Größe des gedruckten Markers)
         // ---------------------
 
         const video = document.getElementById('video');
@@ -109,17 +100,21 @@
         const threeCanvas = document.getElementById('threeCanvas');
         const camBtn = document.getElementById('camBtn');
         const loadingText = document.getElementById('loadingText');
-
-        const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
         
+        // 2D Kontext für Video und rote Linien
+        const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Variablen
         let detector, posit;
         let renderer, scene, camera;
-        let cubeGroup, axisHelper, rotatingMesh;
-        
+        let markerGroup; // Container für alles, was am Marker klebt
+        let cubeMesh;    // Der gelbe Würfel (nur ID 0)
+
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
+        // Start
         window.onload = () => {
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
             initThreeJS();
@@ -128,13 +123,12 @@
         };
 
         window.addEventListener('resize', onResize);
-
         camBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
         });
 
-        // --- Three.js Initialisierung ---
+        // Three.js Szene aufbauen
         function initThreeJS() {
             renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -142,41 +136,48 @@
 
             scene = new THREE.Scene();
             
-            // Kamera (FOV wird später dynamisch angepasst)
+            // Kamera (Parameter werden bei onResize überschrieben)
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
             scene.add(camera);
 
-            const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
-            scene.add(ambientLight);
-            const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(0, 0, 10);
-            scene.add(dirLight);
+            // Licht
+            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
+            const dl = new THREE.DirectionalLight(0xffffff, 0.8);
+            dl.position.set(0, 0, 10);
+            scene.add(dl);
 
-            // 1. Der Gelbe Würfel (für ID 0)
-            cubeGroup = new THREE.Group();
+            // --- HAUPTGRUPPE FÜR DEN MARKER ---
+            markerGroup = new THREE.Group();
+            scene.add(markerGroup);
+
+            // 1. Lokales Koordinatensystem (Achsen)
+            // AxesHelper(size) erstellt Linien bei (0,0,0) -> Rot=X, Grün=Y, Blau=Z
+            // Da wir dies in markerGroup packen, ist (0,0,0) exakt die Mitte des Markers.
+            const axes = new THREE.AxesHelper(markerSize * 1.2); // Etwas länger als der Marker
+            markerGroup.add(axes);
+
+            // 2. Gelber Würfel (für ID 0)
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
-            const material = new THREE.MeshPhongMaterial({ 
-                color: 0xffff00, opacity: 0.6, transparent: true 
-            });
+            const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.6, transparent: true });
             
-            rotatingMesh = new THREE.Mesh(geometry, material);
-            rotatingMesh.position.z = markerSize / 2; 
-
+            cubeMesh = new THREE.Group();
+            const mesh = new THREE.Mesh(geometry, material);
+            
+            // Kanten (schwarz/orange)
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
+            
+            // Würfel sitzt AUF dem Marker (um halbe Höhe nach Z verschoben)
+            mesh.position.z = markerSize / 2;
             line.position.z = markerSize / 2;
 
-            const innerGroup = new THREE.Group();
-            innerGroup.add(rotatingMesh);
-            innerGroup.add(line);
+            cubeMesh.add(mesh);
+            cubeMesh.add(line);
             
-            cubeGroup.add(innerGroup);
-            scene.add(cubeGroup);
+            markerGroup.add(cubeMesh);
 
-            // 2. Das Achsenkreuz (für alle Marker)
-            axisHelper = new THREE.AxesHelper(markerSize * 1.2);
-            // Wir machen die Linien etwas dicker (simuliert durch Skalierung, ThreeJS Lines sind immer 1px)
-            scene.add(axisHelper);
+            // Alles erst mal unsichtbar
+            markerGroup.visible = false;
         }
 
         function onResize() {
@@ -185,12 +186,15 @@
             videoCanvas.width = w;
             videoCanvas.height = h;
             renderer.setSize(w, h);
+            
             if (w > 0) {
+                // POSIT initialisieren
                 posit = new POS.Posit(markerSize, w);
                 updateThreeJSCamera(w, h);
             }
         }
 
+        // Kamera-Logik anpassen, damit 3D-Objekte nicht "schweben"
         function updateThreeJSCamera(cw, ch) {
             const focalLength = cw; 
             const fovRad = 2 * Math.atan((ch / 2) / focalLength);
@@ -219,21 +223,16 @@
             loadingText.style.display = 'none';
         });
 
-        // --- Hauptschleife ---
+        // Render Loop
         function tick() {
             requestAnimationFrame(tick);
 
-            // Würfel-Animation
-            if (rotatingMesh) {
-                rotatingMesh.rotation.z += 0.05;
-                rotatingMesh.rotation.x += 0.02;
-                rotatingMesh.parent.children[1].rotation.z += 0.05;
-                rotatingMesh.parent.children[1].rotation.x += 0.02;
+            // Würfel drehen (lokal)
+            if (cubeMesh) {
+                cubeMesh.rotation.z += 0.02;
             }
 
-            // Reset Visibility
-            cubeGroup.visible = false;
-            axisHelper.visible = false;
+            markerGroup.visible = false;
 
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
@@ -241,46 +240,44 @@
                 const imageData = context2D.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
                 let markers = detector.detect(imageData);
 
-                // Filter
+                // Filter: Zu kleine Marker ignorieren
                 markers = markers.filter(m => {
                     const dx = m.corners[0].x - m.corners[1].x;
                     const dy = m.corners[0].y - m.corners[1].y;
-                    return Math.sqrt(dx*dx + dy*dy) > 30;
+                    return Math.sqrt(dx*dx + dy*dy) > 50;
                 });
 
-                markers.forEach(marker => {
-                    // 1. 2D Layer Zeichnung (Rote Box & Text)
+                if (markers.length > 0) {
+                    const marker = markers[0]; // Nimm den ersten
+
+                    // 1. 2D Layer: Rote Box und ID
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
 
-                    // 2. 3D Layer Berechnung
+                    // 2. 3D Layer: Pose berechnen
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
-                        y: (videoCanvas.height / 2) - c.y
+                        y: (videoCanvas.height / 2) - c.y // Y invertieren
                     }));
 
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
-                        const rot = pose.bestRotation;
-                        const trans = pose.bestTranslation;
+                        markerGroup.visible = true;
+                        
+                        // Pose auf die ganze Gruppe anwenden
+                        updateObjectPose(markerGroup, pose.bestRotation, pose.bestTranslation);
 
-                        // Achsenkreuz IMMER anzeigen (folgt dem aktuellen Marker)
-                        axisHelper.visible = true;
-                        updateObjectPose(axisHelper, rot, trans);
-
-                        // Wenn ID 0, dann ZUSÄTZLICH den Würfel anzeigen
-                        if (marker.id === 0) {
-                            cubeGroup.visible = true;
-                            updateObjectPose(cubeGroup, rot, trans);
-                        }
+                        // Würfel nur bei ID 0 sichtbar schalten
+                        cubeMesh.visible = (marker.id === 0);
+                        
+                        // Hinweis: Das Achsenkreuz (axes) ist immer sichtbar, wenn markerGroup sichtbar ist.
                     }
-                });
+                }
             }
             renderer.render(scene, camera);
         }
 
-        // Zeichnet das Video in "cover" Manier
         function drawVideoFullscreen() {
             const cw = videoCanvas.width; const ch = videoCanvas.height;
             const vw = video.videoWidth; const vh = video.videoHeight;
@@ -291,7 +288,6 @@
             context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
-        // Zeichnet die rote Box (2D)
         function drawRedBox(corners) {
             context2D.lineWidth = 4;
             context2D.strokeStyle = "red";
@@ -304,33 +300,30 @@
             context2D.stroke();
         }
 
-        // Zeichnet die ID als Text (2D)
         function drawIdText(corners, id) {
-            // Wir nehmen die erste Ecke als Ankerpunkt für den Text
             const pt = corners[0]; 
             context2D.font = "bold 24px monospace";
             context2D.textAlign = "left";
             context2D.textBaseline = "bottom";
-            
-            context2D.strokeStyle = "black";
             context2D.lineWidth = 4;
+            context2D.strokeStyle = "black";
             context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
-            
-            context2D.fillStyle = "#00FFFF"; // Cyan
+            context2D.fillStyle = "#00FFFF";
             context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
-        // Positioniert Three.js Objekte passend zur ArUco Pose
         function updateObjectPose(obj, r, t) {
+            // Position: Z und Y müssen für Three.js invertiert werden
             obj.position.x = t[0];
             obj.position.y = -t[1];
             obj.position.z = -t[2];
-            
+
+            // Rotation: Matrix aufbauen und Zeilen anpassen
             const m = new THREE.Matrix4();
             m.set(
                  r[0][0],  r[0][1],  r[0][2], 0,
-                -r[1][0], -r[1][1], -r[1][2], 0,
-                -r[2][0], -r[2][1], -r[2][2], 0,
+                -r[1][0], -r[1][1], -r[1][2], 0, 
+                -r[2][0], -r[2][1], -r[2][2], 0, 
                  0,        0,        0,       1
             );
             obj.quaternion.setFromRotationMatrix(m);
