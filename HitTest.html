@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ArUcoJS mit Koordinatensystem</title>
+    <title>ArUcoJS mit 3D Achsen</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; font-family: monospace; }
         
@@ -17,6 +17,7 @@
             position: absolute; top: 10px; left: 10px; z-index: 10;
             background: rgba(0,0,0,0.6); color: #0f0; padding: 10px;
             border: 1px solid #0f0; border-radius: 5px;
+            font-size: 16px;
         }
     </style>
 </head>
@@ -44,11 +45,11 @@
     let status = document.getElementById('status');
 
     let detector = null;
-    let posit = null; // Das Objekt für die 3D-Berechnung
+    let posit = null; // NEU: Das Objekt für die 3D-Berechnung
     let stream = null;
-    let modelSize = 35.0; // Länge der Achsen (virtuelle mm)
+    let modelSize = 35.0; // Größe des Markers (mm) -> Bestimmt Länge der Achsen
 
-    // --- 1. KAMERA STARTEN (Pixel 8a Optimiert - UNVERÄNDERT) ---
+    // --- 1. KAMERA STARTEN (1:1 Dein Code) ---
     async function startCamera() {
         // Pixel Handys mögen "environment" am liebsten
         const constraints = {
@@ -103,7 +104,7 @@
             }
 
             // 1. Bild vom Video auf Canvas zeichnen (für Bilddaten)
-            ctx.clearRect(0, 0, canvas.width, canvas.height); // Alles löschen
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
             
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
@@ -114,7 +115,7 @@
             // 2. DETEKTION
             try {
                 var markers = detector.detect(imageData);
-                draw3DScene(markers); // Hier rufen wir jetzt die neue Funktion auf
+                drawScene(markers); // Geänderter Funktionsaufruf
             } catch (e) {
                 console.log("Fehler bei Erkennung:", e);
             }
@@ -122,39 +123,37 @@
         requestAnimationFrame(tick);
     }
 
-    // --- 3. ZEICHNEN (NEU MIT 3D) ---
-    function draw3DScene(markers) {
+    // --- 3. ZEICHNEN (NEU: MIT 3D ACHSEN) ---
+    function drawScene(markers) {
         if (markers.length > 0) {
             let foundID0 = false;
+            
+            // Status Text aktualisieren mit der ID des ersten Markers
+            status.innerText = "Marker erkannt! ID: " + markers[0].id;
+            status.style.color = "#00ff00";
+            status.style.borderColor = "#00ff00";
 
             markers.forEach(function(marker) {
-                // A. Rahmen Zeichnen
-                drawBorder(marker.corners);
-
-                // B. Pose berechnen (Rotation & Translation)
-                // marker.corners sind die 2D Ecken im Bild
+                // A. Pose berechnen (Rotation & Translation)
                 var pose = posit.pose(marker.corners);
 
-                // C. Achsen zeichnen
+                // B. Achsen zeichnen (X=Rot, Y=Grün, Z=Blau)
                 drawAxis(pose.bestRotation, pose.bestTranslation);
+                
+                // C. Rahmen zeichnen (Optional, zur Sicherheit)
+                drawBorder(marker.corners);
 
-                // ID schreiben
+                // D. ID ins Bild schreiben
                 ctx.fillStyle = "red";
                 ctx.font = "bold 24px monospace";
-                ctx.fillText("ID: " + marker.id, marker.corners[0].x, marker.corners[0].y - 10);
+                ctx.fillText("ID: " + marker.id, marker.corners[0].x, marker.corners[0].y - 15);
 
                 if (marker.id === 0) foundID0 = true;
             });
 
             if(foundID0) {
-                status.innerText = "MARKER ID 0 GEFUNDEN!";
-                status.style.color = "#00ff00";
-                status.style.borderColor = "#00ff00";
-            } else {
-                status.innerText = "Marker erkannt (Andere ID)";
-                status.style.color = "yellow";
-                status.style.borderColor = "yellow";
-            }
+                status.innerText += " (Ziel gefunden)";
+            } 
         } else {
             // Kein Marker
             status.innerText = "Suche Original Marker ID 0...";
@@ -163,10 +162,11 @@
         }
     }
 
+    // Malt den weißen Rahmen um den Marker
     function drawBorder(corners) {
         ctx.beginPath();
-        ctx.lineWidth = 3;
-        ctx.strokeStyle = "red"; // Rahmenfarbe
+        ctx.lineWidth = 2;
+        ctx.strokeStyle = "rgba(255,255,255,0.5)"; // Halb-transparent weiß
         
         ctx.moveTo(corners[0].x, corners[0].y);
         ctx.lineTo(corners[1].x, corners[1].y);
@@ -176,8 +176,9 @@
         ctx.stroke();
     }
 
+    // Malt das Koordinatensystem
     function drawAxis(rotation, translation) {
-        // 1. Zentrum berechnen (0,0,0) im 3D Raum -> 2D Screen
+        // 1. Zentrum berechnen (0,0,0)
         var center = posit.project(0, 0, 0, rotation, translation);
         
         // 2. Endpunkte der Achsen berechnen
@@ -201,7 +202,7 @@
         ctx.lineTo(yAxis.x, yAxis.y);
         ctx.stroke();
 
-        // Z-Achse (BLAU) - Zeigt aus dem Marker heraus
+        // Z-Achse (BLAU)
         ctx.beginPath();
         ctx.strokeStyle = "blue";
         ctx.moveTo(center.x, center.y);
