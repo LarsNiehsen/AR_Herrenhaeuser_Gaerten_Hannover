@@ -2,58 +2,64 @@
 <html lang="en">
 <head>
     <meta charset="UTF-8">
-    <title>ArUco Marker Detection & Coordinate System</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ArUco Fullscreen Tracking</title>
     <style>
-        body {
+        body, html {
             margin: 0;
             padding: 0;
-            font-family: sans-serif;
-            background-color: #222;
-            color: white;
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-        }
-        h1 { margin: 10px; font-size: 1.2rem; }
-        .container {
-            position: relative;
-            width: 640px;
-            height: 480px;
-            border: 2px solid #444;
-        }
-        video {
-            position: absolute;
-            top: 0;
-            left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover;
+            background-color: #000;
+            overflow: hidden; /* Prevent scrolling */
         }
+
+        /* The canvas fills the entire screen */
         canvas {
-            position: absolute;
-            top: 0;
-            left: 0;
+            display: block;
             width: 100%;
             height: 100%;
-            z-index: 10;
         }
-        #info {
-            margin-top: 10px;
-            font-family: monospace;
+
+        /* Hidden video element, used only as data source */
+        video {
+            display: none;
+        }
+
+        /* Floating camera switch button */
+        #camBtn {
+            position: absolute;
+            bottom: 20px;
+            right: 20px;
+            z-index: 100;
+            background: rgba(255, 255, 255, 0.2);
+            border: 1px solid white;
+            color: white;
+            padding: 10px 20px;
+            border-radius: 20px;
+            font-family: sans-serif;
+            font-weight: bold;
+            cursor: pointer;
+            backdrop-filter: blur(5px);
+            -webkit-backdrop-filter: blur(5px);
+        }
+        #camBtn:active {
+            background: rgba(255, 255, 255, 0.5);
         }
     </style>
 </head>
 <body>
 
-    <h1>JS-ArUco2: Local Coordinate System</h1>
-    
-    <div class="container">
-        <video id="video" autoplay playsinline muted></video>
-        <canvas id="canvas"></canvas>
-    </div>
-    <div id="info">Waiting for marker...</div>
+    <!-- Switch Camera Button -->
+    <button id="camBtn">Switch Camera</button>
 
-    <!-- Load js-aruco2 libraries directly from GitHub via CDN -->
+    <!-- Video Source (Hidden) -->
+    <video id="video" playsinline muted autoplay></video>
+    
+    <!-- Fullscreen Drawing Canvas -->
+    <canvas id="canvas"></canvas>
+
+    <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -62,157 +68,212 @@
     <script>
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
-        const context = canvas.getContext('2d');
-        const infoDiv = document.getElementById('info');
+        const context = canvas.getContext('2d', { willReadFrequently: true });
+        const camBtn = document.getElementById('camBtn');
 
-        let detector, posit;
-        // Real physical size of the marker in millimeters (adjust as needed)
-        const markerSize = 50.0; 
+        // Configuration
+        let currentFacingMode = 'environment'; // Start with rear camera
+        const markerSize = 50.0; // Physical marker size in mm
 
-        // Initialize webcam
-        navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } })
-            .then(stream => {
-                video.srcObject = stream;
-                video.onloadedmetadata = () => {
-                    canvas.width = video.videoWidth;
-                    canvas.height = video.videoHeight;
-                    
-                    // Initialize ArUco detector
-                    // Uses ARUCO_MIP_36h12 dictionary by default in js-aruco2
-                    detector = new AR.Detector();
+        let detector = null;
+        let posit = null;
+        let animationId = null;
+        let stream = null;
 
-                    // Initialize POSIT for 3D pose estimation
-                    // Arguments: Model size (mm), Focal length (approx canvas width)
-                    posit = new POS.Posit(markerSize, canvas.width);
+        // 1. Initialize
+        window.onload = () => {
+            detector = new AR.Detector();
+            startCamera();
+        };
 
-                    requestAnimationFrame(tick);
-                };
-            })
-            .catch(err => console.error("Camera error:", err));
+        // Handle window resize
+        window.addEventListener('resize', () => {
+            resizeCanvas();
+        });
+
+        // Handle camera switch
+        camBtn.addEventListener('click', () => {
+            currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
+            startCamera();
+        });
+
+        function resizeCanvas() {
+            canvas.width = window.innerWidth;
+            canvas.height = window.innerHeight;
+            // Re-initialize POSIT with new canvas width as focal length approximation
+            if (canvas.width > 0) {
+                posit = new POS.Posit(markerSize, canvas.width);
+            }
+        }
+
+        function startCamera() {
+            // Stop existing stream if any
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+                cancelAnimationFrame(animationId);
+            }
+
+            const constraints = {
+                audio: false,
+                video: {
+                    facingMode: currentFacingMode
+                }
+            };
+
+            navigator.mediaDevices.getUserMedia(constraints)
+                .then(s => {
+                    stream = s;
+                    video.srcObject = stream;
+                    video.onloadedmetadata = () => {
+                        resizeCanvas();
+                        requestAnimationFrame(tick);
+                    };
+                })
+                .catch(err => {
+                    console.error("Camera Error:", err);
+                    alert("Could not access camera. Ensure you are on HTTPS/Localhost.");
+                });
+        }
 
         function tick() {
             if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                drawImage();
-                detectAndDraw();
+                drawVideoFullscreen();
+                processFrame();
             }
-            requestAnimationFrame(tick);
+            animationId = requestAnimationFrame(tick);
         }
 
-        function drawImage() {
-            context.drawImage(video, 0, 0, canvas.width, canvas.height);
+        // Helper to draw video covering the canvas (like object-fit: cover)
+        function drawVideoFullscreen() {
+            const cw = canvas.width;
+            const ch = canvas.height;
+            const vw = video.videoWidth;
+            const vh = video.videoHeight;
+
+            const rV = vw / vh;
+            const rC = cw / ch;
+
+            let sx, sy, sw, sh;
+
+            if (rV < rC) {
+                // Video is taller than canvas (crop top/bottom)
+                sw = vw;
+                sh = vw / rC;
+                sx = 0;
+                sy = (vh - sh) / 2;
+            } else {
+                // Video is wider than canvas (crop left/right)
+                sh = vh;
+                sw = vh * rC;
+                sx = (vw - sw) / 2;
+                sy = 0;
+            }
+
+            context.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
-        function detectAndDraw() {
-            // 1. Get image data for detection
+        function processFrame() {
+            // Get visual data from canvas
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-            
-            // 2. Detect markers
             const markers = detector.detect(imageData);
 
-            // 3. Draw results
             drawDebug(markers);
         }
 
         function drawDebug(markers) {
-            if (markers.length > 0) {
-                infoDiv.innerText = `Detected IDs: ${markers.map(m => m.id).join(', ')}`;
-            } else {
-                infoDiv.innerText = "No marker detected";
-            }
-
             markers.forEach(marker => {
-                // Draw 2D contour
-                drawContour(marker.corners, marker.id);
-
-                // Estimate Pose
-                // We need to center the corners relative to the image center for POSIT
+                // 1. Convert corners to centered coordinates for POSIT
                 const cornersCentered = marker.corners.map(c => {
                     return {
                         x: c.x - (canvas.width / 2),
-                        y: (canvas.height / 2) - c.y
+                        y: (canvas.height / 2) - c.y // Y axis inverted in standard CV/GL 
                     };
                 });
 
+                // 2. Estimate Pose
                 const pose = posit.pose(cornersCentered);
 
                 if (pose) {
-                    // Draw the local coordinate axes
-                    // Rotation is a 3x3 matrix (array of 3 arrays), Translation is a vector [x,y,z]
                     const rot = pose.bestRotation;
                     const trans = pose.bestTranslation;
 
+                    // 3. Draw Coordinate System
                     drawAxis(rot, trans, markerSize);
+
+                    // 4. Draw ID next to the axis origin
+                    drawMarkerID(rot, trans, marker.id);
                 }
             });
         }
 
-        function drawContour(corners, id) {
-            context.strokeStyle = "cyan";
-            context.lineWidth = 2;
-            context.beginPath();
-            corners.forEach((c, i) => {
-                if (i === 0) context.moveTo(c.x, c.y);
-                else context.lineTo(c.x, c.y);
-            });
-            context.closePath();
-            context.stroke();
-
-            // Draw ID
-            context.fillStyle = "cyan";
-            context.font = "bold 20px Arial";
-            context.fillText(`ID: ${id}`, corners[0].x, corners[0].y - 10);
-        }
-
-        // Helper to project a 3D point to 2D using the estimated pose
+        // Project 3D point to 2D screen space
         function project(point3d, rot, trans) {
-            // 3D rotation + translation
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
             const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
 
-            // Perspective projection (assuming focal length ~= canvas width)
-            // The library assumes specific coordinate conventions, we map back to canvas pixels here
             const scale = canvas.width / z;
-            const x2d = x * scale + (canvas.width / 2);
-            const y2d = (canvas.height / 2) - y * scale; // Y is inverted in canvas
-
-            return { x: x2d, y: y2d };
+            
+            return {
+                x: x * scale + (canvas.width / 2),
+                y: (canvas.height / 2) - y * scale
+            };
         }
 
-        function drawAxis(rot, trans, length) {
+        function drawAxis(rot, trans, len) {
             const origin = [0, 0, 0];
-            const axisX = [length, 0, 0];
-            const axisY = [0, length, 0];
-            const axisZ = [0, 0, length];
+            const axisX = [len, 0, 0];
+            const axisY = [0, len, 0];
+            const axisZ = [0, 0, len];
 
-            const pOrigin = project(origin, rot, trans);
+            const p0 = project(origin, rot, trans);
             const pX = project(axisX, rot, trans);
             const pY = project(axisY, rot, trans);
             const pZ = project(axisZ, rot, trans);
 
-            context.lineWidth = 4;
+            context.lineWidth = 5;
+            context.lineCap = "round";
 
             // X Axis (Red)
             context.beginPath();
-            context.strokeStyle = "red";
-            context.moveTo(pOrigin.x, pOrigin.y);
+            context.strokeStyle = "#ff0000";
+            context.moveTo(p0.x, p0.y);
             context.lineTo(pX.x, pX.y);
             context.stroke();
 
             // Y Axis (Green)
             context.beginPath();
-            context.strokeStyle = "green";
-            context.moveTo(pOrigin.x, pOrigin.y);
+            context.strokeStyle = "#00ff00";
+            context.moveTo(p0.x, p0.y);
             context.lineTo(pY.x, pY.y);
             context.stroke();
 
             // Z Axis (Blue)
             context.beginPath();
-            context.strokeStyle = "blue";
-            context.moveTo(pOrigin.x, pOrigin.y);
+            context.strokeStyle = "#0000ff";
+            context.moveTo(p0.x, p0.y);
             context.lineTo(pZ.x, pZ.y);
             context.stroke();
         }
+
+        function drawMarkerID(rot, trans, id) {
+            const origin = [0, 0, 0];
+            const p0 = project(origin, rot, trans);
+
+            context.font = "bold 24px monospace";
+            context.textAlign = "left";
+            context.textBaseline = "bottom";
+            
+            // Text Shadow (Stroke) for visibility
+            context.strokeStyle = "black";
+            context.lineWidth = 3;
+            context.strokeText(`ID: ${id}`, p0.x + 10, p0.y - 10);
+
+            // Text Fill
+            context.fillStyle = "#00FFFF"; // Cyan
+            context.fillText(`ID: ${id}`, p0.x + 10, p0.y - 10);
+        }
+
     </script>
 </body>
 </html>
