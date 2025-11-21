@@ -2,26 +2,24 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Pixel 8a - ArUco Detection Only</title>
+    <title>Pixel 8a - Class-based ArucoDetector</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
-        /* Container keeps the video and canvas aligned */
         #container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-        video { display: none; } /* Hide raw video, we only see canvas */
-        
+        video { display: none; }
         #status {
             position: absolute; top: 20px; left: 20px; 
             color: #00ff00; background: rgba(0,0,0,0.8); 
             padding: 10px 15px; font-family: monospace; font-size: 16px; font-weight: bold;
-            z-index: 10; border: 2px solid #00ff00; border-radius: 8px;
+            z-index: 10; border: 2px solid #00ff00; border-radius: 8px; pointer-events: none;
         }
     </style>
 </head>
 <body>
 
-<div id="status">Loading OpenCV...</div>
+<div id="status">Loading OpenCV 4.10.0...</div>
 
 <div id="container">
     <video id="videoInput" playsinline webkit-playsinline></video>
@@ -47,9 +45,16 @@
     // OpenCV Objects
     let cap = null;
     let src = null;
+    
+    // New Class-Based Objects
     let dictionary = null;
+    let params = null;
+    let detector = null; // This will hold the cv::aruco::ArucoDetector instance
+    
+    // Output Containers
     let markerCorners = null;
     let markerIds = null;
+    let rejectedCandidates = null; // Class-based detection often requires this container
 
     async function startCamera() {
         const constraints = {
@@ -67,7 +72,6 @@
             video.play();
             requestAnimationFrame(processVideo);
         } catch(err) {
-            // Fallback for phones that don't like "exact"
             console.warn("Retrying with loose constraints...");
             navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
                 .then(s => {
@@ -78,83 +82,105 @@
                 .catch(e => {
                     status.innerText = "Camera Error: " + e;
                     status.style.color = "red";
-                    status.style.borderColor = "red";
                 });
         }
     }
 
-    function initMatrices(width, height) {
-        // Clean up old memory
+    function initOpenCVObjects(width, height) {
+        // 1. Cleanup old memory
         if(src) src.delete();
         if(markerCorners) markerCorners.delete();
         if(markerIds) markerIds.delete();
+        if(rejectedCandidates) rejectedCandidates.delete();
         if(dictionary) dictionary.delete();
+        if(params) params.delete();
+        if(detector) detector.delete();
 
-        // Create new matrices for the current resolution
+        // 2. Setup Matrices
         src = new cv.Mat(height, width, cv.CV_8UC4);
         markerCorners = new cv.MatVector();
         markerIds = new cv.Mat();
+        rejectedCandidates = new cv.MatVector();
         
-        // Load the 6x6 Dictionary (ID 0-249)
+        // 3. Setup Class-Based Detection (The "New" Way)
+        
+        // A. Dictionary
         dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
+        
+        // B. Parameters
+        params = new cv.aruco_DetectorParameters();
+        
+        // Optional: Tweak parameters for better Android performance
+        // params.adaptiveThreshWinSizeMin = 3;
+        // params.adaptiveThreshWinSizeMax = 23;
+        // params.adaptiveThreshWinSizeStep = 10;
+
+        // C. The Detector Class
+        // In JS bindings, C++ classes often use underscore notation: cv::aruco::ArucoDetector -> cv.aruco_ArucoDetector
+        try {
+            detector = new cv.aruco_ArucoDetector(dictionary, params);
+        } catch(e) {
+            // Fallback if class not found (older builds), though 4.10.0 works
+            console.error("ArucoDetector class creation failed:", e);
+        }
         
         canvas.width = width;
         canvas.height = height;
-        console.log(`Matrices initialized: ${width}x${height}`);
+        console.log(`Initialized ArucoDetector for ${width}x${height}`);
     }
 
     function processVideo() {
         try {
-            // 1. Check if video is actually ready
             if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
                 
-                // 2. Pixel Fix: Re-init if resolution changed (or is first run)
+                // Pixel 8a Resolution Fix
                 if (!src || src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
-                    initMatrices(video.videoWidth, video.videoHeight);
+                    initOpenCVObjects(video.videoWidth, video.videoHeight);
                     if(cap) { delete cap; cap = null; }
                     cap = new cv.VideoCapture(video);
                 }
 
-                // 3. Capture Frame
+                // Read Frame
                 cap.read(src);
 
-                // 4. Detect Markers (2D Only)
-                cv.detectMarkers(src, dictionary, markerCorners, markerIds);
+                // --- DETECTION USING CLASS ---
+                if (detector) {
+                    // C++: detector.detectMarkers(image, corners, ids, rejected)
+                    detector.detectMarkers(src, markerCorners, markerIds, rejectedCandidates);
+                } else {
+                    // Fallback for very old OpenCV versions
+                    cv.detectMarkers(src, dictionary, markerCorners, markerIds);
+                }
 
-                // 5. Draw Results
+                // Visualization
                 if (markerIds.rows > 0) {
-                    // Draws the green outline and the ID number
                     cv.drawDetectedMarkers(src, markerCorners, markerIds);
                     
-                    // Check if ID 0 is present
                     let foundId0 = false;
                     for(let i=0; i < markerIds.rows; i++) {
                         if(markerIds.data32S[i] === 0) foundId0 = true;
                     }
 
                     if(foundId0) {
-                        status.innerText = "Marker ID 0 Detected!";
+                        status.innerText = "Target Found: ID 0";
                         status.style.color = "#00ff00";
                         status.style.borderColor = "#00ff00";
                     } else {
-                        status.innerText = "Marker detected (Not ID 0)";
+                        status.innerText = `Marker Detected (ID ${markerIds.data32S[0]})`;
                         status.style.color = "yellow";
                         status.style.borderColor = "yellow";
                     }
-
                 } else {
-                    status.innerText = "Searching for Marker ID 0...";
+                    status.innerText = "Scanning for ID 0...";
                     status.style.color = "white";
                     status.style.borderColor = "white";
                 }
 
-                // 6. Display on Canvas
                 cv.imshow('canvasOutput', src);
             }
         } catch (err) {
             console.error(err);
         }
-
         requestAnimationFrame(processVideo);
     }
 </script>
