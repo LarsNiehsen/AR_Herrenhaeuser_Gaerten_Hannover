@@ -3,184 +3,173 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Web ArUco Erkennung</title>
+    <title>Kamera Debugger</title>
     <style>
-        body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; }
+        body { background-color: #000; color: white; font-family: monospace; margin: 0; padding: 0; overflow: hidden; }
         
-        /* Container für Video und Canvas übereinander */
-        #container { position: relative; width: 100vw; height: 100vh; background: black; }
-        
-        /* Das Video verstecken wir, wir zeigen nur das bemalte Canvas */
-        video { display: none; }
-        
-        /* Canvas füllt den Screen */
-        canvas { 
-            position: absolute; top: 0; left: 0; 
-            width: 100%; height: 100%; 
-            object-fit: contain; 
-        }
+        #container { position: relative; width: 100vw; height: 100vh; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 2; }
 
-        /* Status Anzeige */
-        #status {
-            position: absolute; top: 10px; left: 10px; 
-            color: #00ff00; background: rgba(0,0,0,0.7); 
-            padding: 8px 12px; border-radius: 6px; 
-            font-size: 14px; pointer-events: none; z-index: 10;
-            border: 1px solid #00ff00;
+        /* Das Log-Fenster zeigt uns den Fehler an */
+        #debug-log {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 40%;
+            background: rgba(0, 0, 0, 0.9); overflow-y: scroll; 
+            z-index: 10; padding: 10px; border-top: 2px solid red;
+            box-sizing: border-box; font-size: 12px;
         }
+        .log-entry { margin-bottom: 5px; border-bottom: 1px solid #333; }
+        .success { color: #00ff00; }
+        .error { color: #ff5555; font-weight: bold; }
+        .info { color: #aaa; }
     </style>
 </head>
 <body>
 
-<div id="status">Lade OpenCV.js... (Bitte warten)</div>
-
 <div id="container">
     <video id="videoInput" playsinline webkit-playsinline muted autoplay></video>
     <canvas id="canvasOutput"></canvas>
+    <!-- Hier erscheinen die Fehlermeldungen -->
+    <div id="debug-log"></div>
 </div>
 
-<!-- OpenCV Konfiguration -->
 <script>
+    // --- Hilfsfunktion zum Schreiben ins Log-Fenster ---
+    function log(msg, type = 'info') {
+        const logDiv = document.getElementById('debug-log');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.innerText = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logDiv.appendChild(entry);
+        console.log(msg); // Auch in die Konsole schreiben
+    }
+
+    log("Initialisiere Seite...", "info");
+
+    // OpenCV Config
     var Module = {
         onRuntimeInitialized: function() {
-            document.getElementById('status').innerText = "OpenCV bereit. Starte Kamera...";
+            log("OpenCV erfolgreich geladen!", "success");
             startCamera();
+        },
+        onError: function(err) {
+            log("OpenCV konnte nicht laden: " + err, "error");
         }
     };
 </script>
-<!-- OpenCV.js laden (WebAssembly Version) -->
+
+<!-- OpenCV laden -->
 <script async src="https://docs.opencv.org/4.10.0/opencv.js" type="text/javascript"></script>
 
 <script>
     let video = document.getElementById('videoInput');
     let canvas = document.getElementById('canvasOutput');
-    let status = document.getElementById('status');
-
-    // Globale Variablen für OpenCV Objekte (um Speicherlecks zu vermeiden)
-    let src = null;
-    let gray = null; // Wir brauchen Graustufen für die Erkennung
-    let cap = null;
-    let dictionary = null;
-    let params = null;
-    let detector = null;
-    let markerCorners = null;
-    let markerIds = null;
-    let rejected = null;
+    let stream = null;
+    
+    // OpenCV Variablen
+    let src = null, gray = null, cap = null;
+    let dictionary = null, params = null, detector = null;
+    let markerCorners = null, markerIds = null, rejected = null;
 
     async function startCamera() {
-        // Strategie für Pixel Handys: Erst "environment" versuchen, aber ohne strikte Auflösung
-        const constraints = {
-            video: { 
-                facingMode: "environment" // Rückkamera
-            },
-            audio: false
-        };
+        log("Versuche Kamera zu starten...", "info");
+
+        // STRATEGIE 1: Rückkamera anfordern (ohne strikte Auflösung)
+        const constraintsEnv = { video: { facingMode: "environment" }, audio: false };
+        
+        // STRATEGIE 2: Irgendeine Kamera anfordern (Falls Rückkamera blockiert)
+        const constraintsAny = { video: true, audio: false };
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
-            video.play();
-            
-            // Warten bis Video-Metadaten da sind, dann Loop starten
-            video.addEventListener("loadeddata", () => {
-                requestAnimationFrame(processVideo);
-            });
-            
+            // Versuch 1
+            stream = await navigator.mediaDevices.getUserMedia(constraintsEnv);
+            log("Kamera Zugriff (Environment) gewährt!", "success");
         } catch (err) {
-            status.innerText = "Kamera-Fehler: " + err.name;
-            status.style.color = "red";
-            console.error(err);
+            log("Rückkamera fehlgeschlagen (" + err.name + "). Versuche irgendeine Kamera...", "error");
+            try {
+                // Versuch 2 (Fallback)
+                stream = await navigator.mediaDevices.getUserMedia(constraintsAny);
+                log("Kamera Zugriff (Fallback) gewährt!", "success");
+            } catch (err2) {
+                log("FATAL: Kein Kamera-Zugriff möglich. " + err2.name + " - " + err2.message, "error");
+                log("HINWEIS: Prüfe ob HTTPS genutzt wird!", "error");
+                return; // Abbruch
+            }
         }
+
+        // Stream verbinden
+        video.srcObject = stream;
+        
+        video.onloadedmetadata = () => {
+            log(`Kamera läuft: ${video.videoWidth}x${video.videoHeight}`, "success");
+            video.play();
+            requestAnimationFrame(processVideo);
+            initOpenCV(video.videoWidth, video.videoHeight);
+        };
+        
+        video.onerror = (e) => {
+            log("Video Element Fehler: " + JSON.stringify(e), "error");
+        };
     }
 
-    function initOpenCV(width, height) {
-        // 1. Alten Speicher freigeben (WICHTIG in JS!)
-        if(src) src.delete();
-        if(gray) gray.delete();
-        if(markerCorners) markerCorners.delete();
-        if(markerIds) markerIds.delete();
-        if(rejected) rejected.delete();
-        if(detector) detector.delete();
-        if(dictionary) dictionary.delete();
-        if(params) params.delete();
-
-        // 2. Neue Matrizen erstellen
-        src = new cv.Mat(height, width, cv.CV_8UC4);
-        gray = new cv.Mat(); // Leere Matrix für Graustufen
-        
-        markerCorners = new cv.MatVector();
-        markerIds = new cv.Mat();
-        rejected = new cv.MatVector();
-
-        // 3. ArUco Detektor konfigurieren (6x6 Dictionary)
-        dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
-        params = new cv.aruco_DetectorParameters();
-        
-        // Detektor Klasse initialisieren
-        detector = new cv.aruco_ArucoDetector(dictionary, params);
-
-        // Canvas Größe anpassen
-        canvas.width = width;
-        canvas.height = height;
+    function initOpenCV(w, h) {
+        try {
+            if(src) src.delete();
+            src = new cv.Mat(h, w, cv.CV_8UC4);
+            gray = new cv.Mat();
+            markerCorners = new cv.MatVector();
+            markerIds = new cv.Mat();
+            rejected = new cv.MatVector();
+            
+            dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
+            params = new cv.aruco_DetectorParameters();
+            detector = new cv.aruco_ArucoDetector(dictionary, params);
+            
+            canvas.width = w;
+            canvas.height = h;
+            log("OpenCV Matrizen initialisiert.", "info");
+        } catch(e) {
+            log("Fehler bei initOpenCV: " + e, "error");
+        }
     }
 
     function processVideo() {
         try {
-            // Prüfen ob Video läuft
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            if (video.readyState === 4) { // 4 = HAVE_ENOUGH_DATA
                 
-                // PIXEL FIX: Auflösung prüfen und ggf. Matrizen neu bauen
-                // Handys ändern oft die Auflösung nach den ersten paar Frames
-                if (!src || src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
-                    console.log(`Resize: ${video.videoWidth}x${video.videoHeight}`);
+                // Resize Check (Pixel Handys ändern oft die Größe nach Start)
+                if (src && (src.cols !== video.videoWidth || src.rows !== video.videoHeight)) {
+                    log(`Auflösung geändert: ${src.cols}x${src.rows} -> ${video.videoWidth}x${video.videoHeight}`, "info");
                     initOpenCV(video.videoWidth, video.videoHeight);
                     if(cap) { delete cap; cap = null; }
-                    cap = new cv.VideoCapture(video);
                 }
 
-                // 1. Frame vom Video holen
+                if (!cap) cap = new cv.VideoCapture(video);
                 cap.read(src);
 
-                // 2. In Graustufen umwandeln (besser für Erkennung)
                 cv.cvtColor(src, gray, cv.COLOR_RGBA2GRAY);
-
-                // 3. Marker erkennen
                 detector.detectMarkers(gray, markerCorners, markerIds, rejected);
 
-                // 4. Ergebnisse zeichnen
                 if (markerIds.rows > 0) {
-                    // Zeichnet grüne Rahmen um die Marker
                     cv.drawDetectedMarkers(src, markerCorners, markerIds);
                     
-                    // Prüfen ob ID 0 dabei ist
-                    let foundID0 = false;
-                    for (let i = 0; i < markerIds.rows; i++) {
-                        if (markerIds.data32S[i] === 0) foundID0 = true;
+                    // Prüfe auf ID 0
+                    let found = false;
+                    for(let i=0; i<markerIds.rows; i++) {
+                        if(markerIds.data32S[i] === 0) found = true;
                     }
-
-                    if (foundID0) {
-                        status.innerText = "MARKE ID 0 GEFUNDEN!";
-                        status.style.color = "#00ff00"; // Grün
-                        status.style.borderColor = "#00ff00";
-                    } else {
-                        status.innerText = "Marker erkannt (nicht ID 0)";
-                        status.style.color = "yellow";
-                        status.style.borderColor = "yellow";
+                    if(found) {
+                        // Visuelles Feedback oben im Log (spart Performance)
+                        // Optional: Zeichnen Text ins Bild
+                        cv.putText(src, "ID 0 GEFUNDEN", {x:50, y:100}, cv.FONT_HERSHEY_SIMPLEX, 1.5, [0,255,0,255], 3);
                     }
-                } else {
-                    status.innerText = "Suche Marker ID 0...";
-                    status.style.color = "white";
-                    status.style.borderColor = "white";
                 }
 
-                // 5. Bild auf dem Canvas anzeigen
                 cv.imshow('canvasOutput', src);
             }
         } catch (err) {
-            console.error(err);
+            log("Loop Fehler: " + err, "error");
         }
-
-        // Loop wiederholen
         requestAnimationFrame(processVideo);
     }
 </script>
