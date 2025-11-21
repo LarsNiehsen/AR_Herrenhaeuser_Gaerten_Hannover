@@ -1,24 +1,33 @@
 <!DOCTYPE html>
-<html lang="en">
+<html lang="de">
 <head>
     <meta charset="UTF-8">
+    <!-- Viewport-Einstellungen für mobile Geräte: Verhindert Zoomen durch den Nutzer -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Herrenhäuser Gärten Hannover - AR (ArUco)</title>
+    <title>Herrenhäuser Gärten Hannover - AR mit ArUco</title>
     <style>
+        /* Grundeinstellungen: Reset von Rändern und Vollbild-Setup */
         body, html {
             margin: 0;
             padding: 0;
             width: 100%;
             height: 100%;
-            background-color: #000;
-            overflow: hidden;
+            background-color: #000; /* Schwarzer Hintergrund */
+            overflow: hidden;       /* Scrollbalken verhindern */
         }
+
+        /* Das Canvas-Element füllt den gesamten Bildschirm aus */
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
-        /* Keep video invisible but active */
+
+        /* 
+           Das Video-Element wird benötigt, um den Stream zu empfangen,
+           aber wir zeigen es nicht direkt an. Statt "display: none" nutzen wir
+           Deckkraft 0, damit Browser (wie iOS Safari) das Video weiter rendern.
+        */
         video {
             position: absolute;
             top: 0;
@@ -28,12 +37,14 @@
             opacity: 0;
             pointer-events: none;
         }
+
+        /* Styling für den schwebenden Button zum Wechseln der Kamera */
         #camBtn {
             position: absolute;
             bottom: 30px;
             right: 20px;
-            z-index: 100;
-            background: rgba(40, 40, 40, 0.6);
+            z-index: 100; /* Über dem Canvas */
+            background: rgba(40, 40, 40, 0.6); /* Halbtransparenter Hintergrund */
             border: 1px solid #888;
             color: white;
             padding: 12px 24px;
@@ -42,7 +53,7 @@
             font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            backdrop-filter: blur(4px);
+            backdrop-filter: blur(4px); /* Unschärfe-Effekt hinter dem Button */
             -webkit-backdrop-filter: blur(4px);
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
@@ -50,145 +61,227 @@
 </head>
 <body>
 
+    <!-- Button zum Umschalten zwischen Front- und Rückkamera -->
     <button id="camBtn">Kamera wechseln</button>
 
+    <!-- Unsichtbares Video-Element (Quelle für Bildverarbeitung) -->
     <video id="video" playsinline muted autoplay></video>
+    
+    <!-- Zeichenfläche für das Kamerabild und die 3D-Objekte -->
     <canvas id="canvas"></canvas>
 
+    <!-- Laden der benötigten Bibliotheken direkt von GitHub via CDN -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
 
     <script>
-        // --- CONFIGURATION ---
+        // --- KONFIGURATION ---
         
-        // AVAILABLE DICTIONARIES: 
-        // 'ARUCO_MIP_36h12' (Default, recommended)
-        // 'ARUCO' (Original 7x7)
+        // WÄHLBARE WÖRTERBÜCHER: 
+        // 'ARUCO_MIP_36h12' (Standard für diese Bibliothek, sehr robust)
+        // 'ARUCO' (Das originale 7x7 ArUco Wörterbuch)
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
 
-        const markerSize = 100.0; // Physical marker size in mm
+        // Die reale Größe des Markers in Millimetern (wichtig für korrekte 3D-Position)
+        const markerSize = 100.0; 
+        
+        // FILTER: Ignoriere Marker, die auf dem Bildschirm kleiner als X Pixel sind.
+        // Dies verhindert, dass zufällige Muster (Rauschen) innerhalb des echten Markers
+        // als "ID 97" oder ähnlich erkannt werden.
+        const minMarkerPixelSize = 30; 
 
         // ---------------------
 
+        // Referenzen auf die HTML-Elemente holen
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
+        // 'willReadFrequently' optimiert den Zugriff auf Bilddaten für die Erkennung
         const context = canvas.getContext('2d', { willReadFrequently: true });
         const camBtn = document.getElementById('camBtn');
 
-        let currentFacingMode = 'environment';
-        let detector = null;
-        let posit = null;
-        let stream = null;
-        let isVideoReady = false;
+        // Globale Variablen
+        let currentFacingMode = 'environment'; // 'environment' = Rückkamera, 'user' = Frontkamera
+        let detector = null; // Der ArUco-Erkenner
+        let posit = null;    // Der 3D-Pose-Schätzer
+        let stream = null;   // Der Webcam-Stream
+        let isVideoReady = false; // Status-Flag
 
+        // 1. Initialisierung, sobald die Seite geladen ist
         window.onload = () => {
-            // Initialize detector with the chosen dictionary
+            // Detektor mit dem gewählten Wörterbuch initialisieren
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
+            
+            // Kamera starten
             startCamera();
+            
+            // Animationsschleife starten
             requestAnimationFrame(tick);
         };
 
+        // Bei Fenstergrößenänderung das Canvas anpassen
         window.addEventListener('resize', resizeCanvas);
 
+        // Klick-Event für den Kamera-Button
         camBtn.addEventListener('click', () => {
+            // Wechsle zwischen Rück- und Frontkamera
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
         });
 
+        // Funktion zum Anpassen der Canvas-Größe an das Browserfenster
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
+            
+            // Wenn das Canvas eine Breite hat, initialisieren wir das POSIT-Objekt neu.
+            // Wir nehmen die Canvas-Breite als Annäherung für die Brennweite (Focal Length).
             if (canvas.width > 0) {
                 posit = new POS.Posit(markerSize, canvas.width);
             }
         }
 
+        // Funktion zum Starten der Webcam
         function startCamera() {
             isVideoReady = false;
-            if (stream) stream.getTracks().forEach(track => track.stop());
 
+            // Falls bereits ein Stream läuft, stoppen wir ihn
+            if (stream) {
+                stream.getTracks().forEach(track => track.stop());
+            }
+
+            // Einstellungen für den Videostream anfordern
             const constraints = {
-                audio: false,
+                audio: false, // Kein Ton benötigt
                 video: {
-                    facingMode: currentFacingMode,
-                    width: { ideal: 1280 },
+                    facingMode: currentFacingMode, // Kamera-Richtung
+                    width: { ideal: 1280 }, // Bevorzugte Auflösung
                     height: { ideal: 720 }
                 }
             };
 
+            // Zugriff auf die Webcam anfordern
             navigator.mediaDevices.getUserMedia(constraints)
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
-                    video.play().catch(e => console.log(e));
+                    // WICHTIG: play() muss explizit aufgerufen werden
+                    video.play().catch(e => console.log("Fehler beim Abspielen:", e));
                 })
                 .catch(err => {
-                    alert("Camera Error: " + err.name);
+                    console.error("Kamera Fehler:", err);
+                    alert("Kamerazugriff fehlgeschlagen. Bitte HTTPS verwenden.");
                 });
         }
 
+        // Event-Listener: Wenn Metadaten (Größe) des Videos bekannt sind
         video.addEventListener('loadedmetadata', resizeCanvas);
-        video.addEventListener('canplay', () => isVideoReady = true);
+        
+        // Event-Listener: Wenn das Video bereit zum Abspielen ist
+        video.addEventListener('canplay', () => {
+            isVideoReady = true;
+        });
 
+        // Die Hauptschleife (wird ca. 60 Mal pro Sekunde aufgerufen)
         function tick() {
-            requestAnimationFrame(tick);
+            requestAnimationFrame(tick); // Nächsten Frame anfordern
+
+            // Canvas komplett leeren
             context.clearRect(0, 0, canvas.width, canvas.height);
 
+            // Wenn Video bereit und Dimensionen > 0 sind
             if (isVideoReady && video.videoWidth > 0) {
-                drawVideoFullscreen();
-                processFrame();
+                drawVideoFullscreen(); // Video zeichnen
+                processFrame();        // Marker erkennen und Overlay zeichnen
             } else {
-                drawLoading();
+                drawLoading();         // Ladebildschirm anzeigen
             }
         }
 
+        // Funktion: Video so zeichnen, dass es den Bildschirm füllt (wie CSS object-fit: cover)
         function drawVideoFullscreen() {
             const cw = canvas.width;
             const ch = canvas.height;
             const vw = video.videoWidth;
             const vh = video.videoHeight;
-            const rV = vw / vh;
-            const rC = cw / ch;
+
+            const rV = vw / vh; // Seitenverhältnis Video
+            const rC = cw / ch; // Seitenverhältnis Canvas
+
             let sx, sy, sw, sh;
 
+            // Berechnung des Ausschnitts (Cropping)
             if (rV < rC) {
-                sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2;
+                sw = vw; 
+                sh = vw / rC; 
+                sx = 0; 
+                sy = (vh - sh) / 2;
             } else {
-                sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0;
+                sh = vh; 
+                sw = vh * rC; 
+                sx = (vw - sw) / 2; 
+                sy = 0;
             }
+
+            // Zeichne den Ausschnitt des Videos auf das gesamte Canvas
             context.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
+        // Funktion: Bildverarbeitung und Marker-Erkennung
         function processFrame() {
+            // Aktuelle Bilddaten vom Canvas holen
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
-            const markers = detector.detect(imageData);
+            
+            // ArUco-Bibliothek sucht nach Markern
+            let markers = detector.detect(imageData);
 
+            // --- FILTER-SCHRITT ---
+            // Entferne Marker, die zu klein sind (wahrscheinlich Rauschen im Bild)
+            markers = markers.filter(marker => {
+                const c = marker.corners;
+                // Berechne Abstand zwischen Ecke 0 und Ecke 1 (Pythagoras)
+                const dx = c[0].x - c[1].x;
+                const dy = c[0].y - c[1].y;
+                const distance = Math.sqrt(dx*dx + dy*dy);
+                
+                // Behalte nur Marker, die größer als der eingestellte Schwellenwert sind
+                return distance > minMarkerPixelSize;
+            });
+            // ----------------------
+
+            // Für jeden übrig gebliebenen Marker:
             markers.forEach(marker => {
-                // 1. Draw Red Box around the marker
+                // 1. Zeichne die rote Box um den Marker
                 drawRedBox(marker.corners);
 
-                // 2. Prepare for 3D Pose
+                // 2. Bereite Koordinaten für 3D-Berechnung vor
+                // Der Algorithmus erwartet, dass (0,0) in der Bildmitte ist
                 const cornersCentered = marker.corners.map(c => ({
                     x: c.x - (canvas.width / 2),
-                    y: (canvas.height / 2) - c.y
+                    y: (canvas.height / 2) - c.y // Y-Achse ist in 3D invertiert
                 }));
 
+                // 3. Berechne die Pose (Position und Rotation)
                 const pose = posit.pose(cornersCentered);
 
                 if (pose) {
-                    const rot = pose.bestRotation;
-                    const trans = pose.bestTranslation;
+                    const rot = pose.bestRotation;       // Rotations-Matrix
+                    const trans = pose.bestTranslation;  // Translations-Vektor (x,y,z)
+
+                    // 4. Zeichne Koordinatensystem (X, Y, Z Achsen)
                     drawAxis(rot, trans, markerSize);
+                    
+                    // 5. Zeichne die Marker-ID
                     drawMarkerID(rot, trans, marker.id);
                 }
             });
         }
 
+        // Hilfsfunktion: Zeichnet einen roten Rahmen um die 4 Ecken
         function drawRedBox(corners) {
             context.lineWidth = 4;
-            context.strokeStyle = "red"; // Red Box Color
+            context.strokeStyle = "red"; // Rote Farbe
             context.beginPath();
             
             corners.forEach((c, i) => {
@@ -196,20 +289,33 @@
                 else context.lineTo(c.x, c.y);
             });
             
-            context.closePath(); // Connect back to start
+            context.closePath(); // Letzten Punkt mit erstem verbinden
             context.stroke();
         }
 
+        // Hilfsfunktion: Projiziert einen 3D-Punkt [x,y,z] auf 2D-Canvas-Koordinaten
         function project(point3d, rot, trans) {
+            // 3D-Transformation (Rotation + Translation)
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
             const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
+
+            // Wenn Z negativ oder 0 ist (hinter der Kamera), nicht zeichnen
             if (z <= 0) return { x: -100, y: -100 };
+
+            // Perspektivische Projektion
             const scale = canvas.width / z;
-            return { x: x * scale + (canvas.width / 2), y: (canvas.height / 2) - y * scale };
+            
+            // Zurückrechnen auf Canvas-Pixel-Koordinaten
+            return { 
+                x: x * scale + (canvas.width / 2), 
+                y: (canvas.height / 2) - y * scale 
+            };
         }
 
+        // Hilfsfunktion: Zeichnet das 3-achsige Koordinatensystem
         function drawAxis(rot, trans, len) {
+            // Definiere 3D-Punkte für Ursprung und Achsen-Enden
             const origin = project([0, 0, 0], rot, trans);
             const axisX = project([len, 0, 0], rot, trans);
             const axisY = project([0, len, 0], rot, trans);
@@ -217,35 +323,45 @@
 
             context.lineWidth = 5;
             
+            // X-Achse (Rot)
             context.strokeStyle = "red";
             context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisX.x, axisX.y); context.stroke();
 
+            // Y-Achse (Grün)
             context.strokeStyle = "green";
             context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisY.x, axisY.y); context.stroke();
 
+            // Z-Achse (Blau)
             context.strokeStyle = "blue";
             context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisZ.x, axisZ.y); context.stroke();
         }
 
+        // Hilfsfunktion: Zeichnet die ID neben den Marker
         function drawMarkerID(rot, trans, id) {
-            const p0 = project([0, 0, 0], rot, trans);
+            const p0 = project([0, 0, 0], rot, trans); // Ursprung
+            
             context.font = "bold 28px monospace";
             context.textAlign = "left";
             context.textBaseline = "bottom";
+            
+            // Schwarzer Rand um den Text für bessere Lesbarkeit
             context.lineWidth = 4;
             context.strokeStyle = "black";
             context.strokeText(`ID:${id}`, p0.x + 15, p0.y);
+            
+            // Text füllen (Cyan)
             context.fillStyle = "#00FFFF";
             context.fillText(`ID:${id}`, p0.x + 15, p0.y);
         }
 
+        // Hilfsfunktion: Ladebildschirm zeichnen
         function drawLoading() {
             context.fillStyle = "black";
             context.fillRect(0, 0, canvas.width, canvas.height);
             context.fillStyle = "white";
             context.font = "20px sans-serif";
             context.textAlign = "center";
-            context.fillText("Loading Camera...", canvas.width / 2, canvas.height / 2);
+            context.fillText("Kamera wird geladen...", canvas.width / 2, canvas.height / 2);
         }
     </script>
 </body>
