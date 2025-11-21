@@ -86,6 +86,7 @@
         <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert)</button>
         <button id="startARBtm" class="btn-primary" style="margin: 5px;">Start AR (Markerbasiert)</button>
         <button id="startARBtIT" class="btn-primary" style="margin: 5px;">Start AR (Image-Tracking)</button>
+        <button id="startARBtT" class="btn-primary" style="margin: 5px;">Start AR (experimental)</button>
 
       </div>
     </div>
@@ -140,7 +141,22 @@
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
           return;
         }
-        newWin.location.href = 'HitTest.html';
+        newWin.location.href = 'AR_ArUcoJS2_Markerbasiert.html';
+      });
+    })();
+  </script>
+
+      <script>
+    (function () {
+      const startBtn = document.getElementById('startARBtT');
+      startBtn.addEventListener('click', (ev) => {
+        // Must open synchronously on the click event so browser treats it as user-initiated
+        const newWin = window.open('', '_blank');
+        if (!newWin) {
+          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
+          return;
+        }
+        newWin.location.href = 'AR_Test.html';
       });
     })();
   </script>
