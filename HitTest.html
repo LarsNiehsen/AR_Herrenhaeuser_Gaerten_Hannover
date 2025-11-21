@@ -2,34 +2,37 @@
 <html>
 <head>
     <meta charset="utf-8">
-    <title>Pixel 8a ArUco Fix</title>
+    <title>Pixel 8a - ArUco Detection Only</title>
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
     <style>
         body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
+        /* Container keeps the video and canvas aligned */
         #container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-        video { display: none; }
+        video { display: none; } /* Hide raw video, we only see canvas */
+        
         #status {
-            position: absolute; top: 20px; left: 20px; color: cyan; 
-            background: rgba(0,0,0,0.8); padding: 10px; font-family: monospace; 
-            font-size: 16px; z-index: 10; border: 1px solid cyan;
+            position: absolute; top: 20px; left: 20px; 
+            color: #00ff00; background: rgba(0,0,0,0.8); 
+            padding: 10px 15px; font-family: monospace; font-size: 16px; font-weight: bold;
+            z-index: 10; border: 2px solid #00ff00; border-radius: 8px;
         }
     </style>
 </head>
 <body>
 
-<div id="status">Initializing...</div>
+<div id="status">Loading OpenCV...</div>
 
 <div id="container">
     <video id="videoInput" playsinline webkit-playsinline></video>
     <canvas id="canvasOutput"></canvas>
 </div>
 
-<!-- Config for OpenCV -->
+<!-- Load OpenCV -->
 <script>
     var Module = {
         onRuntimeInitialized: function() {
-            document.getElementById('status').innerText = "OpenCV Ready. Starting Camera...";
+            document.getElementById('status').innerText = "OpenCV Ready. Opening Camera...";
             startCamera();
         }
     };
@@ -37,143 +40,119 @@
 <script async src="https://docs.opencv.org/4.10.0/opencv.js" type="text/javascript"></script>
 
 <script type="text/javascript">
-    const MARKER_SIZE = 1.0; // Arbitrary unit size
     let video = document.getElementById('videoInput');
     let canvas = document.getElementById('canvasOutput');
-    let ctx = canvas.getContext('2d');
     let status = document.getElementById('status');
 
-    let stream = null;
+    // OpenCV Objects
     let cap = null;
     let src = null;
     let dictionary = null;
     let markerCorners = null;
     let markerIds = null;
-    let rvecs = null;
-    let tvecs = null;
-    
-    // Camera Internals (will be set dynamically)
-    let cameraMatrix = null;
-    let distCoeffs = null;
 
     async function startCamera() {
-        // Pixel 8a prefers strict constraints to trigger the right lens
         const constraints = {
             video: {
                 facingMode: { exact: "environment" },
-                width: { ideal: 1920 }, 
-                height: { ideal: 1080 } 
+                width: { ideal: 1920 },
+                height: { ideal: 1080 }
             },
             audio: false
         };
 
         try {
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = stream;
             video.play();
             requestAnimationFrame(processVideo);
         } catch(err) {
-            status.innerText = "Rear camera error. Trying default...";
-            try {
-                stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-                video.srcObject = stream;
-                video.play();
-                requestAnimationFrame(processVideo);
-            } catch(e) {
-                status.innerText = "Fatal Error: " + e;
-            }
+            // Fallback for phones that don't like "exact"
+            console.warn("Retrying with loose constraints...");
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
+                .then(s => {
+                    video.srcObject = s;
+                    video.play();
+                    requestAnimationFrame(processVideo);
+                })
+                .catch(e => {
+                    status.innerText = "Camera Error: " + e;
+                    status.style.color = "red";
+                    status.style.borderColor = "red";
+                });
         }
     }
 
     function initMatrices(width, height) {
-        // Delete old matrices if they exist to prevent memory leaks
+        // Clean up old memory
         if(src) src.delete();
-        if(cameraMatrix) cameraMatrix.delete();
-        if(distCoeffs) distCoeffs.delete();
         if(markerCorners) markerCorners.delete();
         if(markerIds) markerIds.delete();
-        if(rvecs) rvecs.delete();
-        if(tvecs) tvecs.delete();
         if(dictionary) dictionary.delete();
 
-        // Initialize new ones with correct dimensions
+        // Create new matrices for the current resolution
         src = new cv.Mat(height, width, cv.CV_8UC4);
         markerCorners = new cv.MatVector();
         markerIds = new cv.Mat();
-        rvecs = new cv.Mat();
-        tvecs = new cv.Mat();
         
-        // Re-create dictionary
+        // Load the 6x6 Dictionary (ID 0-249)
         dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
-
-        // Approximate Camera Matrix for the new resolution
-        let cx = width / 2;
-        let cy = height / 2;
-        let fx = width; // Guessing focal length is roughly width
-        let fy = width;
-
-        cameraMatrix = cv.matFromArray(3, 3, cv.CV_64F, [
-            fx, 0, cx,
-            0, fy, cy,
-            0, 0, 1
-        ]);
-
-        distCoeffs = cv.matFromArray(5, 1, cv.CV_64F, [0, 0, 0, 0, 0]);
         
-        // Update Canvas to match
         canvas.width = width;
         canvas.height = height;
-        
-        console.log(`Initialized matrices for ${width}x${height}`);
-        status.innerText = `Tracking ID 0 @ ${width}x${height}`;
+        console.log(`Matrices initialized: ${width}x${height}`);
     }
 
     function processVideo() {
         try {
-            // 1. CRITICAL CHECK: Is video ready and has dimensions?
-            if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0 && video.videoHeight > 0) {
+            // 1. Check if video is actually ready
+            if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
                 
-                // 2. DYNAMIC RESIZE: Did resolution change? (Or is this the first run?)
+                // 2. Pixel Fix: Re-init if resolution changed (or is first run)
                 if (!src || src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
                     initMatrices(video.videoWidth, video.videoHeight);
-                    // Re-create capture object if size changed
-                    if(cap) { delete cap; cap = null; } 
+                    if(cap) { delete cap; cap = null; }
                     cap = new cv.VideoCapture(video);
                 }
 
-                // 3. Process Frame
+                // 3. Capture Frame
                 cap.read(src);
 
-                // Detect
+                // 4. Detect Markers (2D Only)
                 cv.detectMarkers(src, dictionary, markerCorners, markerIds);
 
+                // 5. Draw Results
                 if (markerIds.rows > 0) {
+                    // Draws the green outline and the ID number
                     cv.drawDetectedMarkers(src, markerCorners, markerIds);
-                    cv.estimatePoseSingleMarkers(markerCorners, MARKER_SIZE, cameraMatrix, distCoeffs, rvecs, tvecs);
-
-                    for (let i = 0; i < markerIds.rows; ++i) {
-                        let rvec = rvecs.row(i);
-                        let tvec = tvecs.row(i);
-                        cv.drawFrameAxes(src, cameraMatrix, distCoeffs, rvec, tvec, 1.0);
-                        
-                        if (markerIds.data32S[i] === 0) {
-                            // Optional: Add specific text overlay
-                            // cv.putText(src, "TARGET", {x: 10, y: 10}, cv.FONT_HERSHEY_SIMPLEX, 1, [0, 255, 0, 255], 2);
-                        }
-                        
-                        rvec.delete();
-                        tvec.delete();
+                    
+                    // Check if ID 0 is present
+                    let foundId0 = false;
+                    for(let i=0; i < markerIds.rows; i++) {
+                        if(markerIds.data32S[i] === 0) foundId0 = true;
                     }
+
+                    if(foundId0) {
+                        status.innerText = "Marker ID 0 Detected!";
+                        status.style.color = "#00ff00";
+                        status.style.borderColor = "#00ff00";
+                    } else {
+                        status.innerText = "Marker detected (Not ID 0)";
+                        status.style.color = "yellow";
+                        status.style.borderColor = "yellow";
+                    }
+
+                } else {
+                    status.innerText = "Searching for Marker ID 0...";
+                    status.style.color = "white";
+                    status.style.borderColor = "white";
                 }
 
+                // 6. Display on Canvas
                 cv.imshow('canvasOutput', src);
-            } else {
-                // Video not ready yet, wait...
-                status.innerText = "Waiting for camera stream...";
             }
         } catch (err) {
             console.error(err);
-            status.innerText = "Error: " + err;
         }
 
         requestAnimationFrame(processVideo);
