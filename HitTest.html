@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ArUco Fullscreen Tracking</title>
+    <title>Herrenhäuser Gärten Hannover - AR (ArUco)</title>
     <style>
         body, html {
             margin: 0;
@@ -13,19 +13,12 @@
             background-color: #000;
             overflow: hidden;
         }
-
-        /* Canvas fills the screen */
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
-
-        /* 
-           FIX: Do not use display:none. 
-           Some browsers stop updating the video texture if it's not "visible".
-           We use opacity:0 and fixed positioning instead.
-        */
+        /* Keep video invisible but active */
         video {
             position: absolute;
             top: 0;
@@ -35,8 +28,6 @@
             opacity: 0;
             pointer-events: none;
         }
-
-        /* Button Styling */
         #camBtn {
             position: absolute;
             bottom: 30px;
@@ -55,43 +46,46 @@
             -webkit-backdrop-filter: blur(4px);
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
-        #camBtn:active {
-            background: rgba(80, 80, 80, 0.8);
-        }
     </style>
 </head>
 <body>
 
-    <button id="camBtn">Switch Camera</button>
+    <button id="camBtn">Kamera wechseln</button>
 
-    <!-- Video element kept in DOM but invisible -->
     <video id="video" playsinline muted autoplay></video>
-    
     <canvas id="canvas"></canvas>
 
-    <!-- Load Libraries -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
 
     <script>
+        // --- CONFIGURATION ---
+        
+        // AVAILABLE DICTIONARIES: 
+        // 'ARUCO_MIP_36h12' (Default, recommended)
+        // 'ARUCO' (Original 7x7)
+        const selectedDictionary = 'ARUCO_MIP_36h12'; 
+
+        const markerSize = 100.0; // Physical marker size in mm
+
+        // ---------------------
+
         const video = document.getElementById('video');
         const canvas = document.getElementById('canvas');
         const context = canvas.getContext('2d', { willReadFrequently: true });
         const camBtn = document.getElementById('camBtn');
 
-        let currentFacingMode = 'environment'; // 'environment' = rear, 'user' = front
-        const markerSize = 50.0; // Marker size in mm
-
+        let currentFacingMode = 'environment';
         let detector = null;
         let posit = null;
         let stream = null;
         let isVideoReady = false;
 
-        // Initialize
         window.onload = () => {
-            detector = new AR.Detector();
+            // Initialize detector with the chosen dictionary
+            detector = new AR.Detector({ dictionaryName: selectedDictionary });
             startCamera();
             requestAnimationFrame(tick);
         };
@@ -107,24 +101,18 @@
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
             if (canvas.width > 0) {
-                // Re-init POSIT with new focal length (canvas width)
                 posit = new POS.Posit(markerSize, canvas.width);
             }
         }
 
         function startCamera() {
             isVideoReady = false;
-
-            // Stop previous stream
-            if (stream) {
-                stream.getTracks().forEach(track => track.stop());
-            }
+            if (stream) stream.getTracks().forEach(track => track.stop());
 
             const constraints = {
                 audio: false,
                 video: {
                     facingMode: currentFacingMode,
-                    // Requesting a standard resolution helps compatibility
                     width: { ideal: 1280 },
                     height: { ideal: 720 }
                 }
@@ -134,47 +122,25 @@
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
-                    // FIX: Explicitly call play() to ensure flow
-                    video.play().catch(e => console.log("Play error:", e));
+                    video.play().catch(e => console.log(e));
                 })
                 .catch(err => {
-                    console.error("Camera Error:", err);
-                    alert("Camera access failed. Check permissions and HTTPS.");
+                    alert("Camera Error: " + err.name);
                 });
         }
 
-        // Wait for video metadata to ensure dimensions are known
-        video.addEventListener('loadedmetadata', () => {
-            resizeCanvas();
-        });
-
-        video.addEventListener('canplay', () => {
-            // Ready to draw
-            isVideoReady = true;
-        });
+        video.addEventListener('loadedmetadata', resizeCanvas);
+        video.addEventListener('canplay', () => isVideoReady = true);
 
         function tick() {
             requestAnimationFrame(tick);
-
-            // Clear screen
             context.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Check if video is truly usable
-            if (isVideoReady && video.videoWidth > 0 && video.videoHeight > 0) {
-                try {
-                    drawVideoFullscreen();
-                    processFrame();
-                } catch (e) {
-                    console.warn("Frame error:", e);
-                }
+            if (isVideoReady && video.videoWidth > 0) {
+                drawVideoFullscreen();
+                processFrame();
             } else {
-                // Draw Loading Screen
-                context.fillStyle = "black";
-                context.fillRect(0, 0, canvas.width, canvas.height);
-                context.fillStyle = "white";
-                context.font = "20px sans-serif";
-                context.textAlign = "center";
-                context.fillText("Loading Camera...", canvas.width / 2, canvas.height / 2);
+                drawLoading();
             }
         }
 
@@ -183,25 +149,15 @@
             const ch = canvas.height;
             const vw = video.videoWidth;
             const vh = video.videoHeight;
-
-            // Calculate "object-fit: cover" scaling
             const rV = vw / vh;
             const rC = cw / ch;
-
             let sx, sy, sw, sh;
 
             if (rV < rC) {
-                sw = vw;
-                sh = vw / rC;
-                sx = 0;
-                sy = (vh - sh) / 2;
+                sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2;
             } else {
-                sh = vh;
-                sw = vh * rC;
-                sx = (vw - sw) / 2;
-                sy = 0;
+                sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0;
             }
-
             context.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
@@ -210,7 +166,10 @@
             const markers = detector.detect(imageData);
 
             markers.forEach(marker => {
-                // Center coordinates for 3D Pose estimation
+                // 1. Draw Red Box around the marker
+                drawRedBox(marker.corners);
+
+                // 2. Prepare for 3D Pose
                 const cornersCentered = marker.corners.map(c => ({
                     x: c.x - (canvas.width / 2),
                     y: (canvas.height / 2) - c.y
@@ -221,80 +180,72 @@
                 if (pose) {
                     const rot = pose.bestRotation;
                     const trans = pose.bestTranslation;
-
                     drawAxis(rot, trans, markerSize);
                     drawMarkerID(rot, trans, marker.id);
                 }
             });
         }
 
-        // Project 3D point -> 2D Canvas
+        function drawRedBox(corners) {
+            context.lineWidth = 4;
+            context.strokeStyle = "red"; // Red Box Color
+            context.beginPath();
+            
+            corners.forEach((c, i) => {
+                if (i === 0) context.moveTo(c.x, c.y);
+                else context.lineTo(c.x, c.y);
+            });
+            
+            context.closePath(); // Connect back to start
+            context.stroke();
+        }
+
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
             const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
-
-            // Prevent division by zero or negative Z
             if (z <= 0) return { x: -100, y: -100 };
-
             const scale = canvas.width / z;
-            return {
-                x: x * scale + (canvas.width / 2),
-                y: (canvas.height / 2) - y * scale
-            };
+            return { x: x * scale + (canvas.width / 2), y: (canvas.height / 2) - y * scale };
         }
 
         function drawAxis(rot, trans, len) {
-            const origin = [0, 0, 0];
-            const axisX = [len, 0, 0];
-            const axisY = [0, len, 0];
-            const axisZ = [0, 0, len];
-
-            const p0 = project(origin, rot, trans);
-            const pX = project(axisX, rot, trans);
-            const pY = project(axisY, rot, trans);
-            const pZ = project(axisZ, rot, trans);
+            const origin = project([0, 0, 0], rot, trans);
+            const axisX = project([len, 0, 0], rot, trans);
+            const axisY = project([0, len, 0], rot, trans);
+            const axisZ = project([0, 0, len], rot, trans);
 
             context.lineWidth = 5;
-            context.lineCap = "round";
+            
+            context.strokeStyle = "red";
+            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisX.x, axisX.y); context.stroke();
 
-            // Draw X (Red)
-            context.beginPath();
-            context.strokeStyle = "#FF4444"; 
-            context.moveTo(p0.x, p0.y);
-            context.lineTo(pX.x, pX.y);
-            context.stroke();
+            context.strokeStyle = "green";
+            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisY.x, axisY.y); context.stroke();
 
-            // Draw Y (Green)
-            context.beginPath();
-            context.strokeStyle = "#44FF44";
-            context.moveTo(p0.x, p0.y);
-            context.lineTo(pY.x, pY.y);
-            context.stroke();
-
-            // Draw Z (Blue)
-            context.beginPath();
-            context.strokeStyle = "#4444FF";
-            context.moveTo(p0.x, p0.y);
-            context.lineTo(pZ.x, pZ.y);
-            context.stroke();
+            context.strokeStyle = "blue";
+            context.beginPath(); context.moveTo(origin.x, origin.y); context.lineTo(axisZ.x, axisZ.y); context.stroke();
         }
 
         function drawMarkerID(rot, trans, id) {
             const p0 = project([0, 0, 0], rot, trans);
-
             context.font = "bold 28px monospace";
             context.textAlign = "left";
             context.textBaseline = "bottom";
-            
-            // Black outline
-            context.strokeStyle = "black";
             context.lineWidth = 4;
+            context.strokeStyle = "black";
             context.strokeText(`ID:${id}`, p0.x + 15, p0.y);
-
-            // Cyan fill
             context.fillStyle = "#00FFFF";
             context.fillText(`ID:${id}`, p0.x + 15, p0.y);
+        }
+
+        function drawLoading() {
+            context.fillStyle = "black";
+            context.fillRect(0, 0, canvas.width, canvas.height);
+            context.fillStyle = "white";
+            context.font = "20px sans-serif";
+            context.textAlign = "center";
+            context.fillText("Loading Camera...", canvas.width / 2, canvas.height / 2);
         }
     </script>
 </body>
