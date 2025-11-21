@@ -11,55 +11,65 @@
             width: 100%;
             height: 100%;
             background-color: #000;
-            overflow: hidden; /* Prevent scrolling */
+            overflow: hidden;
         }
 
-        /* The canvas fills the entire screen */
+        /* Canvas fills the screen */
         canvas {
             display: block;
             width: 100%;
             height: 100%;
         }
 
-        /* Hidden video element, used only as data source */
+        /* 
+           FIX: Do not use display:none. 
+           Some browsers stop updating the video texture if it's not "visible".
+           We use opacity:0 and fixed positioning instead.
+        */
         video {
-            display: none;
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
         }
 
-        /* Floating camera switch button */
+        /* Button Styling */
         #camBtn {
             position: absolute;
-            bottom: 20px;
+            bottom: 30px;
             right: 20px;
             z-index: 100;
-            background: rgba(255, 255, 255, 0.2);
-            border: 1px solid white;
+            background: rgba(40, 40, 40, 0.6);
+            border: 1px solid #888;
             color: white;
-            padding: 10px 20px;
-            border-radius: 20px;
+            padding: 12px 24px;
+            border-radius: 30px;
             font-family: sans-serif;
+            font-size: 14px;
             font-weight: bold;
             cursor: pointer;
-            backdrop-filter: blur(5px);
-            -webkit-backdrop-filter: blur(5px);
+            backdrop-filter: blur(4px);
+            -webkit-backdrop-filter: blur(4px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
         #camBtn:active {
-            background: rgba(255, 255, 255, 0.5);
+            background: rgba(80, 80, 80, 0.8);
         }
     </style>
 </head>
 <body>
 
-    <!-- Switch Camera Button -->
     <button id="camBtn">Switch Camera</button>
 
-    <!-- Video Source (Hidden) -->
+    <!-- Video element kept in DOM but invisible -->
     <video id="video" playsinline muted autoplay></video>
     
-    <!-- Fullscreen Drawing Canvas -->
     <canvas id="canvas"></canvas>
 
-    <!-- Libraries -->
+    <!-- Load Libraries -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -71,27 +81,23 @@
         const context = canvas.getContext('2d', { willReadFrequently: true });
         const camBtn = document.getElementById('camBtn');
 
-        // Configuration
-        let currentFacingMode = 'environment'; // Start with rear camera
-        const markerSize = 50.0; // Physical marker size in mm
+        let currentFacingMode = 'environment'; // 'environment' = rear, 'user' = front
+        const markerSize = 50.0; // Marker size in mm
 
         let detector = null;
         let posit = null;
-        let animationId = null;
         let stream = null;
+        let isVideoReady = false;
 
-        // 1. Initialize
+        // Initialize
         window.onload = () => {
             detector = new AR.Detector();
             startCamera();
+            requestAnimationFrame(tick);
         };
 
-        // Handle window resize
-        window.addEventListener('resize', () => {
-            resizeCanvas();
-        });
+        window.addEventListener('resize', resizeCanvas);
 
-        // Handle camera switch
         camBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
@@ -100,23 +106,27 @@
         function resizeCanvas() {
             canvas.width = window.innerWidth;
             canvas.height = window.innerHeight;
-            // Re-initialize POSIT with new canvas width as focal length approximation
             if (canvas.width > 0) {
+                // Re-init POSIT with new focal length (canvas width)
                 posit = new POS.Posit(markerSize, canvas.width);
             }
         }
 
         function startCamera() {
-            // Stop existing stream if any
+            isVideoReady = false;
+
+            // Stop previous stream
             if (stream) {
                 stream.getTracks().forEach(track => track.stop());
-                cancelAnimationFrame(animationId);
             }
 
             const constraints = {
                 audio: false,
                 video: {
-                    facingMode: currentFacingMode
+                    facingMode: currentFacingMode,
+                    // Requesting a standard resolution helps compatibility
+                    width: { ideal: 1280 },
+                    height: { ideal: 720 }
                 }
             };
 
@@ -124,45 +134,68 @@
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
-                    video.onloadedmetadata = () => {
-                        resizeCanvas();
-                        requestAnimationFrame(tick);
-                    };
+                    // FIX: Explicitly call play() to ensure flow
+                    video.play().catch(e => console.log("Play error:", e));
                 })
                 .catch(err => {
                     console.error("Camera Error:", err);
-                    alert("Could not access camera. Ensure you are on HTTPS/Localhost.");
+                    alert("Camera access failed. Check permissions and HTTPS.");
                 });
         }
 
+        // Wait for video metadata to ensure dimensions are known
+        video.addEventListener('loadedmetadata', () => {
+            resizeCanvas();
+        });
+
+        video.addEventListener('canplay', () => {
+            // Ready to draw
+            isVideoReady = true;
+        });
+
         function tick() {
-            if (video.readyState === video.HAVE_ENOUGH_DATA) {
-                drawVideoFullscreen();
-                processFrame();
+            requestAnimationFrame(tick);
+
+            // Clear screen
+            context.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Check if video is truly usable
+            if (isVideoReady && video.videoWidth > 0 && video.videoHeight > 0) {
+                try {
+                    drawVideoFullscreen();
+                    processFrame();
+                } catch (e) {
+                    console.warn("Frame error:", e);
+                }
+            } else {
+                // Draw Loading Screen
+                context.fillStyle = "black";
+                context.fillRect(0, 0, canvas.width, canvas.height);
+                context.fillStyle = "white";
+                context.font = "20px sans-serif";
+                context.textAlign = "center";
+                context.fillText("Loading Camera...", canvas.width / 2, canvas.height / 2);
             }
-            animationId = requestAnimationFrame(tick);
         }
 
-        // Helper to draw video covering the canvas (like object-fit: cover)
         function drawVideoFullscreen() {
             const cw = canvas.width;
             const ch = canvas.height;
             const vw = video.videoWidth;
             const vh = video.videoHeight;
 
+            // Calculate "object-fit: cover" scaling
             const rV = vw / vh;
             const rC = cw / ch;
 
             let sx, sy, sw, sh;
 
             if (rV < rC) {
-                // Video is taller than canvas (crop top/bottom)
                 sw = vw;
                 sh = vw / rC;
                 sx = 0;
                 sy = (vh - sh) / 2;
             } else {
-                // Video is wider than canvas (crop left/right)
                 sh = vh;
                 sw = vh * rC;
                 sx = (vw - sw) / 2;
@@ -173,47 +206,38 @@
         }
 
         function processFrame() {
-            // Get visual data from canvas
             const imageData = context.getImageData(0, 0, canvas.width, canvas.height);
             const markers = detector.detect(imageData);
 
-            drawDebug(markers);
-        }
-
-        function drawDebug(markers) {
             markers.forEach(marker => {
-                // 1. Convert corners to centered coordinates for POSIT
-                const cornersCentered = marker.corners.map(c => {
-                    return {
-                        x: c.x - (canvas.width / 2),
-                        y: (canvas.height / 2) - c.y // Y axis inverted in standard CV/GL 
-                    };
-                });
+                // Center coordinates for 3D Pose estimation
+                const cornersCentered = marker.corners.map(c => ({
+                    x: c.x - (canvas.width / 2),
+                    y: (canvas.height / 2) - c.y
+                }));
 
-                // 2. Estimate Pose
                 const pose = posit.pose(cornersCentered);
 
                 if (pose) {
                     const rot = pose.bestRotation;
                     const trans = pose.bestTranslation;
 
-                    // 3. Draw Coordinate System
                     drawAxis(rot, trans, markerSize);
-
-                    // 4. Draw ID next to the axis origin
                     drawMarkerID(rot, trans, marker.id);
                 }
             });
         }
 
-        // Project 3D point to 2D screen space
+        // Project 3D point -> 2D Canvas
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
             const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
 
+            // Prevent division by zero or negative Z
+            if (z <= 0) return { x: -100, y: -100 };
+
             const scale = canvas.width / z;
-            
             return {
                 x: x * scale + (canvas.width / 2),
                 y: (canvas.height / 2) - y * scale
@@ -234,46 +258,44 @@
             context.lineWidth = 5;
             context.lineCap = "round";
 
-            // X Axis (Red)
+            // Draw X (Red)
             context.beginPath();
-            context.strokeStyle = "#ff0000";
+            context.strokeStyle = "#FF4444"; 
             context.moveTo(p0.x, p0.y);
             context.lineTo(pX.x, pX.y);
             context.stroke();
 
-            // Y Axis (Green)
+            // Draw Y (Green)
             context.beginPath();
-            context.strokeStyle = "#00ff00";
+            context.strokeStyle = "#44FF44";
             context.moveTo(p0.x, p0.y);
             context.lineTo(pY.x, pY.y);
             context.stroke();
 
-            // Z Axis (Blue)
+            // Draw Z (Blue)
             context.beginPath();
-            context.strokeStyle = "#0000ff";
+            context.strokeStyle = "#4444FF";
             context.moveTo(p0.x, p0.y);
             context.lineTo(pZ.x, pZ.y);
             context.stroke();
         }
 
         function drawMarkerID(rot, trans, id) {
-            const origin = [0, 0, 0];
-            const p0 = project(origin, rot, trans);
+            const p0 = project([0, 0, 0], rot, trans);
 
-            context.font = "bold 24px monospace";
+            context.font = "bold 28px monospace";
             context.textAlign = "left";
             context.textBaseline = "bottom";
             
-            // Text Shadow (Stroke) for visibility
+            // Black outline
             context.strokeStyle = "black";
-            context.lineWidth = 3;
-            context.strokeText(`ID: ${id}`, p0.x + 10, p0.y - 10);
+            context.lineWidth = 4;
+            context.strokeText(`ID:${id}`, p0.x + 15, p0.y);
 
-            // Text Fill
-            context.fillStyle = "#00FFFF"; // Cyan
-            context.fillText(`ID: ${id}`, p0.x + 10, p0.y - 10);
+            // Cyan fill
+            context.fillStyle = "#00FFFF";
+            context.fillText(`ID:${id}`, p0.x + 15, p0.y);
         }
-
     </script>
 </body>
 </html>
