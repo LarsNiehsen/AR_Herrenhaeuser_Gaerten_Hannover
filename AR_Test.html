@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ArUco mit Three.js</title>
+    <title>Herrenhäuser Gärten Hannover - AR mit ArUco und threeJS</title>
     <style>
         body, html {
             margin: 0;
@@ -14,33 +14,43 @@
             overflow: hidden;
         }
 
-        /* Container für Video und 3D-Canvas übereinander */
+        /* Container für die Layer */
         #container {
             position: relative;
-            width: 100vw;
-            height: 100vh;
+            width: 100%;
+            height: 100%;
         }
 
-        /* Das Webcam-Video im Hintergrund */
-        #video {
+        /* Layer 1: Das Video-Canvas (Hintergrund, 2D) */
+        #videoCanvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            object-fit: cover; /* Füllt den Bildschirm */
             z-index: 1;
         }
 
-        /* Das Three.js Canvas transparent darüber */
-        #canvas {
+        /* Layer 2: Das Three.js-Canvas (Vordergrund, 3D, Transparent) */
+        #threeCanvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
             z-index: 2;
-            pointer-events: none; /* Klicks gehen durch zum Video/UI */
+            pointer-events: none; /* Klicks gehen durch */
+        }
+
+        /* Das unsichtbare Video-Element (Quelle) */
+        video {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0;
+            pointer-events: none;
         }
 
         /* UI Button */
@@ -58,7 +68,7 @@
             font-weight: bold;
             cursor: pointer;
         }
-        
+
         #loadingText {
             position: absolute;
             top: 50%; left: 50%;
@@ -66,7 +76,7 @@
             color: white;
             font-family: sans-serif;
             z-index: 50;
-            display: block;
+            pointer-events: none;
         }
     </style>
 </head>
@@ -75,59 +85,61 @@
     <div id="container">
         <div id="loadingText">Kamera wird geladen...</div>
         <button id="camBtn">Kamera wechseln</button>
-        
-        <!-- Video sichtbar im Hintergrund -->
+
+        <!-- Video Quelle -->
         <video id="video" playsinline muted autoplay></video>
         
-        <!-- Three.js rendert hier hinein -->
-        <canvas id="canvas"></canvas>
+        <!-- Layer 1: 2D Video Zeichnung -->
+        <canvas id="videoCanvas"></canvas>
+        
+        <!-- Layer 2: 3D Overlay -->
+        <canvas id="threeCanvas"></canvas>
     </div>
 
-    <!-- 1. JS-ArUco Bibliotheken -->
+    <!-- ArUco Libs -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
 
-    <!-- 2. Three.js Bibliothek -->
+    <!-- Three.js Lib -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 
     <script>
         // --- KONFIGURATION ---
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const markerSize = 50.0; // mm
+        const markerSize = 100.0; // mm
         // ---------------------
 
         const video = document.getElementById('video');
-        const canvas = document.getElementById('canvas');
+        const videoCanvas = document.getElementById('videoCanvas');
+        const threeCanvas = document.getElementById('threeCanvas');
         const camBtn = document.getElementById('camBtn');
         const loadingText = document.getElementById('loadingText');
 
-        // ArUco Variablen
-        let detector, posit;
+        // Kontexte
+        const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
         
-        // Three.js Variablen
+        // Globale Variablen
+        let detector, posit;
         let renderer, scene, camera;
-        let cubeGroup; // Container für den gelben Würfel (ID 0)
-        let axisHelper; // Standard Achsenkreuz für andere IDs
-        let rotatingMesh; // Der eigentliche Würfel, der sich dreht
-
+        let cubeGroup, axisHelper, rotatingMesh;
+        
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
         // Initialisierung
         window.onload = () => {
-            // 1. ArUco initialisieren
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
 
-            // 2. Three.js initialisieren
+            // Three.js einrichten
             initThreeJS();
 
-            // 3. Kamera starten
+            // Kamera starten (Alte, funktionierende Logik)
             startCamera();
-
-            // 4. Loop starten
+            
+            // Loop starten
             requestAnimationFrame(tick);
         };
 
@@ -138,81 +150,89 @@
             startCamera();
         });
 
+        // --- Three.js Setup ---
         function initThreeJS() {
-            // Renderer mit transparentem Hintergrund
-            renderer = new THREE.WebGLRenderer({ canvas: canvas, alpha: true, antialias: true });
+            // Renderer mit alpha: true für Transparenz
+            renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
 
-            // Szene
             scene = new THREE.Scene();
 
-            // Kamera
-            // Wir setzen FOV auf ca 40-45 Grad. Das POSIT-System nimmt die Bildbreite als Brennweite an.
-            // Um das exakt zu matchen, müsste man FOV dynamisch berechnen, aber 42° ist ein guter Startwert für Handys.
-            camera = new THREE.PerspectiveCamera(42, window.innerWidth / window.innerHeight, 1, 10000);
+            // Kamera Setup
+            // Wir passen das FOV später an, damit es zum ArUco Algorithmus passt
+            camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
             scene.add(camera);
 
             // Licht
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.5);
             scene.add(ambientLight);
             const dirLight = new THREE.DirectionalLight(0xffffff, 0.8);
-            dirLight.position.set(0, 10, 10);
+            dirLight.position.set(0, 0, 10); // Licht von vorne
             scene.add(dirLight);
 
-            // --- OBJEKT 1: Der gelbe Würfel (für ID 0) ---
-            cubeGroup = new THREE.Group(); // Container für Positionierung
-            
+            // --- Objekt: Gelber Würfel (ID 0) ---
+            cubeGroup = new THREE.Group();
+
             // Geometrie
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
-            // Halbtransparentes gelbes Material
             const material = new THREE.MeshPhongMaterial({ 
                 color: 0xffff00, 
                 opacity: 0.7, 
-                transparent: true,
-                side: THREE.DoubleSide
+                transparent: true 
             });
-            
+
             rotatingMesh = new THREE.Mesh(geometry, material);
-            // Den Würfel um die Hälfte nach oben schieben, damit er AUF dem Marker steht, nicht halb darin
-            rotatingMesh.position.z = markerSize / 2; 
+            rotatingMesh.position.z = markerSize / 2; // Auf den Marker setzen
             
-            // Drahtgitter (Edges) für schönere Optik
+            // Kanten (Wireframe)
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             line.position.z = markerSize / 2;
-            
-            // Alles in eine Gruppe packen, damit wir "rotatingMesh" drehen können, 
-            // während "cubeGroup" dem Marker folgt.
+
             const innerGroup = new THREE.Group();
             innerGroup.add(rotatingMesh);
             innerGroup.add(line);
             
             cubeGroup.add(innerGroup);
-            
             scene.add(cubeGroup);
-            cubeGroup.visible = false; // Startet unsichtbar
-
-            // --- OBJEKT 2: Achsenkreuz (für andere IDs) ---
+            
+            // --- Objekt: Achsen (Andere IDs) ---
             axisHelper = new THREE.AxesHelper(markerSize * 1.5);
             scene.add(axisHelper);
-            axisHelper.visible = false;
         }
 
         function onResize() {
             const w = window.innerWidth;
             const h = window.innerHeight;
+
+            videoCanvas.width = w;
+            videoCanvas.height = h;
             
             renderer.setSize(w, h);
-            camera.aspect = w / h;
-            camera.updateProjectionMatrix();
-
+            
+            // ArUco Posit initialisieren (Focal Length = Canvas Width)
             if (w > 0) {
-                // POSIT neu initialisieren mit aktueller Breite als Brennweite
                 posit = new POS.Posit(markerSize, w);
+                updateThreeJSCamera(w, h);
             }
         }
 
+        // WICHTIG: Three.js Kamera exakt an ArUco Mathematik anpassen
+        function updateThreeJSCamera(canvasWidth, canvasHeight) {
+            // Der POSIT-Algorithmus nimmt an, dass die Brennweite (Focal Length) gleich der Bildbreite ist.
+            // Three.js braucht vertikales FOV in Grad.
+            // Formel: fov = 2 * atan( (height / 2) / focal_length )
+            const focalLength = canvasWidth; 
+            const fovRad = 2 * Math.atan((canvasHeight / 2) / focalLength);
+            const fovDeg = fovRad * (180 / Math.PI);
+
+            camera.fov = fovDeg;
+            camera.aspect = canvasWidth / canvasHeight;
+            camera.updateProjectionMatrix();
+        }
+
+        // --- Funktionierende Kamera-Logik (Original) ---
         function startCamera() {
             isVideoReady = false;
             if (stream) stream.getTracks().forEach(t => t.stop());
@@ -230,54 +250,49 @@
                 .then(s => {
                     stream = s;
                     video.srcObject = stream;
-                    video.play();
+                    // Wichtig: Explizit play aufrufen
+                    video.play().catch(e => console.log("Play error", e));
                 })
                 .catch(err => {
+                    console.error(err);
                     alert("Kamera Fehler: " + err.name);
                 });
         }
 
         video.addEventListener('loadedmetadata', () => {
             onResize();
-            loadingText.style.display = 'none';
             isVideoReady = true;
+            loadingText.style.display = 'none';
         });
 
+        // --- Hauptschleife ---
         function tick() {
             requestAnimationFrame(tick);
 
-            // 1. Drehanimation aktualisieren (Mesh dreht sich im lokalen System)
+            // 1. Animation des Würfels (lokal)
             if (rotatingMesh) {
                 rotatingMesh.rotation.z += 0.05;
                 rotatingMesh.rotation.x += 0.02;
-                // Das Drahtgitter auch mitdrehen (es ist im gleichen Parent, aber wir haben es getrennt angelegt)
-                // Besser: Wir drehen die innerGroup, siehe initThreeJS.
-                rotatingMesh.parent.rotation.z += 0.02; 
+                // Kanten mitdrehen
+                rotatingMesh.parent.children[1].rotation.z += 0.05;
+                rotatingMesh.parent.children[1].rotation.x += 0.02;
             }
 
-            // 2. Objekte ausblenden (werden aktiviert, wenn Marker gefunden)
+            // 2. Alle 3D Objekte verstecken (werden bei Fund eingeblendet)
             cubeGroup.visible = false;
             axisHelper.visible = false;
 
             if (isVideoReady && video.videoWidth > 0) {
-                
-                // --- AR Logik ---
-                // Wir nutzen ein unsichtbares 2D-Canvas für die Bilddaten-Analyse
-                // Hier erstellen wir es on-the-fly oder nutzen ein kleines Helper-Canvas
-                // Da getImageData teuer ist, ist es besser, ein kleines Canvas zu haben.
-                // Der Einfachheit halber lesen wir direkt vom Renderer-Canvas Kontext? Nein, das ist leer.
-                // Wir müssen ein temporäres Canvas erstellen, um das Video zu lesen.
-                
-                const cvCanvas = document.createElement('canvas');
-                cvCanvas.width = video.videoWidth;
-                cvCanvas.height = video.videoHeight;
-                const cvContext = cvCanvas.getContext('2d', { willReadFrequently: true });
-                cvContext.drawImage(video, 0, 0);
-                const imageData = cvContext.getImageData(0, 0, cvCanvas.width, cvCanvas.height);
+                // 3. Video auf das 2D Canvas im Hintergrund zeichnen (Fullscreen-Logik)
+                drawVideoFullscreen();
 
+                // 4. Bilddaten vom 2D Canvas holen (das ist, was der User sieht)
+                const imageData = context2D.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
+                
+                // 5. Marker erkennen
                 let markers = detector.detect(imageData);
 
-                // Filter: Kleine Marker ignorieren
+                // Filter: Kleine Fehler aussortieren
                 markers = markers.filter(m => {
                     const dx = m.corners[0].x - m.corners[1].x;
                     const dy = m.corners[0].y - m.corners[1].y;
@@ -286,21 +301,9 @@
 
                 markers.forEach(marker => {
                     // Pose berechnen
-                    // POSIT erwartet zentrierte Koordinaten relativ zum Bild
-                    const corners = marker.corners;
-                    
-                    // Skalierung beachten! Das Video hat videoWidth, der Screen hat window.innerWidth.
-                    // POSIT arbeitet auf Pixeln. Wir müssen die Pose basierend auf den Videopixeln berechnen
-                    // und dann Three.js anpassen.
-                    // Da unser Three.js Canvas den ganzen Screen füllt und das Video "covered",
-                    // ist es einfacher, die Pose basierend auf der angezeigten Größe zu berechnen.
-                    
-                    // Wir müssen die Video-Koordinaten in Screen-Koordinaten umrechnen ("object-fit: cover" Logik)
-                    const screenCorners = convertVideoToScreenCoords(corners);
-
-                    const cornersCentered = screenCorners.map(c => ({
-                        x: c.x - (canvas.width / 2),
-                        y: (canvas.height / 2) - c.y
+                    const cornersCentered = marker.corners.map(c => ({
+                        x: c.x - (videoCanvas.width / 2),
+                        y: (videoCanvas.height / 2) - c.y
                     }));
 
                     const pose = posit.pose(cornersCentered);
@@ -309,88 +312,55 @@
                         const rot = pose.bestRotation;
                         const trans = pose.bestTranslation;
 
-                        let targetObj = null;
-
-                        if (marker.id === 0) {
-                            targetObj = cubeGroup;
-                        } else {
-                            targetObj = axisHelper;
-                        }
-
-                        if (targetObj) {
-                            targetObj.visible = true;
-                            updateObjectPose(targetObj, rot, trans);
-                        }
+                        // Objekt auswählen
+                        let object3D = (marker.id === 0) ? cubeGroup : axisHelper;
+                        
+                        object3D.visible = true;
+                        updateObjectPose(object3D, rot, trans);
                     }
                 });
             }
 
+            // 6. Three.js Szene rendern (über das Video)
             renderer.render(scene, camera);
         }
 
-        // Hilfsfunktion: Video-Pixelkoordinaten -> Screen-Koordinaten (wegen object-fit: cover)
-        function convertVideoToScreenCoords(corners) {
+        function drawVideoFullscreen() {
+            const cw = videoCanvas.width;
+            const ch = videoCanvas.height;
             const vw = video.videoWidth;
             const vh = video.videoHeight;
-            const cw = canvas.width;
-            const ch = canvas.height;
 
             const rV = vw / vh;
             const rC = cw / ch;
-
-            // Skalierungsfaktor berechnen
-            let scale, offsetX, offsetY;
+            let sx, sy, sw, sh;
 
             if (rV < rC) {
-                // Video ist schmaler als Screen -> Breite wird angepasst
-                scale = cw / vw;
-                offsetX = 0;
-                offsetY = (ch - (vh * scale)) / 2;
+                sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2;
             } else {
-                // Video ist breiter als Screen -> Höhe wird angepasst
-                scale = ch / vh;
-                offsetX = (cw - (vw * scale)) / 2;
-                offsetY = 0;
+                sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0;
             }
-
-            return corners.map(c => ({
-                x: c.x * scale + offsetX,
-                y: c.y * scale + offsetY
-            }));
+            context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
-        // Kernfunktion: Überträgt ArUco Pose auf Three.js Objekt
         function updateObjectPose(object3D, rotation, translation) {
-            // 1. Position übertragen
-            // ArUco: X rechts, Y unten, Z vorwärts
-            // Three.js Kamera schaut nach -Z. 
-            // Umrechnung: x -> x, y -> -y, z -> -z
-            
+            // Koordinatensystem anpassen (ArUco -> Three.js)
+            // Position: y und z invertieren
             object3D.position.x = translation[0];
-            object3D.position.y = -translation[1]; // Y invertieren
-            object3D.position.z = -translation[2]; // Z invertieren
+            object3D.position.y = -translation[1]; 
+            object3D.position.z = -translation[2]; 
 
-            // 2. Rotation übertragen
-            // ArUco liefert eine 3x3 Rotationsmatrix [row][col]
-            // Wir bauen eine Three.js Matrix4
+            // Rotation: Matrix übertragen und y/z Zeilen invertieren
             const m = new THREE.Matrix4();
             const r = rotation;
-
-            // Wir füllen die Matrix. 
-            // Dabei müssen wir die gleichen Achsen-Invertierungen (Y und Z) auf die Rotation anwenden.
-            // Das entspricht einer Rotation der Basisvektoren.
-            
             m.set(
                  r[0][0],  r[0][1],  r[0][2],  0,
-                -r[1][0], -r[1][1], -r[1][2],  0, // Y-Zeile invertiert
-                -r[2][0], -r[2][1], -r[2][2],  0, // Z-Zeile invertiert
+                -r[1][0], -r[1][1], -r[1][2],  0, 
+                -r[2][0], -r[2][1], -r[2][2],  0, 
                  0,        0,        0,        1
             );
-
-            // Da die Rotation relativ zum Objektzentrum ist, wenden wir sie an
             object3D.quaternion.setFromRotationMatrix(m);
         }
-
     </script>
 </body>
 </html>
