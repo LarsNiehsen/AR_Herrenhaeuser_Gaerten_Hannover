@@ -1,189 +1,179 @@
 <!DOCTYPE html>
-<html>
+<html lang="en">
 <head>
-    <meta charset="utf-8">
-    <title>Pixel 8a - Class-based ArucoDetector</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+    <meta charset="UTF-8">
+    <title>Pixel 8a Debug Fix</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <style>
-        body { margin: 0; padding: 0; background-color: #000; overflow: hidden; }
-        #container { position: relative; width: 100vw; height: 100vh; display: flex; justify-content: center; align-items: center; }
-        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; }
-        video { display: none; }
-        #status {
-            position: absolute; top: 20px; left: 20px; 
-            color: #00ff00; background: rgba(0,0,0,0.8); 
-            padding: 10px 15px; font-family: monospace; font-size: 16px; font-weight: bold;
-            z-index: 10; border: 2px solid #00ff00; border-radius: 8px; pointer-events: none;
+        body { margin: 0; background-color: #000; color: #fff; font-family: monospace; overflow: hidden; }
+        
+        /* Video and Canvas stacked */
+        #container { position: relative; width: 100vw; height: 100vh; background: #222; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 2; }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: contain; z-index: 1; }
+
+        /* On-screen Debug Log */
+        #logs {
+            position: absolute; bottom: 0; left: 0; width: 100%; height: 150px;
+            background: rgba(0, 0, 0, 0.85); overflow-y: scroll; 
+            z-index: 10; padding: 10px; box-sizing: border-box; font-size: 11px;
+            border-top: 2px solid #00ff00;
         }
+        .log-entry { margin-bottom: 2px; border-bottom: 1px solid #333; }
+        .error { color: #ff5555; }
+        .success { color: #55ff55; }
+        .info { color: #aaaaaa; }
     </style>
 </head>
 <body>
 
-<div id="status">Loading OpenCV 4.10.0...</div>
-
 <div id="container">
-    <video id="videoInput" playsinline webkit-playsinline></video>
+    <video id="videoInput" playsinline webkit-playsinline muted autoplay></video>
     <canvas id="canvasOutput"></canvas>
+    <div id="logs"></div>
 </div>
+
+<script>
+    // --- UTILS: On-Screen Logging ---
+    function log(msg, type='info') {
+        const logDiv = document.getElementById('logs');
+        const entry = document.createElement('div');
+        entry.className = `log-entry ${type}`;
+        entry.textContent = `[${new Date().toLocaleTimeString()}] ${msg}`;
+        logDiv.appendChild(entry);
+        logDiv.scrollTop = logDiv.scrollHeight; // Auto-scroll
+        console.log(msg);
+    }
+</script>
 
 <!-- Load OpenCV -->
 <script>
     var Module = {
         onRuntimeInitialized: function() {
-            document.getElementById('status').innerText = "OpenCV Ready. Opening Camera...";
+            log("OpenCV WASM Loaded!", "success");
             startCamera();
+        },
+        onError: function(err) {
+            log("OpenCV Failed to Load: " + err, "error");
         }
     };
 </script>
 <script async src="https://docs.opencv.org/4.10.0/opencv.js" type="text/javascript"></script>
 
-<script type="text/javascript">
+<script>
     let video = document.getElementById('videoInput');
     let canvas = document.getElementById('canvasOutput');
-    let status = document.getElementById('status');
-
-    // OpenCV Objects
-    let cap = null;
-    let src = null;
     
-    // New Class-Based Objects
-    let dictionary = null;
-    let params = null;
-    let detector = null; // This will hold the cv::aruco::ArucoDetector instance
-    
-    // Output Containers
-    let markerCorners = null;
-    let markerIds = null;
-    let rejectedCandidates = null; // Class-based detection often requires this container
+    // OpenCV objects
+    let cap = null, src = null, dictionary = null, markerCorners = null, markerIds = null, detector = null;
 
     async function startCamera() {
-        const constraints = {
-            video: {
-                facingMode: { exact: "environment" },
-                width: { ideal: 1920 },
-                height: { ideal: 1080 }
-            },
-            audio: false
+        log("Requesting Camera Permission...", "info");
+
+        // STRATEGY 1: Try Environment (Rear) loosely
+        // We removed 'exact', 'width', and 'height' to prevent hanging
+        const constraints1 = { 
+            video: { facingMode: "environment" }, 
+            audio: false 
         };
 
+        // STRATEGY 2: Fallback to ANY camera
+        const constraints2 = { 
+            video: true, 
+            audio: false 
+        };
+
+        let stream = null;
+
         try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
-            video.srcObject = stream;
-            video.play();
-            requestAnimationFrame(processVideo);
-        } catch(err) {
-            console.warn("Retrying with loose constraints...");
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } })
-                .then(s => {
-                    video.srcObject = s;
-                    video.play();
-                    requestAnimationFrame(processVideo);
-                })
-                .catch(e => {
-                    status.innerText = "Camera Error: " + e;
-                    status.style.color = "red";
-                });
+            stream = await navigator.mediaDevices.getUserMedia(constraints1);
+            log("Camera Access Granted (Strategy 1)", "success");
+        } catch (err) {
+            log("Strategy 1 Failed (" + err.name + "). Trying Strategy 2...", "error");
+            try {
+                stream = await navigator.mediaDevices.getUserMedia(constraints2);
+                log("Camera Access Granted (Strategy 2)", "success");
+            } catch (err2) {
+                log("FATAL: Could not open any camera. " + err2.name, "error");
+                return;
+            }
         }
+
+        // Attach stream
+        video.srcObject = stream;
+        
+        // Wait for video to be ready
+        video.onloadedmetadata = () => {
+            log(`Video Metadata: ${video.videoWidth}x${video.videoHeight}`, "info");
+            video.play().then(() => {
+                log("Video Playing. Initializing OpenCV...", "success");
+                initOpenCV(video.videoWidth, video.videoHeight);
+                requestAnimationFrame(processVideo);
+            }).catch(e => log("Play() Error: " + e, "error"));
+        };
     }
 
-    function initOpenCVObjects(width, height) {
-        // 1. Cleanup old memory
+    function initOpenCV(w, h) {
         if(src) src.delete();
-        if(markerCorners) markerCorners.delete();
-        if(markerIds) markerIds.delete();
-        if(rejectedCandidates) rejectedCandidates.delete();
-        if(dictionary) dictionary.delete();
-        if(params) params.delete();
-        if(detector) detector.delete();
-
-        // 2. Setup Matrices
-        src = new cv.Mat(height, width, cv.CV_8UC4);
+        src = new cv.Mat(h, w, cv.CV_8UC4);
         markerCorners = new cv.MatVector();
         markerIds = new cv.Mat();
-        rejectedCandidates = new cv.MatVector();
         
-        // 3. Setup Class-Based Detection (The "New" Way)
-        
-        // A. Dictionary
+        // Setup Dictionary (6x6)
         dictionary = cv.getPredefinedDictionary(cv.DICT_6X6_250);
         
-        // B. Parameters
-        params = new cv.aruco_DetectorParameters();
+        // Setup Detector Parameters
+        let params = new cv.aruco_DetectorParameters();
         
-        // Optional: Tweak parameters for better Android performance
-        // params.adaptiveThreshWinSizeMin = 3;
-        // params.adaptiveThreshWinSizeMax = 23;
-        // params.adaptiveThreshWinSizeStep = 10;
-
-        // C. The Detector Class
-        // In JS bindings, C++ classes often use underscore notation: cv::aruco::ArucoDetector -> cv.aruco_ArucoDetector
+        // Create Detector
         try {
             detector = new cv.aruco_ArucoDetector(dictionary, params);
+            log("ArucoDetector Created", "success");
         } catch(e) {
-            // Fallback if class not found (older builds), though 4.10.0 works
-            console.error("ArucoDetector class creation failed:", e);
+            log("Failed to create detector: " + e, "error");
         }
         
-        canvas.width = width;
-        canvas.height = height;
-        console.log(`Initialized ArucoDetector for ${width}x${height}`);
+        // Resize canvas
+        canvas.width = w;
+        canvas.height = h;
     }
 
     function processVideo() {
-        try {
-            if (video.readyState === video.HAVE_ENOUGH_DATA && video.videoWidth > 0) {
-                
-                // Pixel 8a Resolution Fix
-                if (!src || src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
-                    initOpenCVObjects(video.videoWidth, video.videoHeight);
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            try {
+                // Pixel Fix: Check for resolution change
+                if (src.cols !== video.videoWidth || src.rows !== video.videoHeight) {
+                    log(`Resizing: ${src.cols}x${src.rows} -> ${video.videoWidth}x${video.videoHeight}`, "info");
+                    initOpenCV(video.videoWidth, video.videoHeight);
                     if(cap) { delete cap; cap = null; }
                     cap = new cv.VideoCapture(video);
                 }
 
-                // Read Frame
+                if (!cap) cap = new cv.VideoCapture(video);
                 cap.read(src);
 
-                // --- DETECTION USING CLASS ---
-                if (detector) {
-                    // C++: detector.detectMarkers(image, corners, ids, rejected)
-                    detector.detectMarkers(src, markerCorners, markerIds, rejectedCandidates);
-                } else {
-                    // Fallback for very old OpenCV versions
-                    cv.detectMarkers(src, dictionary, markerCorners, markerIds);
-                }
+                // Detect
+                detector.detectMarkers(src, markerCorners, markerIds, new cv.MatVector());
 
-                // Visualization
+                // Draw
                 if (markerIds.rows > 0) {
                     cv.drawDetectedMarkers(src, markerCorners, markerIds);
-                    
-                    let foundId0 = false;
-                    for(let i=0; i < markerIds.rows; i++) {
-                        if(markerIds.data32S[i] === 0) foundId0 = true;
+                    // Check for ID 0
+                    let found = false;
+                    for(let i=0; i<markerIds.rows; i++) {
+                        if(markerIds.data32S[i] === 0) found = true;
                     }
-
-                    if(foundId0) {
-                        status.innerText = "Target Found: ID 0";
-                        status.style.color = "#00ff00";
-                        status.style.borderColor = "#00ff00";
-                    } else {
-                        status.innerText = `Marker Detected (ID ${markerIds.data32S[0]})`;
-                        status.style.color = "yellow";
-                        status.style.borderColor = "yellow";
-                    }
-                } else {
-                    status.innerText = "Scanning for ID 0...";
-                    status.style.color = "white";
-                    status.style.borderColor = "white";
+                    if(found) log("ID 0 Detected!", "success");
                 }
 
                 cv.imshow('canvasOutput', src);
+
+            } catch (err) {
+                log("Loop Error: " + err, "error");
             }
-        } catch (err) {
-            console.error(err);
         }
         requestAnimationFrame(processVideo);
     }
 </script>
-
 </body>
 </html>
