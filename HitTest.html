@@ -3,21 +3,19 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ArUco 3D Koordinaten</title>
+    <title>ArUco 3D Stabilisiert</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; font-family: monospace; }
         #container { position: relative; width: 100vw; height: 100vh; }
         
-        /* Video und Canvas übereinander */
         video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; }
 
-        /* Statusbox oben links */
         #status {
             position: absolute; top: 20px; left: 20px; z-index: 10;
             background: rgba(0,0,0,0.8); color: #fff; padding: 15px;
             border: 2px solid #0f0; border-radius: 8px;
-            font-size: 18px; font-weight: bold;
+            font-size: 16px; font-weight: bold; pointer-events: none;
         }
         .id-display { color: #0f0; font-size: 24px; display: block; margin-top: 5px; }
     </style>
@@ -25,8 +23,7 @@
 <body>
 
 <div id="status">
-    System Status: <br>
-    <span id="statusText">Warte auf Kamera...</span>
+    <span id="statusText">Lade Skripte...</span>
 </div>
 
 <div id="container">
@@ -34,7 +31,7 @@
     <canvas id="canvasOutput"></canvas>
 </div>
 
-<!-- Lade JS-Aruco und die 3D-Mathe-Biblioteken (SVD & POSIT) -->
+<!-- Externe Bibliotheken laden -->
 <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
 <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
 <script src="https://raw.githack.com/jcmellado/js-aruco/master/src/svd.js"></script>
@@ -47,11 +44,15 @@
     let statusText = document.getElementById('statusText');
 
     let detector = null;
-    let posit = null;  // Das Objekt für die 3D-Berechnung
-    let stream = null;
-    let modelSize = 35.0; // Imaginäre Größe des Markers (mm). Bestimmt die Länge der Achsen.
+    let posit = null; 
+    let modelSize = 35.0; // mm Größe des Markers
 
-    // --- 1. KAMERA STARTEN ---
+    // Warten bis Seite komplett geladen ist, damit Skripte da sind
+    window.onload = function() {
+        statusText.innerText = "Starte Kamera...";
+        startCamera();
+    };
+
     async function startCamera() {
         const constraints = {
             video: { facingMode: "environment" },
@@ -59,44 +60,59 @@
         };
 
         try {
-            stream = await navigator.mediaDevices.getUserMedia(constraints);
+            const stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = stream;
             video.play();
             
-            video.addEventListener('loadeddata', function() {
-                canvas.width = video.videoWidth;
-                canvas.height = video.videoHeight;
+            // WICHTIGE ÄNDERUNG: Aktives Warten auf Videogröße
+            checkVideoReady();
 
-                // Aruco Detector
-                detector = new AR.Detector();
-
-                // POSIT (Pose Estimation) initialisieren
-                // Wir nutzen die Videobreite als Schätzung für die Brennweite (Focal Length)
-                posit = new POSIT(modelSize, video.videoWidth);
-
-                statusText.innerText = "Suche Marker...";
-                requestAnimationFrame(tick);
-            });
         } catch (err) {
-            statusText.innerText = "Fehler: " + err.name;
+            statusText.innerText = "Kamera Fehler: " + err.name;
             // Fallback PC
             if(err.name === "OverconstrainedError") {
                 navigator.mediaDevices.getUserMedia({video: true}).then(s => {
-                    video.srcObject = s; video.play();
+                    video.srcObject = s; video.play(); checkVideoReady();
                 });
             }
         }
     }
 
-    // --- 2. HAUPTSCHLEIFE ---
-    function tick() {
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+    // Diese Funktion prüft so lange, bis das Video wirklich bereit ist
+    function checkVideoReady() {
+        // Wir brauchen width > 0, sonst stürzt POSIT ab
+        if (video.readyState === 4 && video.videoWidth > 0) {
+            initializeAR();
+        } else {
+            // Wenn noch nicht bereit, probiere es in 100ms nochmal
+            console.log("Warte auf Video Maße...");
+            setTimeout(checkVideoReady, 100);
+        }
+    }
+
+    function initializeAR() {
+        statusText.innerText = "Initialisiere AR...";
+        
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+
+        try {
+            detector = new AR.Detector();
+            posit = new POSIT(modelSize, video.videoWidth);
             
-            // Canvas anpassen falls Orientierung wechselt
+            statusText.innerText = "Suche Marker ID 0...";
+            requestAnimationFrame(tick); // Loop starten
+        } catch (e) {
+            statusText.innerText = "Fehler init AR: " + e;
+        }
+    }
+
+    function tick() {
+        if (video.readyState === 4) {
+            // Resize Check
             if (canvas.width !== video.videoWidth) {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
-                // Posit neu kalibrieren bei Größenänderung
                 posit = new POSIT(modelSize, video.videoWidth);
             }
 
@@ -104,34 +120,28 @@
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
-            // Canvas leeren (damit wir nur die Linien sehen)
+            // Canvas leeren
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Marker erkennen
-            var markers = detector.detect(imageData);
-            
-            drawScene(markers);
+            // Marker suchen
+            try {
+                var markers = detector.detect(imageData);
+                drawScene(markers);
+            } catch(e) {
+                console.log(e);
+            }
         }
         requestAnimationFrame(tick);
     }
 
-    // --- 3. ZEICHNEN & BERECHNEN ---
     function drawScene(markers) {
         if (markers.length > 0) {
-            // Nimm den ersten Marker für den Status-Text
             let id = markers[0].id;
-            statusText.innerHTML = `Erkannt! <span class="id-display">ID: ${id}</span>`;
+            statusText.innerHTML = `ID: ${id} <br> <span style='font-size:12px; color:#aaa'>Distanz: ~${calculateDistance(markers[0]).toFixed(1)}cm</span>`;
 
             markers.forEach(function(marker) {
-                // A. Grüne Umrandung (2D)
                 drawBorder(marker.corners);
-
-                // B. 3D Pose berechnen
-                // posit.pose gibt uns die Rotation und Translation des Markers im Raum
                 var pose = posit.pose(marker.corners);
-
-                // C. Achsen zeichnen
-                // Rotation und Translation nutzen, um 3D-Punkte auf 2D-Screen zu projizieren
                 drawAxis(pose.bestRotation, pose.bestTranslation);
             });
         } else {
@@ -139,12 +149,17 @@
         }
     }
 
-    // Malt den Rahmen um den Marker
+    // Hilfsfunktion: Distanz schätzen (Z-Achse)
+    function calculateDistance(marker) {
+        // Sehr grobe Schätzung basierend auf posit
+        var pose = posit.pose(marker.corners);
+        return pose.bestTranslation[2] / 10; // in cm umrechnen (grob)
+    }
+
     function drawBorder(corners) {
         ctx.beginPath();
         ctx.lineWidth = 3;
         ctx.strokeStyle = "white";
-        
         ctx.moveTo(corners[0].x, corners[0].y);
         ctx.lineTo(corners[1].x, corners[1].y);
         ctx.lineTo(corners[2].x, corners[2].y);
@@ -153,46 +168,26 @@
         ctx.stroke();
     }
 
-    // Malt das Koordinatensystem (X, Y, Z)
     function drawAxis(rotation, translation) {
-        // Zentrum (0,0,0)
         var center = posit.project(0, 0, 0, rotation, translation);
-        
-        // X-Achse Endpunkt (Größe, 0, 0)
         var xAxis = posit.project(modelSize, 0, 0, rotation, translation);
-        
-        // Y-Achse Endpunkt (0, Größe, 0)
         var yAxis = posit.project(0, modelSize, 0, rotation, translation);
-        
-        // Z-Achse Endpunkt (0, 0, -Größe) 
-        // Hinweis: Negativ, damit es aus dem Marker "heraus" zeigt in dieser Mathe-Bibliothek
         var zAxis = posit.project(0, 0, -modelSize, rotation, translation);
 
         ctx.lineWidth = 5;
 
-        // X-Achse (ROT)
-        ctx.beginPath();
-        ctx.strokeStyle = "red";
-        ctx.moveTo(center.x, center.y);
-        ctx.lineTo(xAxis.x, xAxis.y);
-        ctx.stroke();
+        // X Rot
+        ctx.beginPath(); ctx.strokeStyle = "red";
+        ctx.moveTo(center.x, center.y); ctx.lineTo(xAxis.x, xAxis.y); ctx.stroke();
 
-        // Y-Achse (GRÜN)
-        ctx.beginPath();
-        ctx.strokeStyle = "green";
-        ctx.moveTo(center.x, center.y);
-        ctx.lineTo(yAxis.x, yAxis.y);
-        ctx.stroke();
+        // Y Grün
+        ctx.beginPath(); ctx.strokeStyle = "green";
+        ctx.moveTo(center.x, center.y); ctx.lineTo(yAxis.x, yAxis.y); ctx.stroke();
 
-        // Z-Achse (BLAU)
-        ctx.beginPath();
-        ctx.strokeStyle = "blue";
-        ctx.moveTo(center.x, center.y);
-        ctx.lineTo(zAxis.x, zAxis.y);
-        ctx.stroke();
+        // Z Blau
+        ctx.beginPath(); ctx.strokeStyle = "blue";
+        ctx.moveTo(center.x, center.y); ctx.lineTo(zAxis.x, zAxis.y); ctx.stroke();
     }
-
-    startCamera();
 
 </script>
 
