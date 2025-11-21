@@ -3,163 +3,171 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ArUco 3D Stabilisiert</title>
+    <title>ArUcoJS mit Koordinatensystem</title>
     <style>
         body { margin: 0; background: #000; overflow: hidden; font-family: monospace; }
+        
         #container { position: relative; width: 100vw; height: 100vh; }
         
+        /* Video und Canvas liegen exakt übereinander */
         video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 1; }
         canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; z-index: 2; }
 
         #status {
-            position: absolute; top: 20px; left: 20px; z-index: 10;
-            background: rgba(0,0,0,0.8); color: #fff; padding: 15px;
-            border: 2px solid #0f0; border-radius: 8px;
-            font-size: 16px; font-weight: bold; pointer-events: none;
+            position: absolute; top: 10px; left: 10px; z-index: 10;
+            background: rgba(0,0,0,0.6); color: #0f0; padding: 10px;
+            border: 1px solid #0f0; border-radius: 5px;
         }
-        .id-display { color: #0f0; font-size: 24px; display: block; margin-top: 5px; }
     </style>
 </head>
 <body>
 
-<div id="status">
-    <span id="statusText">Lade Skripte...</span>
-</div>
+<div id="status">Starte Kamera...</div>
 
 <div id="container">
     <video id="videoInput" playsinline webkit-playsinline muted autoplay></video>
     <canvas id="canvasOutput"></canvas>
 </div>
 
-<!-- Externe Bibliotheken laden -->
-<script src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
-<script src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
-<script src="https://raw.githack.com/jcmellado/js-aruco/master/src/svd.js"></script>
-<script src="https://raw.githack.com/jcmellado/js-aruco/master/src/posit1.js"></script>
+<!-- 
+    Wir laden die js-aruco Bibliothek UND die Mathe-Libs für 3D (SVD, POSIT)
+-->
+<script type="text/javascript" src="https://raw.githack.com/jcmellado/js-aruco/master/src/cv.js"></script>
+<script type="text/javascript" src="https://raw.githack.com/jcmellado/js-aruco/master/src/aruco.js"></script>
+<script type="text/javascript" src="https://raw.githack.com/jcmellado/js-aruco/master/src/svd.js"></script>
+<script type="text/javascript" src="https://raw.githack.com/jcmellado/js-aruco/master/src/posit1.js"></script>
 
 <script>
     let video = document.getElementById('videoInput');
     let canvas = document.getElementById('canvasOutput');
     let ctx = canvas.getContext('2d');
-    let statusText = document.getElementById('statusText');
+    let status = document.getElementById('status');
 
     let detector = null;
-    let posit = null; 
-    let modelSize = 35.0; // mm Größe des Markers
+    let posit = null; // Das Objekt für die 3D-Berechnung
+    let stream = null;
+    let modelSize = 35.0; // Länge der Achsen (virtuelle mm)
 
-    // Warten bis Seite komplett geladen ist, damit Skripte da sind
-    window.onload = function() {
-        statusText.innerText = "Starte Kamera...";
-        startCamera();
-    };
-
+    // --- 1. KAMERA STARTEN (Pixel 8a Optimiert - UNVERÄNDERT) ---
     async function startCamera() {
+        // Pixel Handys mögen "environment" am liebsten
         const constraints = {
             video: { facingMode: "environment" },
             audio: false
         };
 
         try {
-            const stream = await navigator.mediaDevices.getUserMedia(constraints);
+            stream = await navigator.mediaDevices.getUserMedia(constraints);
             video.srcObject = stream;
             video.play();
             
-            // WICHTIGE ÄNDERUNG: Aktives Warten auf Videogröße
-            checkVideoReady();
+            // Erst wenn Video läuft, starten wir die Erkennung
+            video.addEventListener('loadeddata', function() {
+                // Canvas Größe anpassen
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                
+                // ArUcoJS Detector initialisieren
+                detector = new AR.Detector();
+
+                // NEU: POSIT initialisieren (schätzt Brennweite anhand der Videobreite)
+                posit = new POSIT(modelSize, video.videoWidth);
+                
+                status.innerText = "System Bereit. Suche Marker ID 0...";
+                requestAnimationFrame(tick);
+            });
 
         } catch (err) {
-            statusText.innerText = "Kamera Fehler: " + err.name;
-            // Fallback PC
+            status.innerText = "Kamera Fehler: " + err.name;
+            status.style.color = "red";
+            // Fallback für PC/Mac Webcams, falls Environment fehlschlägt
             if(err.name === "OverconstrainedError") {
                 navigator.mediaDevices.getUserMedia({video: true}).then(s => {
-                    video.srcObject = s; video.play(); checkVideoReady();
+                    video.srcObject = s;
+                    video.play();
                 });
             }
         }
     }
 
-    // Diese Funktion prüft so lange, bis das Video wirklich bereit ist
-    function checkVideoReady() {
-        // Wir brauchen width > 0, sonst stürzt POSIT ab
-        if (video.readyState === 4 && video.videoWidth > 0) {
-            initializeAR();
-        } else {
-            // Wenn noch nicht bereit, probiere es in 100ms nochmal
-            console.log("Warte auf Video Maße...");
-            setTimeout(checkVideoReady, 100);
-        }
-    }
-
-    function initializeAR() {
-        statusText.innerText = "Initialisiere AR...";
-        
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-
-        try {
-            detector = new AR.Detector();
-            posit = new POSIT(modelSize, video.videoWidth);
-            
-            statusText.innerText = "Suche Marker ID 0...";
-            requestAnimationFrame(tick); // Loop starten
-        } catch (e) {
-            statusText.innerText = "Fehler init AR: " + e;
-        }
-    }
-
+    // --- 2. ERKENNUNGSSCHLEIFE ---
     function tick() {
-        if (video.readyState === 4) {
-            // Resize Check
+        if (video.readyState === video.HAVE_ENOUGH_DATA) {
+            
+            // Canvas an Video-Größe anpassen (falls Auflösung wechselt)
             if (canvas.width !== video.videoWidth) {
                 canvas.width = video.videoWidth;
                 canvas.height = video.videoHeight;
+                // NEU: POSIT muss bei Größenänderung neu kalibriert werden
                 posit = new POSIT(modelSize, video.videoWidth);
             }
 
-            // Bilddaten holen
+            // 1. Bild vom Video auf Canvas zeichnen (für Bilddaten)
+            ctx.clearRect(0, 0, canvas.width, canvas.height); // Alles löschen
+            
             ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
             let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             
-            // Canvas leeren
+            // Wir löschen das Bild sofort wieder, damit wir nur die Linien sehen
             ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-            // Marker suchen
+            // 2. DETEKTION
             try {
                 var markers = detector.detect(imageData);
-                drawScene(markers);
-            } catch(e) {
-                console.log(e);
+                draw3DScene(markers); // Hier rufen wir jetzt die neue Funktion auf
+            } catch (e) {
+                console.log("Fehler bei Erkennung:", e);
             }
         }
         requestAnimationFrame(tick);
     }
 
-    function drawScene(markers) {
+    // --- 3. ZEICHNEN (NEU MIT 3D) ---
+    function draw3DScene(markers) {
         if (markers.length > 0) {
-            let id = markers[0].id;
-            statusText.innerHTML = `ID: ${id} <br> <span style='font-size:12px; color:#aaa'>Distanz: ~${calculateDistance(markers[0]).toFixed(1)}cm</span>`;
+            let foundID0 = false;
 
             markers.forEach(function(marker) {
+                // A. Rahmen Zeichnen
                 drawBorder(marker.corners);
-                var pose = posit.pose(marker.corners);
-                drawAxis(pose.bestRotation, pose.bestTranslation);
-            });
-        } else {
-            statusText.innerText = "Suche Marker...";
-        }
-    }
 
-    // Hilfsfunktion: Distanz schätzen (Z-Achse)
-    function calculateDistance(marker) {
-        // Sehr grobe Schätzung basierend auf posit
-        var pose = posit.pose(marker.corners);
-        return pose.bestTranslation[2] / 10; // in cm umrechnen (grob)
+                // B. Pose berechnen (Rotation & Translation)
+                // marker.corners sind die 2D Ecken im Bild
+                var pose = posit.pose(marker.corners);
+
+                // C. Achsen zeichnen
+                drawAxis(pose.bestRotation, pose.bestTranslation);
+
+                // ID schreiben
+                ctx.fillStyle = "red";
+                ctx.font = "bold 24px monospace";
+                ctx.fillText("ID: " + marker.id, marker.corners[0].x, marker.corners[0].y - 10);
+
+                if (marker.id === 0) foundID0 = true;
+            });
+
+            if(foundID0) {
+                status.innerText = "MARKER ID 0 GEFUNDEN!";
+                status.style.color = "#00ff00";
+                status.style.borderColor = "#00ff00";
+            } else {
+                status.innerText = "Marker erkannt (Andere ID)";
+                status.style.color = "yellow";
+                status.style.borderColor = "yellow";
+            }
+        } else {
+            // Kein Marker
+            status.innerText = "Suche Original Marker ID 0...";
+            status.style.color = "#00ff00";
+            status.style.borderColor = "#00ff00";
+        }
     }
 
     function drawBorder(corners) {
         ctx.beginPath();
         ctx.lineWidth = 3;
-        ctx.strokeStyle = "white";
+        ctx.strokeStyle = "red"; // Rahmenfarbe
+        
         ctx.moveTo(corners[0].x, corners[0].y);
         ctx.lineTo(corners[1].x, corners[1].y);
         ctx.lineTo(corners[2].x, corners[2].y);
@@ -169,25 +177,40 @@
     }
 
     function drawAxis(rotation, translation) {
+        // 1. Zentrum berechnen (0,0,0) im 3D Raum -> 2D Screen
         var center = posit.project(0, 0, 0, rotation, translation);
+        
+        // 2. Endpunkte der Achsen berechnen
         var xAxis = posit.project(modelSize, 0, 0, rotation, translation);
         var yAxis = posit.project(0, modelSize, 0, rotation, translation);
-        var zAxis = posit.project(0, 0, -modelSize, rotation, translation);
+        var zAxis = posit.project(0, 0, -modelSize, rotation, translation); // -modelSize zeigt nach oben raus
 
         ctx.lineWidth = 5;
 
-        // X Rot
-        ctx.beginPath(); ctx.strokeStyle = "red";
-        ctx.moveTo(center.x, center.y); ctx.lineTo(xAxis.x, xAxis.y); ctx.stroke();
+        // X-Achse (ROT)
+        ctx.beginPath();
+        ctx.strokeStyle = "red";
+        ctx.moveTo(center.x, center.y);
+        ctx.lineTo(xAxis.x, xAxis.y);
+        ctx.stroke();
 
-        // Y Grün
-        ctx.beginPath(); ctx.strokeStyle = "green";
-        ctx.moveTo(center.x, center.y); ctx.lineTo(yAxis.x, yAxis.y); ctx.stroke();
+        // Y-Achse (GRÜN)
+        ctx.beginPath();
+        ctx.strokeStyle = "green";
+        ctx.moveTo(center.x, center.y);
+        ctx.lineTo(yAxis.x, yAxis.y);
+        ctx.stroke();
 
-        // Z Blau
-        ctx.beginPath(); ctx.strokeStyle = "blue";
-        ctx.moveTo(center.x, center.y); ctx.lineTo(zAxis.x, zAxis.y); ctx.stroke();
+        // Z-Achse (BLAU) - Zeigt aus dem Marker heraus
+        ctx.beginPath();
+        ctx.strokeStyle = "blue";
+        ctx.moveTo(center.x, center.y);
+        ctx.lineTo(zAxis.x, zAxis.y);
+        ctx.stroke();
     }
+
+    // Start
+    startCamera();
 
 </script>
 
