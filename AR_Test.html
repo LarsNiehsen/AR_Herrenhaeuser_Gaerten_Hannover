@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
-    <!-- Title retained as requested -->
     <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
@@ -23,12 +22,12 @@
             height: 100%;
         }
 
-        /* Layer 1: 2D Canvas (Video, roter Rand) */
+        /* Layer 1: 2D Canvas */
         #videoCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
         }
 
-        /* Layer 2: 3D Canvas (Achsen, Würfel) */
+        /* Layer 2: 3D Canvas */
         #threeCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;
         }
@@ -37,6 +36,7 @@
             position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none;
         }
 
+        /* UI: Button unten rechts */
         #camBtn {
             position: absolute; bottom: 30px; right: 20px; z-index: 100;
             background: rgba(40, 40, 40, 0.8); border: 1px solid #fff;
@@ -44,33 +44,45 @@
             font-family: sans-serif; font-weight: bold; cursor: pointer;
         }
 
-        /* Loading text retained as requested */
         #loadingText {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: white; font-family: sans-serif; z-index: 50; pointer-events: none;
         }
 
-        /* NEW: Display for Phone Position */
+        /* UI: Positionsanzeige unten links (Neues Design) */
         #poseInfo {
-            position: absolute; top: 0; left: 0; width: 100%;
-            padding: 15px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
-            color: #00ff00;
-            font-family: monospace;
-            font-size: 16px;
-            font-weight: bold;
-            z-index: 101;
-            text-align: center;
+            position: absolute; 
+            bottom: 30px; 
+            left: 20px; 
+            z-index: 100;
+            background: rgba(40, 40, 40, 0.8); 
+            border: 1px solid #fff;
+            color: white; 
+            padding: 12px 18px; 
+            border-radius: 15px;
+            font-family: 'Courier New', monospace; /* Monospace für Zahlenkolonnen besser */
+            font-size: 14px;
+            line-height: 1.4;
             pointer-events: none;
-            text-shadow: 1px 1px 2px black;
+            min-width: 200px;
+        }
+        
+        #poseInfo strong {
+            display: block;
+            margin-bottom: 5px;
+            text-decoration: underline;
+            color: #00ffff;
         }
     </style>
 </head>
 <body>
 
     <div id="container">
-        <!-- New Info Display -->
-        <div id="poseInfo">Suche Marker...</div>
+        <!-- Positionsanzeige unten links -->
+        <div id="poseInfo">
+            <strong>Kameraposition zu Marker:</strong>
+            Warte auf Marker...
+        </div>
 
         <div id="loadingText">Kamera wird geladen...</div>
         <button id="camBtn">Kamera wechseln</button>
@@ -103,7 +115,7 @@
         let detector, posit;
         let renderer, scene, camera;
         
-        // Die Hauptgruppe (Ankerpunkt)
+        // Die Hauptgruppe (Marker Zentrum)
         let markerGroup; 
         let cubeMesh; 
 
@@ -111,8 +123,8 @@
         let stream = null;
         let isVideoReady = false;
 
-        // --- SMOOTHING VARIABLES ---
-        const lerpFactor = 0.15; // 0.1 = slow/smooth, 1.0 = instant/jittery
+        // --- SMOOTHING VARIABLEN ---
+        const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
         let isTracking = false;
@@ -144,15 +156,20 @@
             dl.position.set(0, 0, 10);
             scene.add(dl);
 
-            // --- MARKER ANKER ---
+            // --- MARKER GRUPPE (ZENTRUM) ---
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // Koordinatenachsen
-            const axes = new THREE.AxesHelper(markerSize * 1.0); 
+            // 1. Achsenkreuz (Verschoben nach unten rechts)
+            // Marker ist zentriert bei 0,0. Breite = markerSize.
+            // Rechte Kante = +markerSize/2, Untere Kante = -markerSize/2
+            const axes = new THREE.AxesHelper(markerSize * 0.8); 
+            
+            // Verschiebung: X nach rechts (+), Y nach unten (-)
+            axes.position.set(markerSize / 2, -markerSize / 2, 0);
             markerGroup.add(axes);
 
-            // Der Gelbe Würfel
+            // 2. Der Gelbe Würfel (Bleibt im Zentrum zur Orientierung)
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
             const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.5, transparent: true });
             
@@ -161,6 +178,7 @@
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             
+            // Würfel anheben, damit er auf dem Papier steht
             mesh.position.z = markerSize / 2;
             line.position.z = markerSize / 2;
 
@@ -184,8 +202,7 @@
         }
 
         function updateThreeJSCamera(cw, ch) {
-            // IMPROVEMENT: Fixed FOV (~60 deg) prevents object sliding
-            const fov = 60; 
+            const fov = 60; // Ca. 60 Grad vertikaler FOV für Mobile
             camera.fov = fov;
             camera.aspect = cw / ch;
             camera.updateProjectionMatrix();
@@ -214,7 +231,6 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            // Animation
             if (cubeMesh) cubeMesh.rotation.z += 0.02;
 
             if (isVideoReady && video.videoWidth > 0) {
@@ -243,48 +259,60 @@
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
-                        // 1. Set Targets (do not move object yet)
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
-                        
                         markerGroup.visible = true;
                         cubeMesh.visible = (marker.id === 0);
                         isTracking = true;
                     }
-                } else {
-                    // Optional: logic if marker lost
-                    // isTracking = false; 
                 }
             }
 
-            // --- SMOOTHING & PHONE POSE ---
             if (isTracking) {
-                // 2. Smooth Interpolation
+                // Glätten
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
 
-                // 3. Calculate Phone Position relative to Marker
-                // We update the matrix of the markerGroup to reflect the new interpolated position
-                markerGroup.updateMatrix();
-                markerGroup.updateMatrixWorld();
-
-                // Create the inverse matrix: Camera relative to World (Marker)
-                const invMatrix = new THREE.Matrix4();
-                invMatrix.copy(markerGroup.matrix).invert();
-
-                const camPos = new THREE.Vector3();
-                const camQuat = new THREE.Quaternion();
-                const camScale = new THREE.Vector3();
-                invMatrix.decompose(camPos, camQuat, camScale);
-
-                // Convert to cm
-                const x = (camPos.x / 10).toFixed(0);
-                const y = (camPos.y / 10).toFixed(0);
-                const z = (camPos.z / 10).toFixed(0);
-
-                poseInfo.innerHTML = `PHONE POS: X:${x}cm Y:${y}cm Z:${z}cm`;
+                // Daten berechnen für Anzeige
+                updateInfoDisplay();
             }
 
             renderer.render(scene, camera);
+        }
+
+        function updateInfoDisplay() {
+            // Matrix aktualisieren
+            markerGroup.updateMatrix();
+            markerGroup.updateMatrixWorld();
+
+            // Inverse Matrix: Kamera relativ zur Welt (Marker)
+            const invMatrix = new THREE.Matrix4();
+            invMatrix.copy(markerGroup.matrix).invert();
+
+            const camPos = new THREE.Vector3();
+            const camQuat = new THREE.Quaternion();
+            const camScale = new THREE.Vector3();
+            invMatrix.decompose(camPos, camQuat, camScale);
+            
+            // Position in cm
+            const x = (camPos.x / 10).toFixed(0);
+            const y = (camPos.y / 10).toFixed(0);
+            const z = (camPos.z / 10).toFixed(0);
+
+            // Rotation in Euler-Winkeln (Grad)
+            const euler = new THREE.Euler().setFromQuaternion(camQuat, 'XYZ');
+            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
+            poseInfo.innerHTML = `
+                <strong>Kameraposition zu Marker:</strong>
+                X: ${x} cm<br>
+                Y: ${y} cm<br>
+                Z: ${z} cm<br>
+                <br>
+                Winkel:<br>
+                X: ${pitch}° | Y: ${yaw}° | Z: ${roll}°
+            `;
         }
 
         function drawVideoFullscreen() {
@@ -322,11 +350,7 @@
         }
 
         function updateObjectTargets(r, t) {
-            // Store results in TARGET variables instead of applying directly
-            
-            // Flip Y and Z for ThreeJS
             targetPosition.set(t[0], -t[1], -t[2]);
-
             const m = new THREE.Matrix4();
             m.set(
                  r[0][0],  r[0][1],  r[0][2], 0,
