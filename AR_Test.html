@@ -9,10 +9,10 @@
         body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
         #container { position: relative; width: 100%; height: 100%; }
         
-        /* Layer 1: 2D Canvas (Video) */
+        /* Layer 1: 2D Canvas (Video, Achsen) */
         #videoCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
         
-        /* Layer 2: 3D Canvas - WICHTIG: pointer-events: auto damit Klicks ankommen! */
+        /* Layer 2: 3D Canvas (Modell) - pointer-events: auto für Klicks */
         #threeCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: auto; }
         
         video { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -34,14 +34,13 @@
         
         #poseInfo {
             top: 20px; left: 20px; padding: 15px; font-size: 14px; line-height: 1.5; 
-            pointer-events: none; min-width: 260px; font-family: monospace;
+            pointer-events: none; min-width: 280px; font-family: monospace;
         }
         #poseInfo strong { 
-            display: block; margin-bottom: 8px; color: #00ffff; font-family: sans-serif;
-            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px; 
+            display: block; margin-bottom: 10px; color: #00ffff; font-family: sans-serif;
+            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
         }
         
-        /* Hinweis für Klickbarkeit */
         #clickHint {
             position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
             color: yellow; text-shadow: 1px 1px 2px black; font-weight: bold; font-family: sans-serif;
@@ -55,7 +54,7 @@
         <button id="closeBtn" class="ui-box">✕</button>
         
         <div id="poseInfo" class="ui-box">
-            <strong>Relative Lage (Cam -> Marker)</strong>
+            <strong>Relative Lage Smartphone - Marker</strong>
             <div id="infoContent">Suche Marker...</div>
         </div>
 
@@ -115,14 +114,14 @@
         let isVideoReady = false;
         let isModelLoaded = false;
 
-        // Smoothing Variablen (nur für das 3D Modell)
+        // Smoothing
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
         let isTrackingID0 = false;
         let lossCounter = 0; 
 
-        // Raycaster für Klick-Erkennung
+        // Raycaster
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
@@ -151,9 +150,7 @@
         }
 
         function onCanvasClick(event) {
-            // Nur klicken, wenn Tracking aktiv und Modell sichtbar
             if (!isTrackingID0 || !koenigModel || !markerGroup.visible) return;
-
             event.preventDefault();
 
             let clientX, clientY;
@@ -172,7 +169,6 @@
             const intersects = raycaster.intersectObjects([koenigModel], true);
 
             if (intersects.length > 0) {
-                console.log("Modell angeklickt! Öffne URL...");
                 window.open(targetUrl, '_blank');
             }
         }
@@ -186,7 +182,6 @@
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000); 
             scene.add(camera);
             
-            // Licht
             scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
             const dl = new THREE.DirectionalLight(0xffffff, 2.0);
             dl.position.set(0, 500, 1000);
@@ -195,7 +190,6 @@
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // GLB Laden
             const loader = new THREE.GLTFLoader();
             loader.load(modelPath, function (gltf) {
                 koenigModel = gltf.scene;
@@ -273,35 +267,36 @@
                 const imageData = context2D.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
                 let markers = detector.detect(imageData);
 
-                // Filter
                 markers = markers.filter(m => {
                     const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
                     return d > minMarkerSize;
                 });
 
                 if (markers.length > 0) {
-                    const marker = markers[0]; // Nimm den besten Marker
+                    const marker = markers[0]; 
                     
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
 
-                    // --- POSE BERECHNUNG FÜR ALLE MARKER ---
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
                         y: (videoCanvas.height / 2) - c.y
                     }));
+                    
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
-                        // 1. UI Update: Zeige Daten für JEDEN Marker an
+                        // 1. Koordinatensystem anzeigen (WIEDERHERGESTELLT)
+                        drawAxis(pose.bestRotation, pose.bestTranslation, markerSize);
+
+                        // 2. UI Update (Text ausgeschrieben)
                         updatePoseUI(pose.bestRotation, pose.bestTranslation, marker.id);
 
-                        // 2. Spezialbehandlung für ID 0 (König)
+                        // 3. Spezialbehandlung ID 0
                         if (marker.id === 0 && isModelLoaded) {
                             detectedID0 = true;
                             lossCounter = 0;
                             
-                            // Setze Zielposition für 3D Modell
                             updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                             
                             markerGroup.visible = true;
@@ -309,17 +304,9 @@
                             clickHint.style.opacity = 1; 
                         }
                     }
-                } else {
-                    // Kein Marker im Bild? Text zurücksetzen
-                    if (!isTrackingID0) {
-                         // Nur überschreiben, wenn wir nicht gerade ID 0 tracken (wegen Glättung)
-                         // Oder einfach stehen lassen. Hier setzen wir es zurück:
-                         // infoContent.innerHTML = "Suche Marker...";
-                    }
                 }
             }
 
-            // --- TRACKING STATUS ID 0 ---
             if (!detectedID0 && isTrackingID0) {
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
@@ -330,7 +317,6 @@
                 }
             }
 
-            // Glättung anwenden (nur für das 3D Modell)
             if (isTrackingID0) {
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
@@ -339,9 +325,59 @@
             renderer.render(scene, camera);
         }
 
-        // --- UI UPDATER: KAMERA RELATIV ZU MARKER ---
+        // --- HILFSFUNKTIONEN FÜR PROJEKTION UND ACHSEN ---
+
+        function project(point3d, rot, trans) {
+            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
+            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
+            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
+            // Wenn Z <= 0 ist der Punkt hinter der Kamera
+            if (z <= 0) return { x: -1000, y: -1000 };
+            
+            // Canvas-Breite als Focal Length Annäherung (Posit Standard)
+            const f = videoCanvas.width; 
+            const scale = f / z;
+            
+            return { 
+                x: x * scale + (videoCanvas.width / 2), 
+                y: (videoCanvas.height / 2) - y * scale 
+            };
+        }
+
+        function drawAxis(rot, trans, len) {
+            // Ursprung
+            const o = project([0, 0, 0], rot, trans);
+            // Achsen-Endpunkte
+            const ax = project([len, 0, 0], rot, trans);
+            const ay = project([0, len, 0], rot, trans);
+            const az = project([0, 0, len], rot, trans);
+
+            context2D.lineWidth = 4;
+
+            // X-Achse (Rot)
+            context2D.strokeStyle = "red";
+            context2D.beginPath(); 
+            context2D.moveTo(o.x, o.y); 
+            context2D.lineTo(ax.x, ax.y); 
+            context2D.stroke();
+
+            // Y-Achse (Grün)
+            context2D.strokeStyle = "lime";
+            context2D.beginPath(); 
+            context2D.moveTo(o.x, o.y); 
+            context2D.lineTo(ay.x, ay.y); 
+            context2D.stroke();
+
+            // Z-Achse (Blau)
+            context2D.strokeStyle = "blue";
+            context2D.beginPath(); 
+            context2D.moveTo(o.x, o.y); 
+            context2D.lineTo(az.x, az.y); 
+            context2D.stroke();
+        }
+
         function updatePoseUI(r, t, id) {
-            // Wir bauen eine Matrix aus Rotation und Translation des Markers relativ zur Kamera
+            // Kamera relativ zum Marker berechnen (Matrix Invertierung)
             const m = new THREE.Matrix4();
             m.set(
                  r[0][0],  r[0][1],  r[0][2], t[0],
@@ -350,19 +386,15 @@
                  0,        0,        0,       1
             );
             
-            // Wir invertieren die Matrix, um die Kamera relativ zum Marker zu bekommen
             const inv = m.invert();
-            
-            // Zerlegen in Position, Rotation, Skalierung
             const pos = new THREE.Vector3();
             const quat = new THREE.Quaternion();
             const scale = new THREE.Vector3();
             inv.decompose(pos, quat, scale);
             
-            // Euler Winkel für Anzeige
             const euler = new THREE.Euler().setFromQuaternion(quat);
             
-            const x = (pos.x / 10).toFixed(0); // mm -> cm
+            const x = (pos.x / 10).toFixed(0); 
             const y = (pos.y / 10).toFixed(0);
             const z = (pos.z / 10).toFixed(0);
             
@@ -372,13 +404,13 @@
 
             infoContent.innerHTML = `
                 <span style="color:yellow;">Gefunden: ID ${id}</span><br>
-                <div style="margin-top:5px; border-top:1px solid #555; padding-top:5px;">
-                Position (cm)<br>
-                X: ${x} | Y: ${y} | Z: ${z}<br>
+                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
+                    <span style="color:#aaa;">Position:</span><br>
+                    X: ${x} cm | Y: ${y} cm | Z: ${z} cm
                 </div>
-                <div style="margin-top:5px;">
-                Winkel (°)<br>
-                P: ${pitch} | Y: ${yaw} | R: ${roll}
+                <div style="margin-top:8px;">
+                    <span style="color:#aaa;">Rotation:</span><br>
+                    Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
                 </div>
             `;
         }
@@ -405,10 +437,7 @@
             context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
-        // --- UPDATER FÜR 3D MODELL (NUR ID 0) ---
         function updateObjectTargets(r, t) {
-            // Hier nutzen wir die Logic um das Objekt RELATIV zur Kamera zu platzieren
-            // (ThreeJS Szene: Kamera ist 0,0,0, Marker bewegt sich)
             targetPosition.set(t[0], -t[1], -t[2]);
             const m = new THREE.Matrix4();
             m.set(
