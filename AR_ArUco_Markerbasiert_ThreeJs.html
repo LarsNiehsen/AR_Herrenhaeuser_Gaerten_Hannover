@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     
-    <!-- Title retained as requested -->
     <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
@@ -44,34 +43,15 @@
             font-family: sans-serif; font-weight: bold; cursor: pointer;
         }
 
-        /* Loading text retained as requested */
         #loadingText {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: white; font-family: sans-serif; z-index: 50; pointer-events: none;
-        }
-
-        /* NEW: Display for Phone Position */
-        #poseInfo {
-            position: absolute; top: 0; left: 0; width: 100%;
-            padding: 15px;
-            background: linear-gradient(to bottom, rgba(0,0,0,0.8) 0%, rgba(0,0,0,0) 100%);
-            color: #00ff00;
-            font-family: monospace;
-            font-size: 16px;
-            font-weight: bold;
-            z-index: 101;
-            text-align: center;
-            pointer-events: none;
-            text-shadow: 1px 1px 2px black;
         }
     </style>
 </head>
 <body>
 
     <div id="container">
-        <!-- New Info Display -->
-        <div id="poseInfo">Suche Marker...</div>
-
         <div id="loadingText">Kamera wird geladen...</div>
         <button id="camBtn">Kamera wechseln</button>
         <video id="video" playsinline muted autoplay></video>
@@ -97,7 +77,6 @@
         const threeCanvas = document.getElementById('threeCanvas');
         const camBtn = document.getElementById('camBtn');
         const loadingText = document.getElementById('loadingText');
-        const poseInfo = document.getElementById('poseInfo');
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
         let detector, posit;
@@ -110,12 +89,6 @@
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
-
-        // --- SMOOTHING VARIABLES ---
-        const lerpFactor = 0.15; // 0.1 = slow/smooth, 1.0 = instant/jittery
-        let targetPosition = new THREE.Vector3();
-        let targetQuaternion = new THREE.Quaternion();
-        let isTracking = false;
 
         window.onload = () => {
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
@@ -148,24 +121,39 @@
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // Koordinatenachsen
+            // 1. DAS LOKALE KOORDINATENSYSTEM (Raw Axes)
+            // Three.js AxesHelper erstellt Linien vom Ursprung (0,0,0) in X, Y, Z Richtung.
+            // Wir fügen es direkt zur markerGroup hinzu.
+            // Da markerGroup exakt auf dem Marker-Zentrum liegt, starten die Achsen genau dort.
+            // Rot = X, Grün = Y, Blau = Z
             const axes = new THREE.AxesHelper(markerSize * 1.0); 
+            
+            // Optional: Liniendicke erzwingen (WebGL bedingt oft nur 1px, aber wir setzen Material colors hart)
+            // Hinweis: AxesHelper ist von Haus aus "unverschoben".
             markerGroup.add(axes);
 
-            // Der Gelbe Würfel
+
+            // 2. Der Gelbe Würfel (ID 0)
+            // Dieser muss leicht verschoben werden (um markerSize/2 nach oben), 
+            // damit er AUF dem Papier steht und nicht IN dem Papier.
+            // Aber das Koordinatensystem (Punkt 1) bleibt unten am Papier kleben.
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
             const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.5, transparent: true });
             
             cubeMesh = new THREE.Group();
             const mesh = new THREE.Mesh(geometry, material);
+            
+            // Kanten
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             
+            // Würfel anheben
             mesh.position.z = markerSize / 2;
             line.position.z = markerSize / 2;
 
             cubeMesh.add(mesh);
             cubeMesh.add(line);
+            
             markerGroup.add(cubeMesh);
 
             markerGroup.visible = false;
@@ -184,9 +172,9 @@
         }
 
         function updateThreeJSCamera(cw, ch) {
-            // IMPROVEMENT: Fixed FOV (~60 deg) prevents object sliding
-            const fov = 60; 
-            camera.fov = fov;
+            const focalLength = cw; 
+            const fovRad = 2 * Math.atan((ch / 2) / focalLength);
+            camera.fov = fovRad * (180 / Math.PI);
             camera.aspect = cw / ch;
             camera.updateProjectionMatrix();
         }
@@ -217,6 +205,8 @@
             // Animation
             if (cubeMesh) cubeMesh.rotation.z += 0.02;
 
+            markerGroup.visible = false;
+
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
 
@@ -232,9 +222,11 @@
                 if (markers.length > 0) {
                     const marker = markers[0];
 
+                    // 2D Zeichnung
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
 
+                    // 3D Pose
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
                         y: (videoCanvas.height / 2) - c.y
@@ -243,47 +235,15 @@
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
-                        // 1. Set Targets (do not move object yet)
-                        updateObjectTargets(pose.bestRotation, pose.bestTranslation);
-                        
                         markerGroup.visible = true;
+                        updateObjectPose(markerGroup, pose.bestRotation, pose.bestTranslation);
+                        
+                        // Würfel nur bei ID 0
                         cubeMesh.visible = (marker.id === 0);
-                        isTracking = true;
+                        // Das Achsenkreuz ist immer sichtbar, da es Teil der markerGroup ist
                     }
-                } else {
-                    // Optional: logic if marker lost
-                    // isTracking = false; 
                 }
             }
-
-            // --- SMOOTHING & PHONE POSE ---
-            if (isTracking) {
-                // 2. Smooth Interpolation
-                markerGroup.position.lerp(targetPosition, lerpFactor);
-                markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
-
-                // 3. Calculate Phone Position relative to Marker
-                // We update the matrix of the markerGroup to reflect the new interpolated position
-                markerGroup.updateMatrix();
-                markerGroup.updateMatrixWorld();
-
-                // Create the inverse matrix: Camera relative to World (Marker)
-                const invMatrix = new THREE.Matrix4();
-                invMatrix.copy(markerGroup.matrix).invert();
-
-                const camPos = new THREE.Vector3();
-                const camQuat = new THREE.Quaternion();
-                const camScale = new THREE.Vector3();
-                invMatrix.decompose(camPos, camQuat, camScale);
-
-                // Convert to cm
-                const x = (camPos.x / 10).toFixed(0);
-                const y = (camPos.y / 10).toFixed(0);
-                const z = (camPos.z / 10).toFixed(0);
-
-                poseInfo.innerHTML = `PHONE POS: X:${x}cm Y:${y}cm Z:${z}cm`;
-            }
-
             renderer.render(scene, camera);
         }
 
@@ -321,11 +281,15 @@
             context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
-        function updateObjectTargets(r, t) {
-            // Store results in TARGET variables instead of applying directly
+        function updateObjectPose(obj, r, t) {
+            // Wir übertragen die Pose auf das Root-Objekt.
+            // Dies ist notwendig, um vom "Bild-Koordinatensystem" (Y unten) 
+            // ins "3D-Welt-Koordinatensystem" (Y oben) zu kommen.
+            // Das Achsenkreuz INNERHALB von 'obj' bleibt lokal bei (0,0,0).
             
-            // Flip Y and Z for ThreeJS
-            targetPosition.set(t[0], -t[1], -t[2]);
+            obj.position.x = t[0];
+            obj.position.y = -t[1];
+            obj.position.z = -t[2];
 
             const m = new THREE.Matrix4();
             m.set(
@@ -334,7 +298,7 @@
                 -r[2][0], -r[2][1], -r[2][2], 0,
                  0,        0,        0,       1
             );
-            targetQuaternion.setFromRotationMatrix(m);
+            obj.quaternion.setFromRotationMatrix(m);
         }
     </script>
 </body>
