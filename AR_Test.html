@@ -12,7 +12,7 @@
         /* Layer 1: 2D Canvas (Video, Achsen) */
         #videoCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; pointer-events: none; }
         
-        /* Layer 2: 3D Canvas (Modell) - pointer-events: auto für Klicks */
+        /* Layer 2: 3D Canvas (Modell) */
         #threeCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: auto; }
         
         video { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -32,13 +32,14 @@
         #camBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-weight: bold; cursor: pointer; }
         #closeBtn { top: 20px; right: 20px; width: 40px; height: 40px; font-weight: bold; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
         
+        /* ÄNDERUNG: min-width verringert auf 200px */
         #poseInfo {
-            top: 20px; left: 20px; padding: 15px; font-size: 14px; line-height: 1.5; 
-            pointer-events: none; min-width: 280px; font-family: monospace;
+            top: 20px; left: 20px; padding: 12px; font-size: 13px; line-height: 1.4; 
+            pointer-events: none; min-width: 200px; font-family: monospace;
         }
         #poseInfo strong { 
-            display: block; margin-bottom: 10px; color: #00ffff; font-family: sans-serif;
-            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 5px; text-transform: uppercase; letter-spacing: 0.5px;
+            display: block; margin-bottom: 8px; color: #00ffff; font-family: sans-serif;
+            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px; text-transform: uppercase; letter-spacing: 0.5px;
         }
         
         #clickHint {
@@ -114,12 +115,17 @@
         let isVideoReady = false;
         let isModelLoaded = false;
 
-        // Smoothing
+        // Smoothing & Tracking Variablen
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
+        
+        // Tracking Status für ID 0 (König)
         let isTrackingID0 = false;
-        let lossCounter = 0; 
+        let lossCounterID0 = 0; 
+
+        // Tracking Status Allgemein (für Textanzeige)
+        let generalLossCounter = 0;
 
         // Raycaster
         const raycaster = new THREE.Raycaster();
@@ -260,6 +266,7 @@
             }
 
             let detectedID0 = false;
+            let anyMarkerDetected = false;
 
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
@@ -273,6 +280,10 @@
                 });
 
                 if (markers.length > 0) {
+                    anyMarkerDetected = true;
+                    // Reset General Loss Counter wenn IRGENDEIN Marker da ist
+                    generalLossCounter = 0;
+
                     const marker = markers[0]; 
                     
                     drawRedBox(marker.corners);
@@ -286,16 +297,16 @@
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
-                        // 1. Koordinatensystem anzeigen (WIEDERHERGESTELLT)
+                        // 1. Koordinatensystem anzeigen
                         drawAxis(pose.bestRotation, pose.bestTranslation, markerSize);
 
-                        // 2. UI Update (Text ausgeschrieben)
+                        // 2. UI Update (Text)
                         updatePoseUI(pose.bestRotation, pose.bestTranslation, marker.id);
 
                         // 3. Spezialbehandlung ID 0
                         if (marker.id === 0 && isModelLoaded) {
                             detectedID0 = true;
-                            lossCounter = 0;
+                            lossCounterID0 = 0;
                             
                             updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                             
@@ -307,13 +318,24 @@
                 }
             }
 
+            // --- ÄNDERUNG: Allgemeiner Text Reset wenn KEIN Marker erkannt ---
+            if (!anyMarkerDetected) {
+                generalLossCounter++;
+                if (generalLossCounter > 10) { // Kleiner Puffer gegen Flackern (ca 1/6 Sekunde)
+                    infoContent.innerHTML = "Suche Marker...";
+                }
+            }
+
+            // --- ID 0 Tracking Verlust ---
             if (!detectedID0 && isTrackingID0) {
-                lossCounter++;
-                if (lossCounter > maxLossFrames) {
+                lossCounterID0++;
+                if (lossCounterID0 > maxLossFrames) {
                     isTrackingID0 = false;
                     markerGroup.visible = false;
                     clickHint.style.opacity = 0;
-                    infoContent.innerHTML = "Marker verloren.";
+                    // Hier kein Text-Update, da das durch "anyMarkerDetected" oben abgedeckt wird
+                    // oder wir wollen spezifisch "ID 0 verloren" anzeigen?
+                    // Da der Nutzer "wieder auf Kein Marker erkannt" wollte, passt "Suche Marker..." oben besser.
                 }
             }
 
@@ -325,16 +347,13 @@
             renderer.render(scene, camera);
         }
 
-        // --- HILFSFUNKTIONEN FÜR PROJEKTION UND ACHSEN ---
-
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
             const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
-            // Wenn Z <= 0 ist der Punkt hinter der Kamera
+            
             if (z <= 0) return { x: -1000, y: -1000 };
             
-            // Canvas-Breite als Focal Length Annäherung (Posit Standard)
             const f = videoCanvas.width; 
             const scale = f / z;
             
@@ -345,39 +364,24 @@
         }
 
         function drawAxis(rot, trans, len) {
-            // Ursprung
             const o = project([0, 0, 0], rot, trans);
-            // Achsen-Endpunkte
             const ax = project([len, 0, 0], rot, trans);
             const ay = project([0, len, 0], rot, trans);
             const az = project([0, 0, len], rot, trans);
 
             context2D.lineWidth = 4;
 
-            // X-Achse (Rot)
             context2D.strokeStyle = "red";
-            context2D.beginPath(); 
-            context2D.moveTo(o.x, o.y); 
-            context2D.lineTo(ax.x, ax.y); 
-            context2D.stroke();
+            context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ax.x, ax.y); context2D.stroke();
 
-            // Y-Achse (Grün)
             context2D.strokeStyle = "lime";
-            context2D.beginPath(); 
-            context2D.moveTo(o.x, o.y); 
-            context2D.lineTo(ay.x, ay.y); 
-            context2D.stroke();
+            context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ay.x, ay.y); context2D.stroke();
 
-            // Z-Achse (Blau)
             context2D.strokeStyle = "blue";
-            context2D.beginPath(); 
-            context2D.moveTo(o.x, o.y); 
-            context2D.lineTo(az.x, az.y); 
-            context2D.stroke();
+            context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
         }
 
         function updatePoseUI(r, t, id) {
-            // Kamera relativ zum Marker berechnen (Matrix Invertierung)
             const m = new THREE.Matrix4();
             m.set(
                  r[0][0],  r[0][1],  r[0][2], t[0],
