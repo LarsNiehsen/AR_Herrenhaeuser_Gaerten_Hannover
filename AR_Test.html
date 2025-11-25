@@ -23,12 +23,12 @@
             height: 100%;
         }
 
-        /* Layer 1: 2D Canvas */
+        /* Layer 1: 2D Canvas (Video, Roter Kasten, Koordinatenachsen) */
         #videoCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1;
         }
 
-        /* Layer 2: 3D Canvas */
+        /* Layer 2: 3D Canvas (Nur der schwebende Würfel) */
         #threeCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none;
         }
@@ -54,72 +54,42 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
 
-        /* Button: Kamera wechseln */
         #camBtn {
-            bottom: 20px; 
-            right: 20px; 
-            padding: 12px 20px; 
-            font-weight: bold; 
-            cursor: pointer;
-            font-size: 14px;
+            bottom: 20px; right: 20px; padding: 12px 20px; 
+            font-weight: bold; cursor: pointer; font-size: 14px;
         }
 
-        /* Button: Schließen (X) */
         #closeBtn {
-            top: 20px;
-            right: 20px;
-            width: 40px;
-            height: 40px;
-            font-weight: bold;
-            font-size: 20px;
-            cursor: pointer;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            padding: 0;
+            top: 20px; right: 20px; width: 40px; height: 40px;
+            font-weight: bold; font-size: 20px; cursor: pointer;
+            display: flex; align-items: center; justify-content: center; padding: 0;
         }
 
-        /* Info Box: Kompakt */
         #poseInfo {
-            top: 20px; 
-            left: 20px; 
-            padding: 12px; 
-            font-size: 13px;
-            line-height: 1.4;
-            pointer-events: none;
+            top: 20px; left: 20px; padding: 12px; 
+            font-size: 13px; line-height: 1.4; pointer-events: none;
         }
         
         #poseInfo strong {
-            display: block;
-            margin-bottom: 6px;
-            color: #00ffff;
-            text-transform: uppercase;
-            font-size: 11px;
-            letter-spacing: 1px;
-            border-bottom: 1px solid rgba(255,255,255,0.3);
-            padding-bottom: 4px;
+            display: block; margin-bottom: 6px; color: #00ffff;
+            text-transform: uppercase; font-size: 11px; letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px;
         }
     </style>
 </head>
 <body>
 
     <div id="container">
-        
-        <!-- Schließen Button -->
         <button id="closeBtn" class="ui-box" title="Tab schließen">✕</button>
         
-        <!-- Info Box (Kompakt) -->
         <div id="poseInfo" class="ui-box">
             <strong>Kameraposition zu Marker</strong>
             <div id="infoContent">Warte auf Marker...</div>
         </div>
 
-        <!-- Kamera Button -->
         <button id="camBtn" class="ui-box">Kamera wechseln</button>
-
         <div id="loadingText">Kamera wird geladen...</div>
         
-        <!-- Rendering Areas -->
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
         <canvas id="threeCanvas"></canvas>
@@ -135,7 +105,7 @@
     <script>
         // --- KONFIGURATION ---
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const markerSize = 100.0; // mm (Größe des Papier-Markers)
+        const markerSize = 100.0; // mm
         // ---------------------
 
         const video = document.getElementById('video');
@@ -150,14 +120,13 @@
         let detector, posit;
         let renderer, scene, camera;
         
-        let markerGroup; // Ankerpunkt (0,0,0 auf dem Papier)
-        let cubeGroup;   // Der schwebende Würfel
+        let markerGroup, cubeGroup; 
         
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
-        // Smoothing Variablen (gegen Zittern)
+        // Smoothing Variablen
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
@@ -178,12 +147,8 @@
         });
 
         closeBtn.addEventListener('click', () => {
-            if(window.history.length > 1) {
-                window.history.back();
-            } else {
-                window.close(); // Funktioniert oft nur, wenn per Script geöffnet
-                alert("Bitte Tab manuell schließen.");
-            }
+            if(window.history.length > 1) window.history.back();
+            else { window.close(); alert("Bitte Tab manuell schließen."); }
         });
 
         function initThreeJS() {
@@ -194,37 +159,27 @@
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
             scene.add(camera);
-
             scene.add(new THREE.AmbientLight(0xffffff, 0.6));
             const dl = new THREE.DirectionalLight(0xffffff, 0.8);
             dl.position.set(0, 0, 10);
             scene.add(dl);
 
-            // --- HAUPTGRUPPE (Marker Ebene) ---
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // --- WÜRFEL GRUPPE ---
+            // Würfel Gruppe (20cm Höhe)
             cubeGroup = new THREE.Group();
-            
-            // HÖHE EINSTELLEN: 20 cm = 200 mm
-            // Z-Achse zeigt senkrecht aus dem Marker heraus
-            cubeGroup.position.z = 200.0; 
-            
+            cubeGroup.position.z = 200.0; // 200mm = 20cm
             markerGroup.add(cubeGroup);
 
-            // Der eigentliche Würfel
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
             const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.6, transparent: true });
             const mesh = new THREE.Mesh(geometry, material);
-            
-            // Kanten
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             
             cubeGroup.add(mesh);
             cubeGroup.add(line);
-
             markerGroup.visible = false;
         }
 
@@ -241,8 +196,7 @@
         }
 
         function updateThreeJSCamera(cw, ch) {
-            const fov = 60; 
-            camera.fov = fov;
+            camera.fov = 60; 
             camera.aspect = cw / ch;
             camera.updateProjectionMatrix();
         }
@@ -270,9 +224,8 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            // Rotation des Würfels (Animation)
-            if (cubeGroup) cubeGroup.rotation.z += 0.02;
-            if (cubeGroup) cubeGroup.rotation.x += 0.01;
+            // Animation Würfel
+            if (cubeGroup) { cubeGroup.rotation.z += 0.02; cubeGroup.rotation.x += 0.01; }
 
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
@@ -290,7 +243,6 @@
                     const marker = markers[0];
 
                     drawRedBox(marker.corners);
-                    // ID ANZEIGE WIEDER AKTIV
                     drawIdText(marker.corners, marker.id);
 
                     const cornersCentered = marker.corners.map(c => ({
@@ -301,35 +253,73 @@
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
+                        // 1. ThreeJS Update (für Würfel & Pose Berechnung)
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                         markerGroup.visible = true;
-                        
-                        // Würfel nur bei ID 0 anzeigen (oder entfernen, wenn er immer da sein soll)
                         cubeGroup.visible = (marker.id === 0);
-                        
                         isTracking = true;
+
+                        // 2. 2D Koordinatenachsen zeichnen (NEU: Aus deinem Snippet übernommen)
+                        drawAxis(pose.bestRotation, pose.bestTranslation, markerSize);
                     }
                 }
             }
 
             if (isTracking) {
-                // Glätten
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
-
                 updateInfoDisplay();
             }
-
             renderer.render(scene, camera);
         }
+
+        // --- FUNKTIONEN AUS DEM ANDEREN CODE (PROJEKTION & ACHSEN) ---
+
+        function project(point3d, rot, trans) {
+            // 3D-Transformation (Rotation + Translation)
+            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
+            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
+            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
+            
+            // Wenn Z hinter der Kamera, ignorieren
+            if (z <= 0) return { x: -100, y: -100 };
+
+            // Perspektivische Projektion (basierend auf Canvas-Breite als Focal Length wie in posit1.js)
+            const scale = videoCanvas.width / z;
+            
+            return { 
+                x: x * scale + (videoCanvas.width / 2), 
+                y: (videoCanvas.height / 2) - y * scale 
+            };
+        }
+
+        function drawAxis(rot, trans, len) {
+            // Punkte berechnen
+            const origin = project([0, 0, 0], rot, trans);
+            const axisX = project([len, 0, 0], rot, trans);
+            const axisY = project([0, len, 0], rot, trans);
+            const axisZ = project([0, 0, len], rot, trans);
+
+            context2D.lineWidth = 5;
+            
+            // X-Achse (Rot)
+            context2D.strokeStyle = "red";
+            context2D.beginPath(); context2D.moveTo(origin.x, origin.y); context2D.lineTo(axisX.x, axisX.y); context2D.stroke();
+
+            // Y-Achse (Grün)
+            context2D.strokeStyle = "green";
+            context2D.beginPath(); context2D.moveTo(origin.x, origin.y); context2D.lineTo(axisY.x, axisY.y); context2D.stroke();
+
+            // Z-Achse (Blau)
+            context2D.strokeStyle = "blue";
+            context2D.beginPath(); context2D.moveTo(origin.x, origin.y); context2D.lineTo(axisZ.x, axisZ.y); context2D.stroke();
+        }
+        // -------------------------------------------------------------
 
         function updateInfoDisplay() {
             markerGroup.updateMatrix();
             markerGroup.updateMatrixWorld();
-
-            const invMatrix = new THREE.Matrix4();
-            invMatrix.copy(markerGroup.matrix).invert();
-
+            const invMatrix = new THREE.Matrix4().copy(markerGroup.matrix).invert();
             const camPos = new THREE.Vector3();
             const camQuat = new THREE.Quaternion();
             const camScale = new THREE.Vector3();
@@ -338,17 +328,12 @@
             const x = (camPos.x / 10).toFixed(0);
             const y = (camPos.y / 10).toFixed(0);
             const z = (camPos.z / 10).toFixed(0);
-
             const euler = new THREE.Euler().setFromQuaternion(camQuat, 'XYZ');
             const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
             const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
-            // Kompakte 2-Zeilen Anzeige
-            infoContent.innerHTML = `
-                Pos: X${x} / Y${y} / Z${z} cm<br>
-                Rot: P${pitch}° / Y${yaw}° / R${roll}°
-            `;
+            infoContent.innerHTML = `Pos: X${x} / Y${y} / Z${z} cm<br>Rot: P${pitch}° / Y${yaw}° / R${roll}°`;
         }
 
         function drawVideoFullscreen() {
@@ -373,7 +358,6 @@
             context2D.stroke();
         }
 
-        // ID Anzeige wiederhergestellt
         function drawIdText(corners, id) {
             const pt = corners[0]; 
             context2D.font = "bold 24px monospace";
