@@ -14,6 +14,7 @@
             height: 100%;
             background-color: #000;
             overflow: hidden;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
         #container {
@@ -36,62 +37,99 @@
             position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none;
         }
 
-        /* UI: Button unten rechts */
-        #camBtn {
-            position: absolute; bottom: 30px; right: 20px; z-index: 100;
-            background: rgba(40, 40, 40, 0.8); border: 1px solid #fff;
-            color: white; padding: 12px 24px; border-radius: 30px;
-            font-family: sans-serif; font-weight: bold; cursor: pointer;
-        }
-
         #loadingText {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: white; font-family: sans-serif; z-index: 50; pointer-events: none;
+            color: white; z-index: 50; pointer-events: none;
         }
 
-        /* UI: Positionsanzeige unten links (Neues Design) */
-        #poseInfo {
-            position: absolute; 
-            bottom: 30px; 
-            left: 20px; 
+        /* --- UI KLASSEN FÜR EINHEITLICHES DESIGN --- */
+        .ui-box {
+            position: absolute;
             z-index: 100;
-            background: rgba(40, 40, 40, 0.8); 
+            background: rgba(40, 40, 40, 0.85); 
             border: 1px solid #fff;
             color: white; 
-            padding: 12px 18px; 
-            border-radius: 15px;
-            font-family: 'Courier New', monospace; /* Monospace für Zahlenkolonnen besser */
+            border-radius: 8px;
+            backdrop-filter: blur(4px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        }
+
+        /* 1. Kamera Button (Unten Rechts) */
+        #camBtn {
+            bottom: 20px; 
+            right: 20px; 
+            padding: 12px 20px; 
+            font-weight: bold; 
+            cursor: pointer;
             font-size: 14px;
-            line-height: 1.4;
-            pointer-events: none;
-            min-width: 200px;
+        }
+
+        /* 2. Schließen Button (Oben Rechts) */
+        #closeBtn {
+            top: 20px;
+            right: 20px;
+            width: 40px;
+            height: 40px;
+            font-weight: bold;
+            font-size: 20px;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 0;
+        }
+
+        /* 3. Info Box (Oben Links) */
+        #poseInfo {
+            top: 20px; 
+            left: 20px; 
+            padding: 15px; 
+            font-size: 13px;
+            line-height: 1.5;
+            min-width: 220px;
+            pointer-events: none; /* Klicks gehen durch */
         }
         
         #poseInfo strong {
             display: block;
-            margin-bottom: 5px;
-            text-decoration: underline;
+            margin-bottom: 8px;
             color: #00ffff;
+            text-transform: uppercase;
+            font-size: 11px;
+            letter-spacing: 1px;
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 4px;
+        }
+
+        .data-row {
+            display: flex;
+            justify-content: space-between;
         }
     </style>
 </head>
 <body>
 
     <div id="container">
-        <!-- Positionsanzeige unten links -->
-        <div id="poseInfo">
-            <strong>Kameraposition zu Marker:</strong>
-            Warte auf Marker...
+        
+        <!-- UI Elemente -->
+        <button id="closeBtn" class="ui-box" title="Tab schließen">✕</button>
+        
+        <div id="poseInfo" class="ui-box">
+            <strong>Kameraposition zu Marker</strong>
+            <div id="infoContent">Warte auf Marker...</div>
         </div>
 
+        <button id="camBtn" class="ui-box">Kamera wechseln</button>
+
         <div id="loadingText">Kamera wird geladen...</div>
-        <button id="camBtn">Kamera wechseln</button>
+        
+        <!-- Rendering -->
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
         <canvas id="threeCanvas"></canvas>
     </div>
 
-    <!-- Libs -->
+    <!-- Libraries -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -108,22 +146,22 @@
         const videoCanvas = document.getElementById('videoCanvas');
         const threeCanvas = document.getElementById('threeCanvas');
         const camBtn = document.getElementById('camBtn');
+        const closeBtn = document.getElementById('closeBtn');
         const loadingText = document.getElementById('loadingText');
-        const poseInfo = document.getElementById('poseInfo');
+        const infoContent = document.getElementById('infoContent');
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
         let detector, posit;
         let renderer, scene, camera;
         
-        // Die Hauptgruppe (Marker Zentrum)
-        let markerGroup; 
-        let cubeMesh; 
-
+        let markerGroup; // Die gesamte Gruppe (Marker Ursprung)
+        let cubeGroup;   // Nur der drehende Würfel
+        
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
-        // --- SMOOTHING VARIABLEN ---
+        // Smoothing Variablen
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
@@ -137,9 +175,21 @@
         };
 
         window.addEventListener('resize', onResize);
+        
         camBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
+        });
+
+        closeBtn.addEventListener('click', () => {
+            // Versucht Fenster zu schließen. 
+            // Hinweis: Browser blockieren dies oft, wenn Script das Fenster nicht selbst geöffnet hat.
+            if(window.history.length > 1) {
+                window.history.back();
+            } else {
+                window.close();
+                alert("Bitte Tab manuell schließen (Browser-Sicherheitsrichtlinie).");
+            }
         });
 
         function initThreeJS() {
@@ -156,37 +206,71 @@
             dl.position.set(0, 0, 10);
             scene.add(dl);
 
-            // --- MARKER GRUPPE (ZENTRUM) ---
+            // --- HAUPTGRUPPE ---
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // 1. Achsenkreuz (Verschoben nach unten rechts)
-            // Marker ist zentriert bei 0,0. Breite = markerSize.
-            // Rechte Kante = +markerSize/2, Untere Kante = -markerSize/2
-            const axes = new THREE.AxesHelper(markerSize * 0.8); 
-            
-            // Verschiebung: X nach rechts (+), Y nach unten (-)
-            axes.position.set(markerSize / 2, -markerSize / 2, 0);
-            markerGroup.add(axes);
+            // 1. DICKES KOORDINATENSYSTEM (Statisch am Marker-Ursprung)
+            // Wir bauen eigene Zylinder statt AxesHelper
+            const axisLength = markerSize * 0.8;
+            const axisThickness = markerSize * 0.04;
+            const axesMesh = createThickAxes(axisLength, axisThickness);
+            markerGroup.add(axesMesh);
 
-            // 2. Der Gelbe Würfel (Bleibt im Zentrum zur Orientierung)
+            // 2. GELBER WÜRFEL GRUPPE (Für Animation)
+            cubeGroup = new THREE.Group();
+            markerGroup.add(cubeGroup);
+
+            // Der eigentliche Würfel
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
             const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.5, transparent: true });
-            
-            cubeMesh = new THREE.Group();
             const mesh = new THREE.Mesh(geometry, material);
+            
+            // Kanten
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             
-            // Würfel anheben, damit er auf dem Papier steht
+            // Würfel sitzt AUF dem Marker (z verschoben um halbe Höhe)
             mesh.position.z = markerSize / 2;
             line.position.z = markerSize / 2;
 
-            cubeMesh.add(mesh);
-            cubeMesh.add(line);
-            markerGroup.add(cubeMesh);
+            cubeGroup.add(mesh);
+            cubeGroup.add(line);
 
             markerGroup.visible = false;
+        }
+
+        // Hilfsfunktion für dickes Achsenkreuz
+        function createThickAxes(len, thick) {
+            const group = new THREE.Group();
+
+            // Material
+            const matX = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Rot
+            const matY = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Grün
+            const matZ = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blau
+            const geo = new THREE.CylinderGeometry(thick, thick, len, 12);
+            
+            // X-Achse (Rot) - muss um Z gedreht werden
+            const meshX = new THREE.Mesh(geo, matX);
+            meshX.rotation.z = -Math.PI / 2;
+            meshX.position.x = len / 2;
+            group.add(meshX);
+
+            // Y-Achse (Grün) - Standard Zylinder ist Y-Up, aber wir wollen Y "nach oben" im 2D Sinne?
+            // ThreeJS Y ist oben. Zylinder ist Y-orientiert.
+            // Posit Y zeigt im Bild nach UNTEN (Image Space), aber im 3D Space nach OBEN.
+            // Wir lassen Y entlang der Y-Achse.
+            const meshY = new THREE.Mesh(geo, matY);
+            meshY.position.y = len / 2;
+            group.add(meshY);
+
+            // Z-Achse (Blau) - muss um X gedreht werden
+            const meshZ = new THREE.Mesh(geo, matZ);
+            meshZ.rotation.x = Math.PI / 2;
+            meshZ.position.z = len / 2;
+            group.add(meshZ);
+
+            return group;
         }
 
         function onResize() {
@@ -202,7 +286,7 @@
         }
 
         function updateThreeJSCamera(cw, ch) {
-            const fov = 60; // Ca. 60 Grad vertikaler FOV für Mobile
+            const fov = 60; 
             camera.fov = fov;
             camera.aspect = cw / ch;
             camera.updateProjectionMatrix();
@@ -231,7 +315,8 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            if (cubeMesh) cubeMesh.rotation.z += 0.02;
+            // Animation NUR für den Würfel, nicht für die Achsen
+            if (cubeGroup) cubeGroup.rotation.z += 0.02;
 
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
@@ -249,7 +334,8 @@
                     const marker = markers[0];
 
                     drawRedBox(marker.corners);
-                    drawIdText(marker.corners, marker.id);
+                    // ID Text optional, da wir jetzt UI haben
+                    // drawIdText(marker.corners, marker.id);
 
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
@@ -261,18 +347,17 @@
                     if (pose) {
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                         markerGroup.visible = true;
-                        cubeMesh.visible = (marker.id === 0);
+                        cubeGroup.visible = (marker.id === 0);
                         isTracking = true;
                     }
                 }
             }
 
             if (isTracking) {
-                // Glätten
+                // Glätten der Hauptgruppe (Achsen + Würfel bewegen sich mit Marker)
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
 
-                // Daten berechnen für Anzeige
                 updateInfoDisplay();
             }
 
@@ -280,11 +365,9 @@
         }
 
         function updateInfoDisplay() {
-            // Matrix aktualisieren
             markerGroup.updateMatrix();
             markerGroup.updateMatrixWorld();
 
-            // Inverse Matrix: Kamera relativ zur Welt (Marker)
             const invMatrix = new THREE.Matrix4();
             invMatrix.copy(markerGroup.matrix).invert();
 
@@ -293,25 +376,23 @@
             const camScale = new THREE.Vector3();
             invMatrix.decompose(camPos, camQuat, camScale);
             
-            // Position in cm
             const x = (camPos.x / 10).toFixed(0);
             const y = (camPos.y / 10).toFixed(0);
             const z = (camPos.z / 10).toFixed(0);
 
-            // Rotation in Euler-Winkeln (Grad)
             const euler = new THREE.Euler().setFromQuaternion(camQuat, 'XYZ');
             const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
             const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
-            poseInfo.innerHTML = `
-                <strong>Kameraposition zu Marker:</strong>
-                X: ${x} cm<br>
-                Y: ${y} cm<br>
-                Z: ${z} cm<br>
-                <br>
-                Winkel:<br>
-                X: ${pitch}° | Y: ${yaw}° | Z: ${roll}°
+            infoContent.innerHTML = `
+                <div class="data-row"><span>X:</span> <span>${x} cm</span></div>
+                <div class="data-row"><span>Y:</span> <span>${y} cm</span></div>
+                <div class="data-row"><span>Z:</span> <span>${z} cm</span></div>
+                <hr style="border:0; border-top:1px solid rgba(255,255,255,0.3); margin: 6px 0;">
+                <div class="data-row"><span>Pitch:</span> <span>${pitch}°</span></div>
+                <div class="data-row"><span>Yaw:</span> <span>${yaw}°</span></div>
+                <div class="data-row"><span>Roll:</span> <span>${roll}°</span></div>
             `;
         }
 
@@ -327,7 +408,7 @@
 
         function drawRedBox(corners) {
             context2D.lineWidth = 4;
-            context2D.strokeStyle = "red";
+            context2D.strokeStyle = "rgba(255, 0, 0, 0.7)";
             context2D.beginPath();
             corners.forEach((c, i) => {
                 if (i === 0) context2D.moveTo(c.x, c.y);
@@ -335,18 +416,6 @@
             });
             context2D.closePath();
             context2D.stroke();
-        }
-
-        function drawIdText(corners, id) {
-            const pt = corners[0]; 
-            context2D.font = "bold 24px monospace";
-            context2D.textAlign = "left";
-            context2D.textBaseline = "bottom";
-            context2D.lineWidth = 4;
-            context2D.strokeStyle = "black";
-            context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
-            context2D.fillStyle = "#00FFFF"; 
-            context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
         function updateObjectTargets(r, t) {
