@@ -22,7 +22,7 @@
         /* Layer 1: 2D Canvas (Video, Roter Kasten, Koordinatenachsen) */
         #videoCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 1; }
 
-        /* Layer 2: 3D Canvas (Nur der schwebende Würfel) */
+        /* Layer 2: 3D Canvas (Das 3D Modell) */
         #threeCanvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; z-index: 2; pointer-events: none; }
 
         video { position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0; pointer-events: none; }
@@ -30,6 +30,7 @@
         #loadingText {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: white; z-index: 50; pointer-events: none;
+            text-align: center;
         }
 
         /* --- UI DESIGN --- */
@@ -79,7 +80,10 @@
         </div>
 
         <button id="camBtn" class="ui-box">Kamera wechseln</button>
-        <div id="loadingText">Kamera wird geladen...</div>
+        <div id="loadingText">
+            Kamera wird geladen...<br>
+            <span id="modelStatus" style="font-size: 0.8em; color: yellow;">Lade 3D Modell...</span>
+        </div>
         
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
@@ -87,21 +91,31 @@
     </div>
 
     <!-- Libraries -->
+    <!-- ArUco / CV Libs -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
+    
+    <!-- ThreeJS & GLTFLoader -->
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
+    <!-- WICHTIG: GLTFLoader passend zur ThreeJS Version -->
+    <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
 
     <script>
         // --- KONFIGURATION ---
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
         const markerSize = 100.0; // mm
         
+        // PFAD ZUM MODELL
+        const modelPath = '3D_models/Koenig.glb';
+        // SKALIERUNG DES MODELLS (Anpassen, falls Modell zu groß/klein ist)
+        const modelScale = 1.0; 
+        
         // FILTER & TRACKING
         const minMarkerSize = 40; 
         const maxDistortion = 0.3; 
-        const maxLossFrames = 30; // Ca. 0.5 Sekunden Toleranz bevor Objekt ausgeblendet wird
+        const maxLossFrames = 30; 
         // ---------------------
 
         const video = document.getElementById('video');
@@ -110,12 +124,14 @@
         const camBtn = document.getElementById('camBtn');
         const closeBtn = document.getElementById('closeBtn');
         const loadingText = document.getElementById('loadingText');
+        const modelStatus = document.getElementById('modelStatus');
         const infoContent = document.getElementById('infoContent');
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
         let detector, posit;
         let renderer, scene, camera;
-        let markerGroup, cubeGroup; 
+        let markerGroup; 
+        let koenigModel = null; // Variable für das geladene Modell
         
         let currentFacingMode = 'environment';
         let stream = null;
@@ -126,7 +142,7 @@
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
         let isTracking = false;
-        let lossCounter = 0; // Zählt hoch, wenn kein Marker gefunden wird
+        let lossCounter = 0; 
 
         window.onload = () => {
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
@@ -155,27 +171,53 @@
             scene = new THREE.Scene();
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000);
             scene.add(camera);
-            scene.add(new THREE.AmbientLight(0xffffff, 0.6));
-            const dl = new THREE.DirectionalLight(0xffffff, 0.8);
-            dl.position.set(0, 0, 10);
+            
+            // Beleuchtung verbessern für GLB Modelle
+            scene.add(new THREE.AmbientLight(0xffffff, 0.8)); // Helles Umgebungslicht
+            const dl = new THREE.DirectionalLight(0xffffff, 1.2); // Starkes Sonnenlicht
+            dl.position.set(500, 500, 1000);
             scene.add(dl);
 
+            // Hauptgruppe, die am Marker klebt
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // Würfel Gruppe (20cm Höhe)
-            cubeGroup = new THREE.Group();
-            cubeGroup.position.z = 200.0; 
-            markerGroup.add(cubeGroup);
+            // --- GLB MODELL LADEN ---
+            const loader = new THREE.GLTFLoader();
+            loader.load(
+                modelPath,
+                function (gltf) {
+                    koenigModel = gltf.scene;
+                    
+                    // Skalierung anwenden
+                    koenigModel.scale.set(modelScale, modelScale, modelScale);
 
-            const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
-            const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.6, transparent: true });
-            const mesh = new THREE.Mesh(geometry, material);
-            const edges = new THREE.EdgesGeometry(geometry);
-            const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
-            
-            cubeGroup.add(mesh);
-            cubeGroup.add(line);
+                    // Positionierung: 15cm (150mm) über dem Marker
+                    // WICHTIG: ArUco Z-Achse zeigt aus dem Papier heraus.
+                    koenigModel.position.z = 150; 
+
+                    // Rotation: GLTF ist oft Y-Up. Wir müssen eventuell rotieren.
+                    // Probieren wir erstmal Standard-Rotation. 
+                    // Oft muss man um X rotieren: koenigModel.rotation.x = Math.PI / 2;
+                    // Wir richten es hier so aus, dass es aufrecht zur Z-Achse steht.
+                    koenigModel.rotation.x = Math.PI / 2; 
+
+                    markerGroup.add(koenigModel);
+                    
+                    modelStatus.innerText = "Modell geladen!";
+                    setTimeout(() => { if(isVideoReady) loadingText.style.display = 'none'; }, 1000);
+                },
+                function (xhr) {
+                    // Progress
+                    // console.log((xhr.loaded / xhr.total * 100) + '% loaded');
+                },
+                function (error) {
+                    console.error('Fehler beim Laden des Modells:', error);
+                    modelStatus.innerText = "Fehler beim Laden (siehe Konsole)";
+                    modelStatus.style.color = "red";
+                }
+            );
+
             markerGroup.visible = false;
         }
 
@@ -192,7 +234,6 @@
         }
 
         function updateThreeJSCamera(cw, ch) {
-            // Anti-Rutsch-Korrektur: FOV berechnen basierend auf Bildbreite
             const focalLength = cw;
             const fovRad = 2 * Math.atan((ch / 2) / focalLength);
             const fovDeg = fovRad * (180 / Math.PI);
@@ -218,14 +259,18 @@
         video.addEventListener('loadedmetadata', () => {
             onResize();
             isVideoReady = true;
-            loadingText.style.display = 'none';
+            if(koenigModel) loadingText.style.display = 'none'; // Nur ausblenden wenn Modell auch da ist
         });
 
         function tick() {
             requestAnimationFrame(tick);
 
-            // Animation Würfel
-            if (cubeGroup) { cubeGroup.rotation.z += 0.02; cubeGroup.rotation.x += 0.01; }
+            // --- ANIMATION: MODELL DREHEN ---
+            // Wir drehen das Modell um seine eigene vertikale Achse (im ArUco System ist das Z oder Y, je nach Rotation)
+            // Da wir oben rotation.x = 90 gemacht haben, ist die "Steh-Achse" nun Y relativ zum Container.
+            if (koenigModel) {
+                koenigModel.rotation.y += 0.01; 
+            }
 
             let markerDetectedThisFrame = false;
 
@@ -251,7 +296,7 @@
                 if (markers.length > 0) {
                     const marker = markers[0];
                     markerDetectedThisFrame = true;
-                    lossCounter = 0; // Reset Counter
+                    lossCounter = 0; 
 
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
@@ -266,9 +311,7 @@
                     if (pose) {
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                         
-                        // Sichtbarkeit aktivieren
                         markerGroup.visible = true;
-                        cubeGroup.visible = (marker.id === 0);
                         isTracking = true;
 
                         drawAxis(pose.bestRotation, pose.bestTranslation, markerSize);
@@ -280,7 +323,6 @@
             if (!markerDetectedThisFrame && isTracking) {
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
-                    // Wenn zu lange kein Marker gesehen wurde: Ausblenden
                     isTracking = false;
                     markerGroup.visible = false;
                     infoContent.innerHTML = "Signal verloren.<br>Suche Marker...";
@@ -339,7 +381,6 @@
             const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
-            // NEUE FORMATIERUNG WIE GEWÜNSCHT
             infoContent.innerHTML = `
                 Position<br>
                 X: ${x} cm | Y: ${y} cm | Z: ${z} cm<br>
