@@ -42,7 +42,7 @@
             color: white; z-index: 50; pointer-events: none;
         }
 
-        /* --- UI KLASSEN FÜR EINHEITLICHES DESIGN --- */
+        /* --- UI DESIGN --- */
         .ui-box {
             position: absolute;
             z-index: 100;
@@ -54,7 +54,7 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.3);
         }
 
-        /* 1. Kamera Button (Unten Rechts) */
+        /* Button: Kamera wechseln */
         #camBtn {
             bottom: 20px; 
             right: 20px; 
@@ -64,7 +64,7 @@
             font-size: 14px;
         }
 
-        /* 2. Schließen Button (Oben Rechts) */
+        /* Button: Schließen (X) */
         #closeBtn {
             top: 20px;
             right: 20px;
@@ -79,20 +79,19 @@
             padding: 0;
         }
 
-        /* 3. Info Box (Oben Links) */
+        /* Info Box: Kompakt */
         #poseInfo {
             top: 20px; 
             left: 20px; 
-            padding: 15px; 
+            padding: 12px; 
             font-size: 13px;
-            line-height: 1.5;
-            min-width: 220px;
-            pointer-events: none; /* Klicks gehen durch */
+            line-height: 1.4;
+            pointer-events: none;
         }
         
         #poseInfo strong {
             display: block;
-            margin-bottom: 8px;
+            margin-bottom: 6px;
             color: #00ffff;
             text-transform: uppercase;
             font-size: 11px;
@@ -100,30 +99,27 @@
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 4px;
         }
-
-        .data-row {
-            display: flex;
-            justify-content: space-between;
-        }
     </style>
 </head>
 <body>
 
     <div id="container">
         
-        <!-- UI Elemente -->
+        <!-- Schließen Button -->
         <button id="closeBtn" class="ui-box" title="Tab schließen">✕</button>
         
+        <!-- Info Box (Kompakt) -->
         <div id="poseInfo" class="ui-box">
             <strong>Kameraposition zu Marker</strong>
             <div id="infoContent">Warte auf Marker...</div>
         </div>
 
+        <!-- Kamera Button -->
         <button id="camBtn" class="ui-box">Kamera wechseln</button>
 
         <div id="loadingText">Kamera wird geladen...</div>
         
-        <!-- Rendering -->
+        <!-- Rendering Areas -->
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
         <canvas id="threeCanvas"></canvas>
@@ -139,7 +135,7 @@
     <script>
         // --- KONFIGURATION ---
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const markerSize = 100.0; // mm
+        const markerSize = 100.0; // mm (Größe des Papier-Markers)
         // ---------------------
 
         const video = document.getElementById('video');
@@ -154,14 +150,14 @@
         let detector, posit;
         let renderer, scene, camera;
         
-        let markerGroup; // Die gesamte Gruppe (Marker Ursprung)
-        let cubeGroup;   // Nur der drehende Würfel
+        let markerGroup; // Ankerpunkt (0,0,0 auf dem Papier)
+        let cubeGroup;   // Der schwebende Würfel
         
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
-        // Smoothing Variablen
+        // Smoothing Variablen (gegen Zittern)
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
@@ -182,13 +178,11 @@
         });
 
         closeBtn.addEventListener('click', () => {
-            // Versucht Fenster zu schließen. 
-            // Hinweis: Browser blockieren dies oft, wenn Script das Fenster nicht selbst geöffnet hat.
             if(window.history.length > 1) {
                 window.history.back();
             } else {
-                window.close();
-                alert("Bitte Tab manuell schließen (Browser-Sicherheitsrichtlinie).");
+                window.close(); // Funktioniert oft nur, wenn per Script geöffnet
+                alert("Bitte Tab manuell schließen.");
             }
         });
 
@@ -206,71 +200,32 @@
             dl.position.set(0, 0, 10);
             scene.add(dl);
 
-            // --- HAUPTGRUPPE ---
+            // --- HAUPTGRUPPE (Marker Ebene) ---
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
 
-            // 1. DICKES KOORDINATENSYSTEM (Statisch am Marker-Ursprung)
-            // Wir bauen eigene Zylinder statt AxesHelper
-            const axisLength = markerSize * 0.8;
-            const axisThickness = markerSize * 0.04;
-            const axesMesh = createThickAxes(axisLength, axisThickness);
-            markerGroup.add(axesMesh);
-
-            // 2. GELBER WÜRFEL GRUPPE (Für Animation)
+            // --- WÜRFEL GRUPPE ---
             cubeGroup = new THREE.Group();
+            
+            // HÖHE EINSTELLEN: 20 cm = 200 mm
+            // Z-Achse zeigt senkrecht aus dem Marker heraus
+            cubeGroup.position.z = 200.0; 
+            
             markerGroup.add(cubeGroup);
 
             // Der eigentliche Würfel
             const geometry = new THREE.BoxGeometry(markerSize, markerSize, markerSize);
-            const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.5, transparent: true });
+            const material = new THREE.MeshPhongMaterial({ color: 0xffff00, opacity: 0.6, transparent: true });
             const mesh = new THREE.Mesh(geometry, material);
             
             // Kanten
             const edges = new THREE.EdgesGeometry(geometry);
             const line = new THREE.LineSegments(edges, new THREE.LineBasicMaterial({ color: 0xffaa00 }));
             
-            // Würfel sitzt AUF dem Marker (z verschoben um halbe Höhe)
-            mesh.position.z = markerSize / 2;
-            line.position.z = markerSize / 2;
-
             cubeGroup.add(mesh);
             cubeGroup.add(line);
 
             markerGroup.visible = false;
-        }
-
-        // Hilfsfunktion für dickes Achsenkreuz
-        function createThickAxes(len, thick) {
-            const group = new THREE.Group();
-
-            // Material
-            const matX = new THREE.MeshBasicMaterial({ color: 0xff0000 }); // Rot
-            const matY = new THREE.MeshBasicMaterial({ color: 0x00ff00 }); // Grün
-            const matZ = new THREE.MeshBasicMaterial({ color: 0x0000ff }); // Blau
-            const geo = new THREE.CylinderGeometry(thick, thick, len, 12);
-            
-            // X-Achse (Rot) - muss um Z gedreht werden
-            const meshX = new THREE.Mesh(geo, matX);
-            meshX.rotation.z = -Math.PI / 2;
-            meshX.position.x = len / 2;
-            group.add(meshX);
-
-            // Y-Achse (Grün) - Standard Zylinder ist Y-Up, aber wir wollen Y "nach oben" im 2D Sinne?
-            // ThreeJS Y ist oben. Zylinder ist Y-orientiert.
-            // Posit Y zeigt im Bild nach UNTEN (Image Space), aber im 3D Space nach OBEN.
-            // Wir lassen Y entlang der Y-Achse.
-            const meshY = new THREE.Mesh(geo, matY);
-            meshY.position.y = len / 2;
-            group.add(meshY);
-
-            // Z-Achse (Blau) - muss um X gedreht werden
-            const meshZ = new THREE.Mesh(geo, matZ);
-            meshZ.rotation.x = Math.PI / 2;
-            meshZ.position.z = len / 2;
-            group.add(meshZ);
-
-            return group;
         }
 
         function onResize() {
@@ -315,8 +270,9 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            // Animation NUR für den Würfel, nicht für die Achsen
+            // Rotation des Würfels (Animation)
             if (cubeGroup) cubeGroup.rotation.z += 0.02;
+            if (cubeGroup) cubeGroup.rotation.x += 0.01;
 
             if (isVideoReady && video.videoWidth > 0) {
                 drawVideoFullscreen();
@@ -334,8 +290,8 @@
                     const marker = markers[0];
 
                     drawRedBox(marker.corners);
-                    // ID Text optional, da wir jetzt UI haben
-                    // drawIdText(marker.corners, marker.id);
+                    // ID ANZEIGE WIEDER AKTIV
+                    drawIdText(marker.corners, marker.id);
 
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
@@ -347,14 +303,17 @@
                     if (pose) {
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                         markerGroup.visible = true;
+                        
+                        // Würfel nur bei ID 0 anzeigen (oder entfernen, wenn er immer da sein soll)
                         cubeGroup.visible = (marker.id === 0);
+                        
                         isTracking = true;
                     }
                 }
             }
 
             if (isTracking) {
-                // Glätten der Hauptgruppe (Achsen + Würfel bewegen sich mit Marker)
+                // Glätten
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
 
@@ -385,14 +344,10 @@
             const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
+            // Kompakte 2-Zeilen Anzeige
             infoContent.innerHTML = `
-                <div class="data-row"><span>X:</span> <span>${x} cm</span></div>
-                <div class="data-row"><span>Y:</span> <span>${y} cm</span></div>
-                <div class="data-row"><span>Z:</span> <span>${z} cm</span></div>
-                <hr style="border:0; border-top:1px solid rgba(255,255,255,0.3); margin: 6px 0;">
-                <div class="data-row"><span>Pitch:</span> <span>${pitch}°</span></div>
-                <div class="data-row"><span>Yaw:</span> <span>${yaw}°</span></div>
-                <div class="data-row"><span>Roll:</span> <span>${roll}°</span></div>
+                Pos: X${x} / Y${y} / Z${z} cm<br>
+                Rot: P${pitch}° / Y${yaw}° / R${roll}°
             `;
         }
 
@@ -416,6 +371,19 @@
             });
             context2D.closePath();
             context2D.stroke();
+        }
+
+        // ID Anzeige wiederhergestellt
+        function drawIdText(corners, id) {
+            const pt = corners[0]; 
+            context2D.font = "bold 24px monospace";
+            context2D.textAlign = "left";
+            context2D.textBaseline = "bottom";
+            context2D.lineWidth = 4;
+            context2D.strokeStyle = "black";
+            context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
+            context2D.fillStyle = "#00FFFF"; 
+            context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
         function updateObjectTargets(r, t) {
