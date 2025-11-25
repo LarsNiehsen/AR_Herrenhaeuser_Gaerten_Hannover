@@ -3,10 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Herrenhäuser Gärten - König Statue</title>
+    <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
-        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: sans-serif; }
+        body, html { margin: 0; padding: 0; width: 100%; height: 100%; background-color: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; }
         #container { position: relative; width: 100%; height: 100%; }
         
         /* Layer 1: 2D Canvas (Video) */
@@ -23,24 +23,28 @@
         }
 
         .ui-box {
-            position: absolute; z-index: 100; background: rgba(40, 40, 40, 0.9); 
-            border: 1px solid #aaa; color: white; border-radius: 8px;
-            backdrop-filter: blur(4px);
+            position: absolute; z-index: 100; background: rgba(30, 30, 30, 0.85); 
+            border: 1px solid #888; color: white; border-radius: 8px;
+            backdrop-filter: blur(5px);
+            box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
 
         #camBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-weight: bold; cursor: pointer; }
         #closeBtn { top: 20px; right: 20px; width: 40px; height: 40px; font-weight: bold; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
         
         #poseInfo {
-            top: 20px; left: 20px; padding: 15px; font-size: 13px; line-height: 1.6; 
-            pointer-events: none; min-width: 250px;
+            top: 20px; left: 20px; padding: 15px; font-size: 14px; line-height: 1.5; 
+            pointer-events: none; min-width: 260px; font-family: monospace;
         }
-        #poseInfo strong { display: block; margin-bottom: 8px; color: #00ffff; border-bottom: 1px solid rgba(255,255,255,0.3); }
+        #poseInfo strong { 
+            display: block; margin-bottom: 8px; color: #00ffff; font-family: sans-serif;
+            border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px; 
+        }
         
         /* Hinweis für Klickbarkeit */
         #clickHint {
             position: absolute; bottom: 80px; left: 50%; transform: translateX(-50%);
-            color: yellow; text-shadow: 1px 1px 2px black; font-weight: bold;
+            color: yellow; text-shadow: 1px 1px 2px black; font-weight: bold; font-family: sans-serif;
             z-index: 90; pointer-events: none; opacity: 0; transition: opacity 0.5s;
         }
     </style>
@@ -51,9 +55,8 @@
         <button id="closeBtn" class="ui-box">✕</button>
         
         <div id="poseInfo" class="ui-box">
-            <strong>König Statue (ID 0)</strong>
-            <div id="infoContent">Suche Marker ID 0...</div>
-            <div id="debugInfo" style="color: yellow; margin-top: 5px; font-size: 0.9em;"></div>
+            <strong>Relative Lage (Cam -> Marker)</strong>
+            <div id="infoContent">Suche Marker...</div>
         </div>
 
         <div id="clickHint">👆 Tippe auf die Statue für mehr Infos!</div>
@@ -83,7 +86,6 @@
         const markerSize = 100.0; // mm
         
         const modelPath = '3D_models/Koenig.glb';
-        // URL für Verlinkung
         const targetUrl = "https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst";
 
         // Skalierung
@@ -101,7 +103,6 @@
         const loadingText = document.getElementById('loadingText');
         const modelStatus = document.getElementById('modelStatus');
         const infoContent = document.getElementById('infoContent');
-        const debugInfo = document.getElementById('debugInfo');
         const clickHint = document.getElementById('clickHint');
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -114,11 +115,11 @@
         let isVideoReady = false;
         let isModelLoaded = false;
 
-        // Smoothing
+        // Smoothing Variablen (nur für das 3D Modell)
         const lerpFactor = 0.15; 
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
-        let isTracking = false;
+        let isTrackingID0 = false;
         let lossCounter = 0; 
 
         // Raycaster für Klick-Erkennung
@@ -146,21 +147,15 @@
         });
 
         function setupInteractions() {
-            // Event Listener für Klicks/Taps auf das Canvas
             threeCanvas.addEventListener('click', onCanvasClick, false);
-            // Optional: Touchstart für schnellere Reaktion auf Mobile
-            // threeCanvas.addEventListener('touchstart', onCanvasClick, false);
         }
 
         function onCanvasClick(event) {
-            // Nur klicken, wenn Tracking aktiv und Modell geladen
-            if (!isTracking || !koenigModel || !markerGroup.visible) return;
+            // Nur klicken, wenn Tracking aktiv und Modell sichtbar
+            if (!isTrackingID0 || !koenigModel || !markerGroup.visible) return;
 
-            // Verhindern, dass Klick auf UI Buttons feuert (sollte durch z-index passen, aber sicherheitshalber)
             event.preventDefault();
 
-            // 1. Mauskoordinaten normalisieren (-1 bis +1)
-            // Eventuell Touch-Event berücksichtigen
             let clientX, clientY;
             if (event.changedTouches && event.changedTouches.length > 0) {
                 clientX = event.changedTouches[0].clientX;
@@ -173,14 +168,10 @@
             mouse.x = (clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(clientY / window.innerHeight) * 2 + 1;
 
-            // 2. Raycaster von Kamera aus schießen
             raycaster.setFromCamera(mouse, camera);
-
-            // 3. Schnittpunkt mit dem Modell prüfen (rekursiv true, da GLB aus Meshes besteht)
             const intersects = raycaster.intersectObjects([koenigModel], true);
 
             if (intersects.length > 0) {
-                // TREFFER!
                 console.log("Modell angeklickt! Öffne URL...");
                 window.open(targetUrl, '_blank');
             }
@@ -206,18 +197,10 @@
 
             // GLB Laden
             const loader = new THREE.GLTFLoader();
-            console.log("Starte Laden von: " + modelPath);
-            
             loader.load(modelPath, function (gltf) {
                 koenigModel = gltf.scene;
-                
-                // Skalierung
                 koenigModel.scale.set(modelScale, modelScale, modelScale);
-                
-                // Position (ArUco Z ist Oben)
                 koenigModel.position.z = 0; 
-                
-                // Grund-Ausrichtung (Aufrichten)
                 koenigModel.rotation.x = Math.PI / 2; 
 
                 markerGroup.add(koenigModel);
@@ -225,7 +208,6 @@
                 isModelLoaded = true;
                 modelStatus.innerText = "Modell bereit!";
                 modelStatus.style.color = "#00ff00";
-                
             }, undefined, function (error) {
                 console.error(error);
                 modelStatus.innerText = "FEHLER: Datei nicht gefunden!";
@@ -278,9 +260,8 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            // --- ANIMATION: Drehung um Z-Achse, Schneller ---
+            // Animation
             if (koenigModel) {
-                // Da das Modell in markerGroup liegt und markerGroup Z nach oben hat:
                 koenigModel.rotation.z += 0.05; 
             }
 
@@ -292,66 +273,114 @@
                 const imageData = context2D.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
                 let markers = detector.detect(imageData);
 
+                // Filter
                 markers = markers.filter(m => {
                     const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
                     return d > minMarkerSize;
                 });
 
                 if (markers.length > 0) {
-                    const marker = markers[0];
+                    const marker = markers[0]; // Nimm den besten Marker
+                    
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
 
-                    if (marker.id === 0 && isModelLoaded) {
-                        detectedID0 = true;
-                        lossCounter = 0;
+                    // --- POSE BERECHNUNG FÜR ALLE MARKER ---
+                    const cornersCentered = marker.corners.map(c => ({
+                        x: c.x - (videoCanvas.width / 2),
+                        y: (videoCanvas.height / 2) - c.y
+                    }));
+                    const pose = posit.pose(cornersCentered);
 
-                        const cornersCentered = marker.corners.map(c => ({
-                            x: c.x - (videoCanvas.width / 2),
-                            y: (videoCanvas.height / 2) - c.y
-                        }));
+                    if (pose) {
+                        // 1. UI Update: Zeige Daten für JEDEN Marker an
+                        updatePoseUI(pose.bestRotation, pose.bestTranslation, marker.id);
 
-                        const pose = posit.pose(cornersCentered);
-
-                        if (pose) {
+                        // 2. Spezialbehandlung für ID 0 (König)
+                        if (marker.id === 0 && isModelLoaded) {
+                            detectedID0 = true;
+                            lossCounter = 0;
+                            
+                            // Setze Zielposition für 3D Modell
                             updateObjectTargets(pose.bestRotation, pose.bestTranslation);
                             
                             markerGroup.visible = true;
-                            isTracking = true;
-                            clickHint.style.opacity = 1; // Hinweis einblenden
+                            isTrackingID0 = true;
+                            clickHint.style.opacity = 1; 
                         }
-                    } 
+                    }
+                } else {
+                    // Kein Marker im Bild? Text zurücksetzen
+                    if (!isTrackingID0) {
+                         // Nur überschreiben, wenn wir nicht gerade ID 0 tracken (wegen Glättung)
+                         // Oder einfach stehen lassen. Hier setzen wir es zurück:
+                         // infoContent.innerHTML = "Suche Marker...";
+                    }
                 }
             }
 
-            if (!detectedID0 && isTracking) {
+            // --- TRACKING STATUS ID 0 ---
+            if (!detectedID0 && isTrackingID0) {
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
-                    isTracking = false;
+                    isTrackingID0 = false;
                     markerGroup.visible = false;
-                    infoContent.innerHTML = "ID 0 verloren.";
                     clickHint.style.opacity = 0;
+                    infoContent.innerHTML = "Marker verloren.";
                 }
             }
 
-            if (isTracking) {
+            // Glättung anwenden (nur für das 3D Modell)
+            if (isTrackingID0) {
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
-                
-                const p = markerGroup.position;
-                infoContent.innerHTML = `Koenig sichtbar!<br>X:${(p.x/10).toFixed(0)} Y:${(p.y/10).toFixed(0)} Z:${(p.z/10).toFixed(0)}`;
             }
 
             renderer.render(scene, camera);
         }
 
-        function project(point3d, rot, trans) {
-            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
-            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
-            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
-            if (z <= 0) return { x: -100, y: -100 };
-            const scale = videoCanvas.width / z;
-            return { x: x * scale + (videoCanvas.width / 2), y: (videoCanvas.height / 2) - y * scale };
+        // --- UI UPDATER: KAMERA RELATIV ZU MARKER ---
+        function updatePoseUI(r, t, id) {
+            // Wir bauen eine Matrix aus Rotation und Translation des Markers relativ zur Kamera
+            const m = new THREE.Matrix4();
+            m.set(
+                 r[0][0],  r[0][1],  r[0][2], t[0],
+                -r[1][0], -r[1][1], -r[1][2], -t[1],
+                -r[2][0], -r[2][1], -r[2][2], -t[2],
+                 0,        0,        0,       1
+            );
+            
+            // Wir invertieren die Matrix, um die Kamera relativ zum Marker zu bekommen
+            const inv = m.invert();
+            
+            // Zerlegen in Position, Rotation, Skalierung
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            inv.decompose(pos, quat, scale);
+            
+            // Euler Winkel für Anzeige
+            const euler = new THREE.Euler().setFromQuaternion(quat);
+            
+            const x = (pos.x / 10).toFixed(0); // mm -> cm
+            const y = (pos.y / 10).toFixed(0);
+            const z = (pos.z / 10).toFixed(0);
+            
+            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
+            infoContent.innerHTML = `
+                <span style="color:yellow;">Gefunden: ID ${id}</span><br>
+                <div style="margin-top:5px; border-top:1px solid #555; padding-top:5px;">
+                Position (cm)<br>
+                X: ${x} | Y: ${y} | Z: ${z}<br>
+                </div>
+                <div style="margin-top:5px;">
+                Winkel (°)<br>
+                P: ${pitch} | Y: ${yaw} | R: ${roll}
+                </div>
+            `;
         }
 
         function drawVideoFullscreen() {
@@ -376,10 +405,18 @@
             context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
+        // --- UPDATER FÜR 3D MODELL (NUR ID 0) ---
         function updateObjectTargets(r, t) {
+            // Hier nutzen wir die Logic um das Objekt RELATIV zur Kamera zu platzieren
+            // (ThreeJS Szene: Kamera ist 0,0,0, Marker bewegt sich)
             targetPosition.set(t[0], -t[1], -t[2]);
             const m = new THREE.Matrix4();
-            m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
+            m.set(
+                 r[0][0],  r[0][1],  r[0][2], 0,
+                -r[1][0], -r[1][1], -r[1][2], 0,
+                -r[2][0], -r[2][1], -r[2][2], 0,
+                 0,        0,        0,       1
+            );
             targetQuaternion.setFromRotationMatrix(m);
         }
     </script>
