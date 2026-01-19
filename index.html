@@ -83,7 +83,8 @@
         </div>
         
         <!-- Den Buttons geben wir etwas Margin, damit sie auf kleinen Displays nicht kleben -->
-        <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert)</button>
+        <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_WebXR)</button>
+        <button id="startARBtSL" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_SLAM)</button>
         <button id="startARBtm" class="btn-primary" style="margin: 5px;">Start AR (Markerbasiert)</button>
         <button id="startARBtIT" class="btn-primary" style="margin: 5px;">Start AR (Image-Tracking)</button>
         <button id="startARBtT" class="btn-primary" style="margin: 5px;">Start AR (experimental)</button>
@@ -127,6 +128,21 @@
           return;
         }
         newWin.location.href = 'AR_HitTest_Positionsbasiert.html';
+      });
+    })();
+  </script>
+
+    <script>
+    (function () {
+      const startBtn = document.getElementById('startARBtSL');
+      startBtn.addEventListener('click', (ev) => {
+        // Must open synchronously on the click event so browser treats it as user-initiated
+        const newWin = window.open('', '_blank');
+        if (!newWin) {
+          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
+          return;
+        }
+        newWin.location.href = 'AR_HitTest_Positionsbasiert_MA.html';
       });
     })();
   </script>
@@ -181,7 +197,9 @@
       { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
       { title: 'Haupteingang mit Kasse', coords: [52.391185, 9.698368] },
       { title: 'Niki de Saint Phalle - Grotte', coords: [52.390713, 9.696767] },
-      { title: 'Statue', coords: [52.389882, 9.698785] }
+      { title: 'Sommer - Statue', coords: [ 52.389583, 9.697833] },
+      { title: 'Borghesischer Fechter', coords: [52.389472, 9.699222] },
+      { title: 'Niederdeutscher Blumengarten', coords: [52.388194, 9.697861] }
     ];
 
     // init map
