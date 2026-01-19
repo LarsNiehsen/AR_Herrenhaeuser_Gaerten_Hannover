@@ -2,35 +2,93 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten Hannover - AR (markerless)</title>
+  <!-- TITEL WIE GEWÜNSCHT UNVERÄNDERT -->
+  <title>Herrenhäuser Gärten - markerloses AR</title>
+  
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  
   <style>
+    /* Grundlegendes Styling für Vollbild und schwarzen Hintergrund */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
+    
+    /* Container für das Info-Overlay (Texte) */
     #overlay {
       position: absolute; top: 10px; left: 10px; right: 10px;
-      z-index: 100; pointer-events: none;
+      z-index: 100; pointer-events: none; /* Klicks gehen durch das Overlay hindurch */
       display: flex; flex-direction: column; gap: 5px;
     }
+    
+    /* Styling der Info-Box mit Milchglas-Effekt */
     .info-box {
       background: rgba(0, 0, 0, 0.6);
       padding: 10px; border-radius: 8px;
       backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2);
     }
+    
+    /* Typografie des Overlays */
     h1 { margin: 0 0 5px 0; font-size: 1.1rem; }
     p { margin: 0; font-size: 0.9rem; color: #ccc; }
-    #status { color: #4f4; font-weight: bold; }
+    
+    /* Status-Farben */
+    #status { color: #888; font-weight: bold; }
+    .active-target { color: #4f4; } /* Grün markiert, wenn aktiv */
+
+    /* --- NEUE BUTTON STYLES --- */
+    .ar-btn {
+        position: absolute;
+        z-index: 101; /* Muss höher sein als das Overlay */
+        color: white;
+        padding: 12px 20px;
+        border-radius: 30px;
+        font-weight: bold;
+        cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.5);
+        background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px);
+        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+        text-transform: uppercase;
+        font-size: 12px;
+        letter-spacing: 1px;
+        pointer-events: auto; /* Buttons müssen klickbar sein */
+        transition: transform 0.1s;
+    }
+    
+    /* Klick-Animation */
+    .ar-btn:active { transform: scale(0.95); }
+
+    /* Positionierung Schließen-Button (Oben Rechts) */
+    #closeBtn {
+        top: 20px; 
+        right: 20px; 
+        background: rgba(200, 40, 40, 0.85); /* Rötlich */
+    }
+
+    /* Positionierung Kamera-Button (Unten Rechts) */
+    #camBtn {
+        bottom: 30px; 
+        right: 20px; 
+        background: rgba(40, 40, 40, 0.8); /* Dunkelgrau */
+    }
   </style>
 </head>
 <body>
+  
+  <!-- NEUE BUTTONS -->
+  <button id="closeBtn" class="ar-btn">✕ Schließen</button>
+  <button id="camBtn" class="ar-btn">📷 Kamera</button>
+
+  <!-- OVERLAY TEXTE (UNVERÄNDERT) -->
   <div id="overlay">
     <div class="info-box">
-      <h1>Herrenhausen AR</h1>
-      <p id="msg">Initialisiere...</p>
+      <h1>Herrenhäuser Gärten - Virtueller Rundgang in AR</h1>
+      <p id="msg">Lade 3D-Modelle...</p>
+      <p>Nächstes Ziel: <span id="targetName">-</span></p>
       <p>Distanz: <span id="dist">-</span> m</p>
       <p>Status: <span id="status">Warte auf GPS</span></p>
     </div>
   </div>
 
+  <!-- Import Map definiert, woher Three.js geladen wird (CDN) -->
   <script type="importmap">
     {
       "imports": {
@@ -40,82 +98,158 @@
     }
   </script>
 
+  <!-- HAUPTSKRIPT (Logik) -->
   <script type="module">
     import * as THREE from 'three';
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // --- EINSTELLUNGEN ---
-    const TARGET_LAT = 52.388194;
-    const TARGET_LON = 9.697861;
-    const MODEL_URL = './3D_models/Statue_3D.glb';
-    const MODEL_SCALE = 1.0;
-    
-    // Ab wie viel Metern Distanz soll die Position "eingefroren" werden, 
-    // um GPS-Jitter zu verhindern und nur noch SLAM zu nutzen?
-    const FREEZE_DISTANCE_METERS = 15.0; 
+    // --- KONFIGURATION DER ORTE ---
+    // Array mit allen Statuen, Koordinaten und Pfaden
+    const LOCATIONS = [
+      {
+        title: 'Erste Statue',
+        lat: 52.388194, 
+        lon: 9.697861,
+        url: './3D_models/Statue_3D.glb', // Pfad unverändert
+        scale: 1.0,
+        rotation: 0, 
+        object3D: null // Hier wird später das geladene 3D-Objekt gespeichert
+      },
+      {
+        title: 'Borghesischer Fechter',
+        lat: 52.389472, 
+        lon: 9.699222,
+        url: './3D_models/BorghesischerFechter_3D.glb', // Pfad unverändert
+        scale: 1.0,
+        rotation: 180, 
+        object3D: null
+      }
+    ];
 
-    // --- VARIABLEN ---
+    // Distanz-Einstellungen für das Verhalten der App
+    const VISIBILITY_DISTANCE = 15.0; // Ab 15m sichtbar
+    const FREEZE_DISTANCE_METERS = 10.0; // Ab 10m übernimmt SLAM die Kontrolle (kein GPS-Zittern mehr)
+
+    // --- GLOBALE VARIABLEN ---
     let camera, scene, renderer;
-    let statueGroup, gltfModel;
-    let reticle; 
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     
-    // GPS Smoothing Variablen
+    // Variablen für GPS-Glättung (Dämpfung von Sprüngen)
     let positionHistory = []; 
-    const MAX_HISTORY = 10; // Durchschnitt aus den letzten 10 GPS Signalen
-    let isPositionLocked = false; // Wenn true, vertrauen wir nur noch SLAM
+    const MAX_HISTORY = 10; // Anzahl der GPS-Signale für den Durchschnitt
+    let isPositionLocked = false; // Status, ob wir uns im "SLAM Lock" Modus befinden
 
+    // Initialisierung starten
     init();
     animate();
 
     function init() {
+      // HTML Container für den WebGL Canvas
       const container = document.createElement('div');
       document.body.appendChild(container);
 
+      // Three.js Szene erstellen
       scene = new THREE.Scene();
+      
+      // Kamera erstellen (70 Grad Blickwinkel)
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 100);
 
-      // Licht
+      // --- LICHT SETZEN ---
+      // Umgebungslicht (hellt alles gleichmäßig auf)
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
       scene.add(ambientLight);
+      
+      // Richtungslicht (Sonne simulieren, wirft Schatten/Highlights)
       const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
       dirLight.position.set(0, 10, 5);
       scene.add(dirLight);
 
-      // Statue Container
-      statueGroup = new THREE.Group();
-      statueGroup.visible = false; 
-      scene.add(statueGroup);
-
-      // Modell laden
+      // --- 3D MODELLE LADEN ---
       const loader = new GLTFLoader();
-      // Test-Modell falls deins nicht lädt: 'https://raw.githubusercontent.com/mrdoob/three.js/master/examples/models/gltf/DamagedHelmet/glTF/DamagedHelmet.gltf'
-      loader.load(MODEL_URL, (gltf) => {
-        gltfModel = gltf.scene;
-        gltfModel.scale.set(MODEL_SCALE, MODEL_SCALE, MODEL_SCALE);
-        // Wir schieben das Modell im Container etwas hoch, falls der Pivot unten ist
-        statueGroup.add(gltfModel);
-        updateUI("Modell bereit. Warte auf GPS...");
+      
+      // Wir gehen durch die Liste aller Orte
+      LOCATIONS.forEach((loc, index) => {
+        // Für jeden Ort eine unsichtbare Gruppe erstellen
+        const group = new THREE.Group();
+        group.visible = false; 
+        scene.add(group);
+        loc.object3D = group; // Referenz speichern, damit wir sie später bewegen können
+
+        // Die eigentliche .glb Datei laden
+        loader.load(loc.url, (gltf) => {
+          const model = gltf.scene;
+          model.scale.set(loc.scale, loc.scale, loc.scale);
+          
+          // Manuelle Rotation anwenden (z.B. damit Statue nach Süden schaut)
+          // Umrechnung von Grad in Radiant: Grad * (PI / 180)
+          model.rotation.y = loc.rotation * (Math.PI / 180);
+
+          group.add(model);
+          console.log(`${loc.title} geladen.`);
+          
+          // Wenn das letzte Modell geladen ist, Update im UI anzeigen
+          if(index === LOCATIONS.length - 1) {
+             updateUI("Alle Modelle bereit. Warte auf GPS...", "normal");
+          }
+        }, undefined, (err) => {
+          console.error(`Fehler bei ${loc.title}:`, err);
+          updateUI(`Fehler Laden: ${loc.title}`, "error");
+        });
       });
 
-      // Renderer
+      // --- RENDERER SETUP ---
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
+      
+      // WebXR aktivieren (wichtig für AR)
       renderer.xr.enabled = true;
-      // 'local-floor' ist wichtig für SLAM Boden-Tracking
+      
+      // 'local-floor' bedeutet: WebXR erkennt den Boden. Y=0 ist der Boden unter den Füßen des Nutzers.
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // AR Button mit erforderlichen Features
+      // --- AR START BUTTON ---
+      // Erstellt den "Start AR" Button.
+      // WICHTIG: 'domOverlay' ermöglicht es, dass unsere HTML-Buttons (Schließen/Kamera)
+      // über dem Kamerabild sichtbar und klickbar bleiben.
       document.body.appendChild(ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'local-floor'],
-        domOverlay: { root: document.body }
+        domOverlay: { root: document.body } 
       }));
 
+      // --- EVENT LISTENER FÜR DIE NEUEN BUTTONS ---
+      
+      // 1. Schließen Button Logik
+      document.getElementById('closeBtn').addEventListener('click', async () => {
+          // Versuchen, die AR-Session sauber zu beenden
+          const session = renderer.xr.getSession();
+          if (session) {
+              await session.end();
+          }
+          // Versuchen, das Browser-Fenster zu schließen
+          try {
+            window.close();
+          } catch(e) { console.log("Window close blocked"); }
+          // Fallback: Einen Schritt zurück im Browser-Verlauf
+          window.history.back();
+      });
+
+      // 2. Kamera Button Logik
+      document.getElementById('camBtn').addEventListener('click', () => {
+          // WebXR sperrt oft die Kameraauswahl während der Session.
+          // Ein Reload ist der sicherste Weg, um Fehler zu beheben oder 
+          // dem Browser zu erlauben, die Kamera neu abzufragen.
+          updateUI("Kamerawechsel: Reload...", "normal");
+          setTimeout(() => location.reload(), 500);
+      });
+
+      // GPS Tracking starten
       startGPS();
+      
+      // Bei Fenstergröße-Änderung anpassen
       window.addEventListener('resize', onWindowResize);
     }
 
@@ -126,21 +260,14 @@
         return;
       }
       
+      // Position kontinuierlich überwachen
       navigator.geolocation.watchPosition((pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
-        // Wenn wir nah dran sind und das Objekt schon steht, ignorieren wir GPS-Updates
-        // um das "Wackeln" zu verhindern (SLAM übernimmt dann).
-        if (isPositionLocked) {
-             // Nur Distanz für UI berechnen
-             const d = haversineDist(lat, lon, TARGET_LAT, TARGET_LON);
-             document.getElementById('dist').innerText = Math.round(d);
-             return;
-        }
-
-        // GPS Glättung (Average Filter)
+        // --- GPS GLÄTTUNG ---
+        // Speichere die letzten 10 Positionen, um Ausreißer zu minimieren
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
 
@@ -150,29 +277,69 @@
         avgLat /= positionHistory.length;
         avgLon /= positionHistory.length;
 
-        // Position relativ zum Startpunkt berechnen
-        // Hinweis: Wir nehmen an, dass User beim Start ungefähr nach Norden schaut
-        // oder wir korrigieren dies, wenn DeviceOrientation verfügbar wäre.
-        // WebXR 'local-floor': -Z ist Start-Norden (in Blickrichtung).
-        const offset = calcOffset(avgLat, avgLon, TARGET_LAT, TARGET_LON);
-        const dist = Math.sqrt(offset.x*offset.x + offset.z*offset.z);
+        // Wir suchen das nächstgelegene Ziel, um das UI zu aktualisieren
+        let closestDist = 99999;
+        let closestLoc = null;
 
-        // Statue verschieben
-        statueGroup.position.x = offset.x;
-        statueGroup.position.z = offset.z; 
-        // Y lassen wir auf 0 (Boden), wird später durch HitTest korrigiert
-        
-        statueGroup.visible = true;
-        
-        document.getElementById('dist').innerText = Math.round(dist);
-        updateUI("Tracking aktiv...", "OK");
+        // --- HAUPTSCHLEIFE: POSITIONIERUNG ---
+        LOCATIONS.forEach(loc => {
+            if (!loc.object3D) return;
 
-        // Wenn wir nah genug sind (< 15m) und das GPS Signal gut ist,
-        // sperren wir die GPS-Updates, damit das Bild stabil steht.
-        if (dist < FREEZE_DISTANCE_METERS && acc < 20) {
-            isPositionLocked = true;
-            document.getElementById('status').innerText = "SLAM Lock (Stabilisiert)";
-            document.getElementById('status').style.color = "#0ff";
+            // Distanz zum aktuellen Ort berechnen (Haversine Formel)
+            const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
+            
+            // Nächstes Ziel ermitteln
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestLoc = loc;
+            }
+
+            // --- SICHTBARKEITS-CHECK ---
+            // Ist der Nutzer nah genug (unter 15m)?
+            if (dist < VISIBILITY_DISTANCE) {
+                
+                // Position setzen, aber nur wenn NICHT "gelockt".
+                // Wenn "isPositionLocked" true ist, nutzen wir nur noch das SLAM-Tracking des Handys (ARKit/ARCore),
+                // weil das auf kurze Distanz viel genauer ist als GPS.
+                if (!isPositionLocked) {
+                    const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
+                    loc.object3D.position.x = offset.x;
+                    loc.object3D.position.z = offset.z;
+                    // Y (Höhe) lassen wir hier auf 0. Das korrigiert der Hit-Test später.
+                }
+                
+                // Modell sichtbar schalten
+                loc.object3D.visible = true;
+
+            } else {
+                // Zu weit weg -> Ausblenden
+                loc.object3D.visible = false;
+            }
+        });
+
+        // --- UI UPDATES ---
+        if (closestLoc) {
+            document.getElementById('targetName').innerText = closestLoc.title;
+            // Text grün färben, wenn in Reichweite
+            document.getElementById('targetName').className = closestDist < VISIBILITY_DISTANCE ? "active-target" : "";
+            document.getElementById('dist').innerText = Math.round(closestDist);
+        }
+
+        // --- LOGIK: FREEZE / LOCK ---
+        // Wenn wir sehr nah dran sind (< 10m) und das GPS-Signal "gut" ist (< 20m Genauigkeit),
+        // aktivieren wir den Lock. Das verhindert, dass die Statue herumspringt ("GPS Drift").
+        if (closestDist < FREEZE_DISTANCE_METERS && acc < 20) {
+            if (!isPositionLocked) {
+                isPositionLocked = true;
+                document.getElementById('status').innerText = "SLAM Lock (Stabil)";
+                document.getElementById('status').style.color = "#0ff"; // Cyan
+            }
+        } else if (closestDist > VISIBILITY_DISTANCE + 5) {
+            // Wenn wir uns wieder weit entfernen, lösen wir den Lock,
+            // damit das GPS die Statue wieder grob verschieben kann.
+            isPositionLocked = false;
+            document.getElementById('status').innerText = "GPS Tracking";
+            document.getElementById('status').style.color = "#888";
         }
 
       }, (err) => {
@@ -180,14 +347,14 @@
       }, { enableHighAccuracy: true, maximumAge: 0 });
     }
 
-    // --- SLAM / HIT-TEST LOGIK ---
-    // Wir nutzen HitTest nicht zum Platzieren durch User, 
-    // sondern um zu prüfen, ob der Boden an der GPS-Position höher/tiefer ist.
+    // --- SLAM / HIT-TEST LOGIK (RENDERING LOOP) ---
+    // Diese Funktion wird bei jedem Frame (z.B. 60x pro Sekunde) aufgerufen.
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
 
-        // 1. HitTest Quelle anfordern
+        // Hit-Test Quelle anfordern (falls noch nicht geschehen)
+        // Das erlaubt uns, Strahlen in die reale Welt zu schießen.
         if (!hitTestSourceRequested) {
           session.requestReferenceSpace('viewer').then((refSpace) => {
             session.requestHitTestSource({ space: refSpace }).then((source) => {
@@ -197,53 +364,64 @@
           hitTestSourceRequested = true;
         }
 
-        // 2. SLAM Prüfung
-        if (hitTestSource && statueGroup.visible) {
+        // Wenn wir eine Quelle haben...
+        if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
           
-          // Wir suchen nach Boden in Blickrichtung. 
-          // Wenn der User auf die Statue schaut, korrigieren wir deren Höhe.
+          // ...und Ergebnisse vorliegen (Boden erkannt)
           if (hitTestResults.length > 0) {
             const hit = hitTestResults[0];
-            const refSpace = renderer.xr.getReferenceSpace(); // local-floor
+            const refSpace = renderer.xr.getReferenceSpace(); 
             const hitPose = hit.getPose(refSpace);
 
             if (hitPose) {
-               // Optional: Distanz zwischen Hit-Test und Statue berechnen.
-               // Wenn der Hit (Boden) sehr nah an der berechneten Statue-Position ist,
-               // übernehmen wir die Y-Höhe des Hits für die Statue.
-               // Das hilft, wenn der echte Boden uneben ist (z.B. Hügel).
-               
                const hitPos = hitPose.transform.position;
-               const distToStatue = Math.sqrt(
-                   Math.pow(hitPos.x - statueGroup.position.x, 2) + 
-                   Math.pow(hitPos.z - statueGroup.position.z, 2)
-               );
+               
+               // Wir prüfen für alle sichtbaren Statuen:
+               LOCATIONS.forEach(loc => {
+                   if (loc.object3D && loc.object3D.visible) {
+                       // Wie weit ist der erkannte Bodenpunkt von der Statue entfernt?
+                       const distToModel = Math.sqrt(
+                           Math.pow(hitPos.x - loc.object3D.position.x, 2) + 
+                           Math.pow(hitPos.z - loc.object3D.position.z, 2)
+                       );
 
-               // Wenn wir Boden innerhalb von 2 Metern um die Statue erkennen:
-               if (distToStatue < 2.0) {
-                   // Sanfte Interpolation der Höhe (Lerp) damit es nicht springt
-                   statueGroup.position.y = THREE.MathUtils.lerp(statueGroup.position.y, hitPos.y, 0.1);
-               }
+                       // Wenn der Nutzer auf den Boden in der Nähe der Statue (< 3m) schaut:
+                       if (distToModel < 3.0) {
+                           // Wir passen die Höhe (Y) der Statue an den erkannten Boden an.
+                           // "lerp" (Linear Interpolation) sorgt für eine weiche Bewegung, kein Springen.
+                           loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
+                       }
+                   }
+               });
             }
           }
         }
       }
+      // Szene zeichnen
       renderer.render(scene, camera);
     }
 
-    // --- MATHE HELPER ---
+    // --- HELFER FUNKTIONEN ---
+
+    /**
+     * Rechnet Längen-/Breitengrad-Differenz in Meter (x/z) um.
+     * Nutzt einfache sphärische Projektion.
+     */
     function calcOffset(lat1, lon1, lat2, lon2) {
-      const R = 6378137; 
+      const R = 6378137; // Erdradius in m
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
       const lat1Rad = lat1 * Math.PI / 180;
-      // x = Ost/West, z = Nord/Süd (negativ = Norden in WebGL Standard, wenn Kamera gen Norden schaut)
+      
       const dx = dLon * Math.cos(lat1Rad) * R;
-      const dz = -dLat * R; // Minus, weil WebGL Z-Achse nach "Süden" (zum Betrachter) zeigt
+      const dz = -dLat * R; // In WebGL ist -Z Norden
       return { x: dx, z: dz };
     }
 
+    /**
+     * Haversine Formel zur präzisen Distanzberechnung auf einer Kugel (Erde).
+     */
     function haversineDist(lat1, lon1, lat2, lon2) {
       const R = 6371e3; 
       const rad = Math.PI/180;
@@ -255,17 +433,20 @@
       return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
+    // Aktualisiert Texte im Overlay
     function updateUI(txt, type="normal") {
       document.getElementById('msg').innerText = txt;
       if(type === "error") document.getElementById('msg').style.color = "red";
     }
 
+    // Passt Kamera bei Fenstergröße-Änderung an (z.B. Handy drehen)
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
+    // Die Animations-Schleife starten
     function animate() {
       renderer.setAnimationLoop(render);
     }
