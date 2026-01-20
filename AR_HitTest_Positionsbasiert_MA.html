@@ -2,107 +2,52 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <!-- TITEL WIE GEWÜNSCHT UNVERÄNDERT -->
   <title>Herrenhäuser Gärten - markerloses AR</title>
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
   <style>
-    /* Grundlegendes Styling */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
-    /* 
-       WICHTIG: Dieser Container hält ALLE UI-Elemente, die im AR-Modus sichtbar bleiben sollen.
-       Er wird an das WebXR domOverlay übergeben.
-    */
     #ar-overlay-container {
-      position: absolute; 
-      top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; 
-      pointer-events: none; /* Klicks gehen durch leere Bereiche durch */
-      display: flex; 
-      flex-direction: column;
-      justify-content: space-between; /* Verteilt Elemente oben/unten */
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 100; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between;
     }
 
-    /* Info Box oben */
-    .info-wrapper {
-      padding: 10px;
-      display: flex;
-      flex-direction: column;
-      gap: 5px;
-    }
+    .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
     .info-box {
-      background: rgba(0, 0, 0, 0.6);
-      padding: 10px; border-radius: 8px;
+      background: rgba(0, 0, 0, 0.6); padding: 10px; border-radius: 8px;
       backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2);
-      pointer-events: auto; /* Info Box soll bedienbar sein falls nötig */
-      align-self: center; /* Zentriert die Box horizontal */
-      min-width: 250px;
-      text-align: center;
+      pointer-events: auto; align-self: center; min-width: 250px; text-align: center;
     }
     
     h1 { margin: 0 0 5px 0; font-size: 1.1rem; }
     p { margin: 0; font-size: 0.9rem; color: #ccc; }
-    
     #status { color: #888; font-weight: bold; }
     .active-target { color: #4f4; } 
 
-    /* Button Wrapper für einfache Positionierung */
-    .button-wrapper {
-        position: absolute;
-        width: 100%;
-        height: 100%;
-        top: 0; left: 0;
-        pointer-events: none;
-    }
+    .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
 
-    /* Button Styling */
     .ar-btn {
-        position: absolute;
-        z-index: 200; 
-        color: white;
-        padding: 12px 20px;
-        border-radius: 30px;
-        font-weight: bold;
-        cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.5);
-        background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(5px);
-        box-shadow: 0 4px 6px rgba(0,0,0,0.3);
-        text-transform: uppercase;
-        font-size: 12px;
-        letter-spacing: 1px;
-        pointer-events: auto; /* WICHTIG: Macht Buttons klickbar */
-        transition: transform 0.1s;
+        position: absolute; z-index: 200; color: white; padding: 12px 20px;
+        border-radius: 30px; font-weight: bold; cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.5); background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px); pointer-events: auto; text-transform: uppercase;
+        font-size: 12px; letter-spacing: 1px;
     }
-    
-    .ar-btn:active { transform: scale(0.95); }
-
-    /* Button Positionen */
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
     #camBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
-
-    /* Versteckt den Standard AR Button, wenn er stört (optional) */
-    /* #ARButton { bottom: 20px !important; } */
   </style>
 </head>
 <body>
   
-  <!-- 
-    CONTAINER FÜR AR OVERLAY 
-    Alles hier drin bleibt sichtbar, wenn die Kamera angeht.
-  -->
   <div id="ar-overlay-container">
-      
-      <!-- Buttons direkt positioniert -->
       <div class="button-wrapper">
           <button id="closeBtn" class="ar-btn">✕ Schließen</button>
           <button id="camBtn" class="ar-btn">📷 Kamera</button>
       </div>
-
-      <!-- Info Bereich -->
       <div class="info-wrapper">
         <div class="info-box">
           <h1>Herrenhäuser Gärten - Virtueller Rundgang in AR</h1>
@@ -128,15 +73,14 @@
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // --- KONFIGURATION DER ORTE ---
+    // --- EINSTELLUNGEN ---
     const LOCATIONS = [
       {
         title: 'Erste Statue',
-        // Aktuelle Koordinaten aus deiner Anfrage
         lat: 52.388754, 
         lon: 9.817867,
         url: './3D_models/Statue_3D.glb', 
-        scale: 1.0,
+        scale: 1.5, // HIER ERHÖHT: Falls Modell zu klein war
         rotation: 0, 
         object3D: null 
       },
@@ -145,23 +89,21 @@
         lat: 52.389472, 
         lon: 9.699222,
         url: './3D_models/BorghesischerFechter_3D.glb', 
-        scale: 1.0,
+        scale: 1.5, // HIER ERHÖHT
         rotation: 180, 
         object3D: null
       }
     ];
 
-    const VISIBILITY_DISTANCE = 3000.0; // Zum Testen erhöht! (Normal 15m)
+    const VISIBILITY_DISTANCE = 50.0; // Sicherstellen, dass es früh genug sichtbar ist
     const FREEZE_DISTANCE_METERS = 10.0; 
 
-    // --- GLOBALE VARIABLEN ---
+    // Globale Variablen
     let camera, scene, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
-    
-    // GPS Variablen
     let positionHistory = []; 
-    const MAX_HISTORY = 10; 
+    const MAX_HISTORY = 5; // Weniger History für schnellere Reaktion
     let isPositionLocked = false; 
 
     init();
@@ -174,9 +116,10 @@
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
 
-      const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
+      // Licht verstärken, falls Modelle schwarz sind
+      const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
       scene.add(ambientLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 1.5);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 2);
       dirLight.position.set(0, 10, 5);
       scene.add(dirLight);
 
@@ -189,23 +132,37 @@
         scene.add(group);
         loc.object3D = group; 
 
+        // 1. DEBUG WÜRFEL (Rote Box)
+        // Falls das Modell nicht lädt, sieht man zumindest diesen roten Würfel!
+        const debugBox = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 1, 1), // 1 Meter groß
+            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
+        );
+        debugBox.position.y = 0.5; // Auf den Boden setzen
+        group.add(debugBox);
+        // -----------------------
+
         loader.load(loc.url, (gltf) => {
+          // Wenn Modell geladen: Rote Box entfernen (oder verstecken)
+          debugBox.visible = false;
+
           const model = gltf.scene;
           model.scale.set(loc.scale, loc.scale, loc.scale);
           model.rotation.y = loc.rotation * (Math.PI / 180);
           group.add(model);
-          console.log(`${loc.title} geladen.`);
+          
+          console.log(`${loc.title} erfolgreich geladen.`);
           
           if(index === LOCATIONS.length - 1) {
-             updateUI("Alle Modelle bereit. Warte auf GPS...", "normal");
+             updateUI("Daten geladen. Prüfe Standort...", "normal");
           }
         }, undefined, (err) => {
           console.error(`Fehler bei ${loc.title}:`, err);
-          updateUI(`Fehler Laden: ${loc.title}`, "error");
+          updateUI(`Ladefehler: ${loc.title} (siehe Konsole)`, "error");
+          // Rote Box bleibt sichtbar als Fallback
         });
       });
 
-      // --- RENDERER SETUP ---
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -213,66 +170,44 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // --- AR BUTTON SETUP ---
-      // Hier liegt der Trick für die Buttons: Wir übergeben unseren Overlay-Container
-      const arOverlay = document.getElementById('ar-overlay-container');
-      
       const btn = ARButton.createButton(renderer, {
-        requiredFeatures: ['hit-test', 'dom-overlay'], // dom-overlay ist hier Pflicht
-        domOverlay: { root: arOverlay } // Der Container wird über die Kamera gelegt
+        requiredFeatures: ['hit-test', 'dom-overlay'],
+        domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
       document.body.appendChild(btn);
 
-      // --- EVENT LISTENER ---
-      
-      // Schließen Button
+      // Buttons
       document.getElementById('closeBtn').addEventListener('click', async () => {
-          // AR Session beenden
           const session = renderer.xr.getSession();
           if (session) await session.end();
-          
-          // Versuchen Fenster zu schließen
           try { window.close(); } catch(e) {}
-          
-          // Fallback
           window.history.back();
       });
-
-      // Kamera Button (Reload, da WebXR Kamerawechsel schwierig ist)
       document.getElementById('camBtn').addEventListener('click', () => {
-          updateUI("Neustart...", "normal");
           setTimeout(() => location.reload(), 300);
       });
 
-      // GPS starten
       startGPS();
       window.addEventListener('resize', onWindowResize);
     }
 
-    // --- GPS LOGIK ---
     function startGPS() {
       if (!navigator.geolocation) {
-        updateUI("GPS nicht vom Browser unterstützt.", "error");
+        updateUI("GPS Fehler: Nicht unterstützt", "error");
         return;
       }
-
-      // Timeout Check: Wenn nach 10 Sek kein GPS da ist, Fehler anzeigen
-      const gpsTimeout = setTimeout(() => {
-          const msg = document.getElementById('status').innerText;
-          if(msg.includes("Warte")) {
-              updateUI("Kein GPS Signal! (Sind Sie draußen?)", "error");
-          }
-      }, 10000);
       
       navigator.geolocation.watchPosition((pos) => {
-        // Timeout löschen, da wir Daten haben
-        clearTimeout(gpsTimeout);
+        // FIX: Text aktualisieren, sobald GPS da ist
+        const msgEl = document.getElementById('msg');
+        if(msgEl.innerText.includes("Warte") || msgEl.innerText.includes("Prüfe")) {
+            updateUI("GPS Signal aktiv. Suche Ziele...", "normal");
+        }
 
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
-        // GPS Glättung
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
 
@@ -302,6 +237,10 @@
                     loc.object3D.position.z = offset.z;
                 }
                 loc.object3D.visible = true;
+                
+                // Debug Ausgabe in der Konsole wenn sichtbar
+                // console.log("Objekt sichtbar bei Distanz:", dist);
+
             } else {
                 loc.object3D.visible = false;
             }
@@ -309,15 +248,22 @@
 
         if (closestLoc) {
             document.getElementById('targetName').innerText = closestLoc.title;
-            document.getElementById('targetName').className = closestDist < VISIBILITY_DISTANCE ? "active-target" : "";
-            document.getElementById('dist').innerText = Math.round(closestDist);
+            const distRounded = Math.round(closestDist);
+            document.getElementById('dist').innerText = distRounded;
+            
+            // Färbe Text grün wenn nah genug
+            if(closestDist < VISIBILITY_DISTANCE) {
+                document.getElementById('targetName').classList.add("active-target");
+                document.getElementById('msg').innerText = "Ziel in Sichtweite!";
+            } else {
+                document.getElementById('targetName').classList.remove("active-target");
+            }
         }
 
-        // Lock / Freeze Logik
-        if (closestDist < FREEZE_DISTANCE_METERS && acc < 20) {
+        if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
             if (!isPositionLocked) {
                 isPositionLocked = true;
-                document.getElementById('status').innerText = "SLAM Lock (Stabil)";
+                document.getElementById('status').innerText = "SLAM Lock (Fixiert)";
                 document.getElementById('status').style.color = "#0ff";
             }
         } else if (closestDist > VISIBILITY_DISTANCE + 5) {
@@ -327,63 +273,41 @@
         }
 
       }, (err) => {
-        // Fehlerbehandlung für GPS
-        let errorMsg = "GPS Fehler.";
-        if (err.code === 1) errorMsg = "Standortzugriff verweigert.";
-        if (err.code === 2) errorMsg = "Position nicht verfügbar (Kein Signal).";
-        if (err.code === 3) errorMsg = "Zeitüberschreitung GPS.";
-        
-        console.warn(err);
-        updateUI(errorMsg, "error");
-        document.getElementById('status').innerText = "GPS Offline";
-      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
+        updateUI("GPS Fehler: " + err.message, "error");
+      }, { enableHighAccuracy: true, maximumAge: 0 });
     }
 
-    // --- RENDER LOOP ---
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
-
         if (!hitTestSourceRequested) {
           session.requestReferenceSpace('viewer').then((refSpace) => {
-            session.requestHitTestSource({ space: refSpace }).then((source) => {
-              hitTestSource = source;
-            });
+            session.requestHitTestSource({ space: refSpace }).then((source) => { hitTestSource = source; });
           });
           hitTestSourceRequested = true;
         }
 
         if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
-          
           if (hitTestResults.length > 0) {
             const hit = hitTestResults[0];
-            const refSpace = renderer.xr.getReferenceSpace(); 
-            const hitPose = hit.getPose(refSpace);
-
-            if (hitPose) {
-               const hitPos = hitPose.transform.position;
+            const hitPos = hit.getPose(renderer.xr.getReferenceSpace()).transform.position;
                
-               LOCATIONS.forEach(loc => {
-                   if (loc.object3D && loc.object3D.visible) {
-                       const distToModel = Math.sqrt(
-                           Math.pow(hitPos.x - loc.object3D.position.x, 2) + 
-                           Math.pow(hitPos.z - loc.object3D.position.z, 2)
-                       );
-
-                       if (distToModel < 3.0) {
-                           loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
-                       }
+            LOCATIONS.forEach(loc => {
+               if (loc.object3D && loc.object3D.visible) {
+                   const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
+                   // Radius für Höhenanpassung vergrößert
+                   if (distToModel < 5.0) {
+                       loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
                    }
-               });
-            }
+               }
+            });
           }
         }
       }
       renderer.render(scene, camera);
     }
 
-    // --- HELPER ---
     function calcOffset(lat1, lon1, lat2, lon2) {
       const R = 6378137; 
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -399,9 +323,7 @@
       const rad = Math.PI/180;
       const dLat = (lat2-lat1)*rad;
       const dLon = (lon2-lon1)*rad;
-      const a = Math.sin(dLat/2)*Math.sin(dLat/2) +
-                Math.cos(lat1*rad)*Math.cos(lat2*rad) *
-                Math.sin(dLon/2)*Math.sin(dLon/2);
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
       return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
@@ -409,8 +331,7 @@
       const el = document.getElementById('msg');
       if(el) {
           el.innerText = txt;
-          if(type === "error") el.style.color = "red";
-          else el.style.color = "#ccc";
+          el.style.color = type === "error" ? "red" : "#ccc";
       }
     }
 
