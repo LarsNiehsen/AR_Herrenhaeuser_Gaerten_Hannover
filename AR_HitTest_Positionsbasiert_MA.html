@@ -9,20 +9,17 @@
     /* Grundlegendes Design */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
-    /* Kamera-Vorschau für den Hintergrund (vor dem AR-Start) */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         object-fit: cover; z-index: 0; opacity: 0.6;
     }
 
-    /* Container für die Benutzeroberfläche über dem AR-Bild */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       z-index: 100; pointer-events: none;
       display: flex; flex-direction: column; justify-content: space-between;
     }
 
-    /* Info-Bereich oben/unten */
     .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
     .info-box {
@@ -37,7 +34,6 @@
     #status { color: #ccc; font-weight: bold; }
     .active-target { color: #4f4; font-weight: bold; } 
 
-    /* Debugging-Konsole für technische Details (GNSS-Daten) */
     #debug-console {
         font-family: monospace; font-size: 10px; color: #ffff00;
         background: rgba(0,0,0,0.8); padding: 5px; margin-top: 10px;
@@ -45,7 +41,6 @@
         max-height: 80px; overflow: hidden; border-radius: 4px;
     }
 
-    /* Button-Styling */
     .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
 
     .ar-btn {
@@ -58,7 +53,6 @@
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
     #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
 
-    /* Pfeiltasten zur manuellen Rotation der Statue */
     .controls-wrapper {
       position: absolute; bottom: 100px; left: 0; width: 100%;
       display: none; 
@@ -74,27 +68,40 @@
       -webkit-tap-highlight-color: transparent;
     }
     .rotate-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
+
+    /* Richtungs-Pfeil UI */
+    #direction-indicator {
+        position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
+        background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+        display: none; justify-content: center; align-items: center; pointer-events: none;
+        backdrop-filter: blur(5px); z-index: 400;
+    }
+    #arrow {
+        width: 0; height: 0; 
+        border-left: 15px solid transparent; border-right: 15px solid transparent;
+        border-bottom: 30px solid white; transform-origin: center center;
+    }
   </style>
 </head>
 <body>
   
-  <!-- Hintergrundvideo (Kamerafeed vor dem AR-Modus) -->
   <video id="bg-video" autoplay muted playsinline></video>
 
-  <!-- Benutzeroberfläche über der AR-Ansicht -->
   <div id="ar-overlay-container">
+      <div id="direction-indicator">
+          <div id="arrow"></div>
+      </div>
+
       <div class="button-wrapper">
           <button id="closeBtn" class="ar-btn">✕ Schließen</button>
           <button id="resetBtn" class="ar-btn">↺ Neustart</button>
       </div>
 
-      <!-- Steuerkreuz für die Statuen-Rotation (wird erst in AR sichtbar) -->
       <div class="controls-wrapper" id="rotation-controls">
           <div class="rotate-btn" id="rotateLeft">←</div>
           <div class="rotate-btn" id="rotateRight">→</div>
       </div>
 
-      <!-- Info-Kasten mit Statusanzeigen -->
       <div class="info-wrapper">
         <div class="info-box">
           <h1>Herrenhäuser Gärten - Virtueller Rundgang AR</h1>
@@ -108,7 +115,6 @@
       </div>
   </div>
 
-  <!-- Importmap für Three.js Module -->
   <script type="importmap">
     {
       "imports": {
@@ -123,7 +129,6 @@
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // Definition der Standorte (Koordinaten, Modelle und Links)
     const LOCATIONS = [
       {
         title: 'Niederdeutscher Blumengarten',
@@ -151,28 +156,25 @@
       }
     ];
 
-    // Konfigurations-Konstanten
-    const VISIBILITY_DISTANCE = 500.0; // Statuen ab 500m laden
-    const LOCK_DISTANCE = 0.5; // Bei 0,5m Distanz GNSS stoppen
-    const TARGET_HEIGHT = 3.0; // Zielhöhe der Statuen in Metern
-    const INITIAL_ROTATION_DEG = 180; // Startwinkel (Süden)
+    const VISIBILITY_DISTANCE = 20.0; // Statuen erst ab 20m sichtbar
+    const LOCK_DISTANCE = 0.5; // Lock bei 0,5m
+    const TARGET_HEIGHT = 3.0;
+    const INITIAL_ROTATION_DEG = 180;
 
     let camera, scene, renderer, raycaster;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     let currentRotation = INITIAL_ROTATION_DEG;
     let positionHistory = []; 
-    const MAX_HISTORY = 5; // Glättung der GPS-Daten
+    const MAX_HISTORY = 5; 
     let modelsReady = false;
+    let gnssReady = false;
+    let closestLocRef = null;
 
-    // Start der Kamera und der Initialisierung
     start2DCamera();
     init();
     animate();
 
-    /**
-     * Aktiviert die Handy-Kamera für den Hintergrund, bevor AR gestartet wird.
-     */
     function start2DCamera() {
         const video = document.getElementById('bg-video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -186,37 +188,26 @@
         }
     }
 
-    /**
-     * Erstellt eine Text-Plakette (Sprite), die über der Statue schwebt.
-     */
     function createInfoWindow(text) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         canvas.width = 512;
         canvas.height = 128;
-
-        // Hintergrund der Plakette
         context.fillStyle = 'rgba(0, 0, 0, 0.7)';
         roundRect(context, 0, 0, 512, 128, 20, true, false);
-        
-        // Text-Styling
         context.font = 'bold 26px sans-serif';
         context.fillStyle = 'white';
         context.textAlign = 'center';
         context.fillText(text, 256, 75);
-
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
         const sprite = new THREE.Sprite(spriteMaterial);
         sprite.scale.set(2.0, 0.5, 1);
-        sprite.position.y = 3.5; // Höhe über der Statue
-        sprite.name = "info_sprite"; // Markierung für den Klick-Test
+        sprite.position.y = 3.5; 
+        sprite.name = "info_sprite"; 
         return sprite;
     }
 
-    /**
-     * Hilfsfunktion zum Zeichnen abgerundeter Rechtecke.
-     */
     function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
         ctx.beginPath();
         ctx.moveTo(x + radius, y);
@@ -233,9 +224,6 @@
         if (stroke) ctx.stroke();
     }
 
-    /**
-     * Initialisiert die 3D-Szene, Beleuchtung und lädt die Modelle.
-     */
     function init() {
       const container = document.createElement('div');
       document.body.appendChild(container);
@@ -244,14 +232,12 @@
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
       raycaster = new THREE.Raycaster();
 
-      // Umgebungslicht
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 3);
       dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
 
-      // Boden-Cursor (Reticle) für Bodenflächenerkennung
       const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
       const reticleMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 }); 
       const reticle = new THREE.Mesh(reticleGeo, reticleMat);
@@ -271,40 +257,29 @@
 
         loader.load(loc.url, (gltf) => {
           const model = gltf.scene;
-
-          // Skalierung auf Zielgröße
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
           let scaleFactor = size.y > 0 ? TARGET_HEIGHT / size.y : 1.0;
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
-
-          // Bodenpunkt-Korrektur (Pivot-Fix)
           const scaledBox = new THREE.Box3().setFromObject(model);
           const minY = scaledBox.min.y;
           model.position.y -= minY; 
           model.rotation.y = THREE.MathUtils.degToRad(INITIAL_ROTATION_DEG);
-
           group.add(model);
-          
-          // Infotext schwebend hinzufügen
           const info = createInfoWindow(loc.infoText);
           group.add(info);
-          loc.infoSprite = info; // Referenz für den Klick-Test speichern
-
+          loc.infoSprite = info;
           loc.loaded = true;
           loadedCount++;
-          
-          // Prüfung: Sind alle Modelle bereit?
           if (loadedCount === LOCATIONS.length) {
               modelsReady = true;
               checkReadyStatus();
           }
         }, undefined, (err) => {
-            logToDebug(`Ladefehler bei ${loc.title}: ${err}`);
+            logToDebug(`Ladefehler bei ${loc.title}`);
         });
       });
 
-      // WebGL Renderer Setup
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -312,7 +287,6 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // AR-Button (aktiviert XR-Session)
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
@@ -325,61 +299,59 @@
               video.style.display = 'none';
           }
           document.getElementById('rotation-controls').style.display = 'flex';
+          document.getElementById('direction-indicator').style.display = 'flex';
       });
       
       document.body.appendChild(btn);
 
-      // AR-Klick-Event (Tap auf Bildschirm)
       const controller = renderer.xr.getController(0);
       controller.addEventListener('select', onSelect);
       scene.add(controller);
 
-      // UI-Event-Listener
       document.getElementById('rotateLeft').addEventListener('pointerdown', () => changeRotation(-5));
       document.getElementById('rotateRight').addEventListener('pointerdown', () => changeRotation(5));
+      
+      // Schließen Fix
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
-          window.history.back();
+          
+          // Versuche den Tab/Browser zu schließen
+          window.close();
+          // Fallback falls window.close() blockiert wird
+          setTimeout(() => {
+              window.history.back();
+              // Letzter Fallback: Redirect auf leere Seite oder Startseite
+              setTimeout(() => { window.location.href = "about:blank"; }, 500);
+          }, 300);
       });
+      
       document.getElementById('resetBtn').addEventListener('click', () => location.reload());
 
       startGNSS();
       window.addEventListener('resize', onWindowResize);
     }
 
-    /**
-     * Aktualisiert die Statusmeldung, wenn Modelle und GPS bereit sind.
-     */
     function checkReadyStatus() {
-        if (modelsReady && document.getElementById('status').innerText !== "Warte auf GNSS-Signal...") {
+        if (modelsReady && gnssReady) {
             updateUI("GNSS ist aktiv");
-            document.getElementById('debug-console').innerText = "System bereit. Objekte werden positioniert.";
+            document.getElementById('debug-console').innerText = "System bereit. Objekte werden bei Annäherung (<20m) sichtbar.";
         }
     }
 
-    /**
-     * Wird ausgeführt, wenn der Nutzer den Bildschirm berührt (AR-Modus).
-     * Leitet nur weiter, wenn das schwebende Infofenster getroffen wurde.
-     */
     function onSelect() {
         raycaster.setFromCamera({ x: 0, y: 0 }, camera);
-        
         LOCATIONS.forEach(loc => {
             if (loc.object3D && loc.object3D.visible && loc.infoSprite) {
-                // Teste Klick nur auf das Info-Sprite (nicht auf die Statue selbst)
+                // Raycast NUR gegen den InfoSprite (die Plakette)
                 const intersects = raycaster.intersectObject(loc.infoSprite);
                 if (intersects.length > 0) {
-                    logToDebug("Infofenster geklickt -> Link wird geöffnet.");
                     window.open(loc.link, '_blank');
                 }
             }
         });
     }
 
-    /**
-     * Ändert den Rotationswinkel der Statuen manuell.
-     */
     function changeRotation(delta) {
         currentRotation = (currentRotation + delta + 360) % 360;
         document.getElementById('rotationDisplay').innerText = currentRotation;
@@ -391,31 +363,25 @@
         });
     }
 
-    /**
-     * Startet das GPS-Tracking (GNSS).
-     */
     function startGNSS() {
       if (!navigator.geolocation) {
           updateUI("GNSS nicht unterstützt", "error");
           return;
       }
-
       navigator.geolocation.watchPosition((pos) => {
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
-        // GPS Glättung (Durchschnitt aus 5 Messungen)
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
-
         let avgLat = 0, avgLon = 0;
         positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
         avgLat /= positionHistory.length;
         avgLon /= positionHistory.length;
 
-        // Sobald die erste GPS-Position da ist, Status prüfen
-        if (document.getElementById('status').innerText === "Warte auf GNSS-Signal...") {
+        if (!gnssReady) {
+            gnssReady = true;
             document.getElementById('status').innerText = "GNSS aktiv (Genauigkeit: ±" + Math.round(acc) + "m)";
             checkReadyStatus();
         }
@@ -430,10 +396,11 @@
             if (dist < closestDist) {
                 closestDist = dist;
                 closestLoc = loc;
+                closestLocRef = loc;
             }
 
             if (dist < VISIBILITY_DISTANCE) {
-                // Wenn Distanz < 0.5m UND Boden (Reticle) erkannt wird, GPS für diese Statue abschalten
+                // Lock bei 0,5m UND Bodenkontakt
                 if (dist < LOCK_DISTANCE && loc.loaded && window.arReticle && window.arReticle.visible) {
                     if (!loc.locked) {
                         loc.locked = true;
@@ -441,7 +408,6 @@
                         document.getElementById('status').style.color = "#4f4";
                     }
                 } else if (!loc.locked) {
-                    // X/Z Koordinaten via GNSS setzen
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
                 }
@@ -452,7 +418,6 @@
             }
         });
 
-        // Debug-Anzeige im Info-Kasten
         let debugMsg = `GNSS: ${avgLat.toFixed(6)}, ${avgLon.toFixed(6)} (±${Math.round(acc)}m)\n`;
         if (closestLoc) {
             document.getElementById('targetName').innerText = closestLoc.title;
@@ -462,13 +427,10 @@
         document.getElementById('debug-console').innerText = debugMsg;
 
       }, (err) => {
-          logToDebug("GNSS-Signal verloren: " + err.message);
+          logToDebug("GNSS-Signal verloren.");
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
-    /**
-     * Haupt-Render-Loop für XR. Behandelt Hit-Testing (Boden-Erkennung).
-     */
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
@@ -489,14 +451,11 @@
             const hitPose = hit.getPose(refSpace);
 
             if (hitPose) {
-               // Normalenvektor prüfen: Nur waagerechte Flächen (Boden) erlauben
                const normalY = hitPose.transform.matrix[5]; 
                if (normalY > 0.9) { 
                    reticle.visible = true;
                    reticle.matrix.fromArray(hitPose.transform.matrix);
                    const hitPos = hitPose.transform.position;
-                   
-                   // Alle sichtbaren Statuen sanft auf Bodenhöhe (Y) ziehen
                    LOCATIONS.forEach(loc => {
                        if (loc.object3D && loc.object3D.visible) {
                            loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
@@ -510,21 +469,36 @@
               reticle.visible = false;
           }
         }
+
+        // Richtungs-Pfeil Update
+        if (closestLocRef && closestLocRef.object3D) {
+            const camPos = new THREE.Vector3();
+            camera.getWorldPosition(camPos);
+            const targetPos = new THREE.Vector3();
+            closestLocRef.object3D.getWorldPosition(targetPos);
+            
+            // Richtung in der XZ-Ebene berechnen
+            const dx = targetPos.x - camPos.x;
+            const dz = targetPos.z - camPos.z;
+            const bearingToTarget = Math.atan2(dx, dz);
+            
+            // Kamera-Ausrichtung in der XZ-Ebene
+            const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+            const camBearing = Math.atan2(forward.x, forward.z);
+            
+            // Differenz ist die Pfeil-Rotation
+            const arrowRotation = bearingToTarget - camBearing;
+            document.getElementById('arrow').style.transform = `rotate(${arrowRotation}rad)`;
+        }
       }
       renderer.render(scene, camera);
     }
 
-    /**
-     * Zeigt Text in der technischen Debug-Konsole an.
-     */
     function logToDebug(text) {
         const el = document.getElementById('debug-console');
         if (el) el.innerText = text + "\n" + el.innerText.substring(0, 200);
     }
 
-    /**
-     * Berechnet kartesische Meter-Offsets aus GPS-Koordinaten.
-     */
     function calcOffset(lat1, lon1, lat2, lon2) {
       const R = 6378137; 
       const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -535,9 +509,6 @@
       return { x: dx, z: dz };
     }
 
-    /**
-     * Haversine-Formel zur Berechnung der Luftlinie zwischen zwei Punkten.
-     */
     function haversineDist(lat1, lon1, lat2, lon2) {
       const R = 6371e3; 
       const rad = Math.PI/180;
@@ -547,9 +518,6 @@
       return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     }
 
-    /**
-     * Aktualisiert die zentrale Statusnachricht der Anwendung.
-     */
     function updateUI(txt, type="normal") {
       const el = document.getElementById('msg');
       if(el) {
@@ -558,18 +526,12 @@
       }
     }
 
-    /**
-     * Passt das 3D-Rendering bei Größenänderung des Fensters an.
-     */
     function onWindowResize() {
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
       renderer.setSize(window.innerWidth, window.innerHeight);
     }
 
-    /**
-     * Startet den WebXR-Animationszyklus.
-     */
     function animate() {
       renderer.setAnimationLoop(render);
     }
