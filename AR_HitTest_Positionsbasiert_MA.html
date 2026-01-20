@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten - AR</title>
+  <title>Herrenhäuser Gärten - Virtueller Rundgang AR</title>
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
@@ -11,15 +11,14 @@
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
     /* 
-       Hintergrund-Video für den Start-Screen 
-       (Damit man die Kamera sieht, bevor AR startet)
+       Hintergrund-Video (Kamera-Vorschau vor AR-Start)
     */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        object-fit: cover; z-index: 0; opacity: 0.6; /* Leicht abgedunkelt für Lesbarkeit */
+        object-fit: cover; z-index: 0; opacity: 0.6;
     }
 
-    /* Container für UI Elemente (über dem Video/WebGL) */
+    /* Container für UI Elemente */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       z-index: 100; pointer-events: none;
@@ -37,10 +36,10 @@
     
     h1 { margin: 0 0 5px 0; font-size: 1.1rem; }
     p { margin: 0; font-size: 0.9rem; color: #ccc; }
-    #status { color: #888; font-weight: bold; }
-    .active-target { color: #4f4; } 
+    #status { color: #ccc; font-weight: bold; }
+    .active-target { color: #4f4; font-weight: bold; } 
 
-    /* Debug Text für GNSS Infos */
+    /* Debug Text (klein unten) */
     #debug-console {
         font-family: monospace; font-size: 10px; color: #ffff00;
         background: rgba(0,0,0,0.8); padding: 5px; margin-top: 5px;
@@ -74,11 +73,12 @@
       </div>
       <div class="info-wrapper">
         <div class="info-box">
-          <h1>Herrenhäuser Gärten AR</h1>
-          <p id="msg">Initialisiere...</p>
-          <p>Ziel: <span id="targetName">-</span> (<span id="dist">-</span> m)</p>
-          <p>Status: <span id="status">Warte auf GNSS</span></p>
-          <div id="debug-console">System startklar...</div>
+          <h1>Herrenhäuser Gärten - Virtueller Rundgang in AR</h1>
+          <p id="msg">Initialisiere Anwendung...</p>
+          <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
+          <p>Entfernung: <span id="dist">-</span> Meter</p>
+          <p>Status: <span id="status">Warte auf GPS-Signal...</span></p>
+          <div id="debug-console">Lade Systemkomponenten...</div>
         </div>
       </div>
   </div>
@@ -100,7 +100,7 @@
     // --- EINSTELLUNGEN ---
     const LOCATIONS = [
       {
-        title: 'Erste Statue',
+        title: 'Niederdeutscher Blumengarten',
         lat: 52.388754, 
         lon: 9.817867,
         url: '3D_models/Statue_3D.glb', 
@@ -117,10 +117,14 @@
       }
     ];
 
+    // Sichtbarkeit ab 500 Metern
     const VISIBILITY_DISTANCE = 500.0; 
     
-    // HIER GEÄNDERT: Lock erst unter 3 Metern
+    // Position wird "eingefroren" (Lock) unter 3 Metern
     const FREEZE_DISTANCE_METERS = 3.0; 
+
+    // Zielhöhe der Statue in Metern
+    const TARGET_HEIGHT = 3.0;
 
     // --- GLOBALE VARIABLEN ---
     let camera, scene, renderer;
@@ -136,7 +140,6 @@
     init();
     animate();
 
-    // Funktion für das Hintergrund-Video vor AR-Start
     function start2DCamera() {
         const video = document.getElementById('bg-video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
@@ -157,7 +160,7 @@
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
 
-      // Licht Setup
+      // --- LICHT ---
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 3);
@@ -165,6 +168,7 @@
       scene.add(dirLight);
 
       // --- RETICLE (Boden-Cursor) ---
+      // Hilft zu sehen, wo der Hit-Test den Boden erkennt
       const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
       const reticleMat = new THREE.MeshBasicMaterial(); 
       const reticle = new THREE.Mesh(reticleGeo, reticleMat);
@@ -177,32 +181,53 @@
       const loader = new GLTFLoader();
       
       LOCATIONS.forEach((loc) => {
+        // Container-Gruppe für das Objekt
         const group = new THREE.Group();
         group.visible = false; 
         scene.add(group);
         loc.object3D = group; 
 
-        logToDebug(`Lade: ${loc.title}...`);
+        logToDebug(`Lade Modell: ${loc.title}...`);
 
         loader.load(loc.url, (gltf) => {
           const model = gltf.scene;
 
-          // Auto-Scaling auf 2 Meter Höhe
+          // 1. BOUNDING BOX BERECHNEN
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
-          
+          const center = box.getCenter(new THREE.Vector3());
+
+          // 2. SKALIERUNG AUF 3 METER
+          // Wenn die Höhe (Y) bekannt ist, berechnen wir den Faktor
           let scaleFactor = 1.0;
-          if(size.y > 0) scaleFactor = 2.0 / size.y; // Zielhöhe 2m
-          
+          if(size.y > 0) {
+              scaleFactor = TARGET_HEIGHT / size.y;
+          }
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
-          model.position.y = 0; 
+
+          // 3. PIVOT KORREKTUR (WICHTIG!)
+          // Wir müssen das Modell so verschieben, dass die Füße bei Y=0 sind.
+          // Durch das Skalieren ändern sich die Maße, wir müssen die Box neu berechnen
+          // oder den Offset skalieren.
+          // Einfacher Weg: Wir holen uns den tiefsten Punkt (min.y) der skalierten Box.
           
+          // Box aktualisieren nach Skalierung:
+          const scaledBox = new THREE.Box3().setFromObject(model);
+          const minY = scaledBox.min.y;
+
+          // Wir schieben das Modell um -minY nach unten. 
+          // Wenn minY z.B. +1.80m ist (schwebt), schieben wir es um -1.80m.
+          model.position.y -= minY;
+
           group.add(model);
           loc.loaded = true;
-          logToDebug(`OK: ${loc.title}`);
+          logToDebug(`Erfolg: ${loc.title} (Höhe: 3m)`);
+          
+          // UI sofort aktualisieren
+          updateUI("Modelle geladen. Warte auf GPS...");
 
         }, undefined, (err) => {
-          logToDebug(`FEHLER: ${loc.title} nicht geladen.`);
+          logToDebug(`FEHLER beim Laden von ${loc.title}`);
         });
       });
 
@@ -214,12 +239,12 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
+      // --- AR BUTTON ---
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
       
-      // Beim Klick auf "Start AR" das Hintergrund-Video stoppen
       btn.addEventListener('click', () => {
           const video = document.getElementById('bg-video');
           if(video.srcObject) {
@@ -230,7 +255,7 @@
       
       document.body.appendChild(btn);
 
-      // Buttons
+      // Buttons Events
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
@@ -241,22 +266,37 @@
           location.reload();
       });
 
-      startGNSS();
+      startGPS();
       window.addEventListener('resize', onWindowResize);
     }
 
-    function startGNSS() {
-      if (!navigator.geolocation) return;
+    function startGPS() {
+      if (!navigator.geolocation) {
+         updateUI("Fehler: GPS wird nicht unterstützt.", "error");
+         return;
+      }
+
+      // Falls GPS hängt, Hilfstext anzeigen
+      setTimeout(() => {
+          const status = document.getElementById('status').innerText;
+          if(status.includes("Warte")) {
+              updateUI("Warte noch auf GPS... (Bitte im Freien testen)");
+          }
+      }, 5000);
 
       navigator.geolocation.watchPosition((pos) => {
+        // UI Fix: Sobald Daten da sind, Text ändern
         if(document.getElementById('status').innerText.includes("Warte")) {
-             document.getElementById('status').innerText = "GNSS Aktiv";
+             document.getElementById('status').innerText = "GPS-Signal aktiv (Tracking läuft)";
+             document.getElementById('status').style.color = "#fff";
+             updateUI("Standort gefunden. Suche Ziele in der Nähe...");
         }
 
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
+        // GPS Glättung
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
 
@@ -267,13 +307,13 @@
 
         let closestDist = 99999;
         let closestLoc = null;
-        let debugTxt = `GNSS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
+        let debugTxt = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (Genauigkeit: ±${Math.round(acc)}m)\n`;
 
         LOCATIONS.forEach(loc => {
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
-            debugTxt += `${loc.title.substr(0,7)}: ${Math.round(dist)}m\n`;
+            debugTxt += `${loc.title.substr(0,10)}..: ${Math.round(dist)}m\n`;
 
             if (dist < closestDist) {
                 closestDist = dist;
@@ -281,12 +321,22 @@
             }
 
             if (dist < VISIBILITY_DISTANCE) {
-                // GNSS Positionierung (X/Z)
+                // GPS Positionierung (X/Z) NUR wenn nicht gelockt
                 if (!isPositionLocked) {
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
                 }
+                
                 loc.object3D.visible = true;
+                
+                // --- ROTATION ---
+                // Kontinuierliche Rotation um die Y-Achse (entspricht vertikaler Achse in WebGL)
+                // Damit man die Statue von allen Seiten sieht
+                if(loc.loaded) {
+                    // Dreht sich langsam (ca. 60 Grad pro Sekunde bei 60fps)
+                    loc.object3D.children[0].rotation.y += 0.005; 
+                }
+
             } else {
                 loc.object3D.visible = false;
             }
@@ -300,29 +350,31 @@
             
             if(closestDist < 15.0) {
                  document.getElementById('targetName').classList.add("active-target");
+                 updateUI("Ziel in unmittelbarer Nähe!");
             } else {
                  document.getElementById('targetName').classList.remove("active-target");
             }
         }
 
-        // Lock Logic (Jetzt < 3 Meter)
+        // Lock Logic (< 3 Meter)
         if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
             if (!isPositionLocked) {
                 isPositionLocked = true;
-                document.getElementById('status').innerText = "SLAM Lock";
+                document.getElementById('status').innerText = "SLAM Lock (Position fixiert)";
                 document.getElementById('status').style.color = "#0ff";
             }
         } else if (closestDist > 5.0) { 
-            // Entsperren, wenn man sich wieder leicht entfernt
+            // Entsperren
             isPositionLocked = false;
             if(document.getElementById('status').innerText.includes("Lock")) {
-                 document.getElementById('status').innerText = "GNSS Tracking";
-                 document.getElementById('status').style.color = "#888";
+                 document.getElementById('status').innerText = "GPS Tracking aktiv";
+                 document.getElementById('status').style.color = "#ccc";
             }
         }
 
       }, (err) => {
-        logToDebug("GNSS Error: " + err.message);
+        logToDebug("GPS Fehler: " + err.message);
+        updateUI("GPS Fehler: Kein Signal.", "error");
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
@@ -338,7 +390,6 @@
 
         if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
-          
           const reticle = window.arReticle;
 
           if (hitTestResults.length > 0) {
@@ -356,7 +407,11 @@
                        const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
                        
                        // Höhenanpassung via Hit-Test
+                       // Radius erweitert auf 5m, damit es besser greift
                        if (distToModel < 5.0) {
+                           // Wir setzen die Position der Gruppe auf Bodenhöhe
+                           // Da wir im Loader das Modell innerhalb der Gruppe korrigiert haben (Füße auf 0),
+                           // müssen wir hier die Gruppe auf die hitPos.y setzen.
                            loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
                        }
                    }
@@ -392,6 +447,14 @@
       const dLon = (lon2-lon1)*rad;
       const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
       return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function updateUI(txt, type="normal") {
+      const el = document.getElementById('msg');
+      if(el) {
+          el.innerText = txt;
+          el.style.color = type === "error" ? "red" : "#ccc";
+      }
     }
 
     function onWindowResize() {
