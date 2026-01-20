@@ -130,10 +130,10 @@
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
     const LOCATIONS = [
-      {
+        {
         title: 'Niederdeutscher Blumengarten',
-        lat: 52.388754, 
-        lon: 9.817867,
+        lat: 52.388194, 
+        lon: 9.697861,
         url: '3D_models/Statue_3D.glb', 
         infoText: 'Sandsteinstatue "Veritas" von 1730',
         link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
@@ -153,11 +153,38 @@
         infoSprite: null,
         loaded: false,
         locked: false
+      },
+      {
+        title: 'Große Fontäne',
+        lat: 52.385968,
+        lon: 9.695931,
+        url: '3D_models/GrosseFontaine.glb',
+        infoText: 'Große Fontäne - Wahrzeichen des Großen Gartens',
+        link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        locked: false,
+        isAnimated: true // Markierung für Spezialanimation
+      },
+      
+      {
+        title: 'Große Fontäne',
+        lat: 52.388754,
+        lon: 9.817867,
+        url: '3D_models/GrosseFontaine.glb',
+        infoText: 'Große Fontäne - Wahrzeichen des Großen Gartens',
+        link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        locked: false,
+        isAnimated: true // Markierung für Spezialanimation
       }
     ];
 
-    const VISIBILITY_DISTANCE = 20.0; // Statuen erst ab 20m sichtbar
-    const LOCK_DISTANCE = 0.5; // Lock bei 0,5m
+    const VISIBILITY_DISTANCE = 20.0; 
+    const LOCK_DISTANCE = 0.5; 
     const TARGET_HEIGHT = 3.0;
     const INITIAL_ROTATION_DEG = 180;
 
@@ -170,6 +197,9 @@
     let modelsReady = false;
     let gnssReady = false;
     let closestLocRef = null;
+
+    // Variablen für Partikel-Animation
+    let waterParticles = null;
 
     start2DCamera();
     init();
@@ -186,6 +216,63 @@
                 console.error("Kamera-Zugriff verweigert:", err);
             });
         }
+    }
+
+    // Erstellt ein Partikelsystem für den Wasser-Effekt
+    function createWaterEffect() {
+        const geometry = new THREE.BufferGeometry();
+        const count = 500;
+        const positions = new Float32Array(count * 3);
+        const velocities = new Float32Array(count * 3);
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = 0;
+            positions[i * 3 + 1] = 0;
+            positions[i * 3 + 2] = 0;
+            
+            velocities[i * 3] = (Math.random() - 0.5) * 0.1; // x
+            velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; // y (nach oben)
+            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1; // z
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+            color: 0x88ccff,
+            size: 0.1,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending
+        });
+
+        const points = new THREE.Points(geometry, material);
+        points.userData.velocities = velocities;
+        return points;
+    }
+
+    function updateWaterEffect(points, delta) {
+        const positions = points.geometry.attributes.position.array;
+        const velocities = points.userData.velocities;
+        const count = positions.length / 3;
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] += velocities[i * 3];
+            positions[i * 3 + 1] += velocities[i * 3 + 1];
+            positions[i * 3 + 2] += velocities[i * 3 + 2];
+
+            // Schwerkraft simulieren
+            velocities[i * 3 + 1] -= 0.01;
+
+            // Reset, wenn Partikel wieder auf Bodenhöhe sind
+            if (positions[i * 3 + 1] < 0) {
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+                velocities[i * 3] = (Math.random() - 0.5) * 0.05;
+                velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2;
+                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
+            }
+        }
+        points.geometry.attributes.position.needsUpdate = true;
     }
 
     function createInfoWindow(text) {
@@ -266,6 +353,13 @@
           model.position.y -= minY; 
           model.rotation.y = THREE.MathUtils.degToRad(INITIAL_ROTATION_DEG);
           group.add(model);
+          
+          // Wasser-Effekt für die Fontäne
+          if (loc.isAnimated) {
+              waterParticles = createWaterEffect();
+              group.add(waterParticles);
+          }
+
           const info = createInfoWindow(loc.infoText);
           group.add(info);
           loc.infoSprite = info;
@@ -311,17 +405,12 @@
       document.getElementById('rotateLeft').addEventListener('pointerdown', () => changeRotation(-5));
       document.getElementById('rotateRight').addEventListener('pointerdown', () => changeRotation(5));
       
-      // Schließen Fix
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
-          
-          // Versuche den Tab/Browser zu schließen
           window.close();
-          // Fallback falls window.close() blockiert wird
           setTimeout(() => {
               window.history.back();
-              // Letzter Fallback: Redirect auf leere Seite oder Startseite
               setTimeout(() => { window.location.href = "about:blank"; }, 500);
           }, 300);
       });
@@ -343,7 +432,6 @@
         raycaster.setFromCamera({ x: 0, y: 0 }, camera);
         LOCATIONS.forEach(loc => {
             if (loc.object3D && loc.object3D.visible && loc.infoSprite) {
-                // Raycast NUR gegen den InfoSprite (die Plakette)
                 const intersects = raycaster.intersectObject(loc.infoSprite);
                 if (intersects.length > 0) {
                     window.open(loc.link, '_blank');
@@ -400,7 +488,6 @@
             }
 
             if (dist < VISIBILITY_DISTANCE) {
-                // Lock bei 0,5m UND Bodenkontakt
                 if (dist < LOCK_DISTANCE && loc.loaded && window.arReticle && window.arReticle.visible) {
                     if (!loc.locked) {
                         loc.locked = true;
@@ -470,6 +557,11 @@
           }
         }
 
+        // Animation der Wasserpartikel
+        if (waterParticles && waterParticles.parent && waterParticles.parent.visible) {
+            updateWaterEffect(waterParticles, 0.016);
+        }
+
         // Richtungs-Pfeil Update
         if (closestLocRef && closestLocRef.object3D) {
             const camPos = new THREE.Vector3();
@@ -477,16 +569,13 @@
             const targetPos = new THREE.Vector3();
             closestLocRef.object3D.getWorldPosition(targetPos);
             
-            // Richtung in der XZ-Ebene berechnen
             const dx = targetPos.x - camPos.x;
             const dz = targetPos.z - camPos.z;
             const bearingToTarget = Math.atan2(dx, dz);
             
-            // Kamera-Ausrichtung in der XZ-Ebene
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const camBearing = Math.atan2(forward.x, forward.z);
             
-            // Differenz ist die Pfeil-Rotation
             const arrowRotation = bearingToTarget - camBearing;
             document.getElementById('arrow').style.transform = `rotate(${arrowRotation}rad)`;
         }
