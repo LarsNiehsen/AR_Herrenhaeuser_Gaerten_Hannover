@@ -13,35 +13,49 @@
     /* Hintergrund-Video (Vorschau) */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        object-fit: cover; z-index: 0; opacity: 1.0; /* Volle Sichtbarkeit */
+        object-fit: cover; z-index: 0; opacity: 1.0; 
     }
 
     /* 
        START SCREEN OVERLAY 
-       Transparent, damit man das Video sieht.
+       Dies liegt optisch oben, aber wir lassen den ARButton technisch darüber liegen.
     */
     #start-screen {
         position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        z-index: 999; 
-        background: rgba(0,0,0,0.3); /* Leicht abgedunkelt für Textlesbarkeit */
+        z-index: 10; 
+        background: rgba(0,0,0,0.3);
         display: flex; flex-direction: column; justify-content: center; align-items: center;
-        cursor: pointer;
+        pointer-events: none; /* WICHTIG: Klicks gehen durch zum ARButton */
     }
-    #start-screen h1 { font-size: 2rem; text-shadow: 0 2px 5px black; pointer-events: none; margin: 0; }
-    #start-screen p { font-size: 1.2rem; pointer-events: none; text-shadow: 0 1px 3px black; }
+    #start-screen h1 { font-size: 2rem; text-shadow: 0 2px 5px black; margin: 0; }
+    #start-screen p { font-size: 1.2rem; text-shadow: 0 1px 3px black; margin-top: 10px; }
     .tap-icon { font-size: 4rem; margin-bottom: 20px; animation: pulse 1.5s infinite; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5)); }
 
     @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
 
-    /* AR UI Container */
+    /* 
+       STYLING DES OFFIZIELLEN AR BUTTONS
+       Wir machen ihn unsichtbar, aber vollflächig klickbar über dem Start-Screen.
+    */
+    #ARButton {
+        position: absolute !important;
+        top: 0 !important; left: 0 !important;
+        width: 100% !important; height: 100% !important;
+        background: transparent !important; /* Unsichtbar */
+        border: none !important;
+        z-index: 20 !important; /* Über dem Start-Screen */
+        cursor: pointer !important;
+    }
+
+    /* AR UI Container (Erst sichtbar NACH Start) */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; pointer-events: none; /* Klicks gehen durch */
-      display: none; /* Erst sichtbar nach Start */
+      z-index: 100; pointer-events: none; 
+      display: none; /* Versteckt am Anfang */
       flex-direction: column; justify-content: space-between;
     }
 
-    /* Info Box (Oben) */
+    /* Info Box */
     .info-wrapper { padding: 15px; display: flex; flex-direction: column; align-items: center; }
 
     .info-box {
@@ -55,7 +69,6 @@
       box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     }
     
-    /* Mehrzeilige Titel erlauben */
     .info-box h2 { 
         margin: 0 0 5px 0; font-size: 1.2rem; color: #fff; 
         white-space: normal; line-height: 1.3;
@@ -65,10 +78,10 @@
     #status { color: #ccc; font-weight: bold; font-size: 0.8rem; text-transform: uppercase; margin-top: 5px; }
     .active-target { color: #4f4; text-shadow: 0 0 5px rgba(0,255,0,0.5); } 
 
-    /* Rotations-Steuerung (Unten Mitte) - INITIAL VERSTECKT */
+    /* Rotations-Steuerung */
     .controls-wrapper {
         pointer-events: auto;
-        display: none; /* WICHTIG: Erst nach Start anzeigen */
+        display: none; 
         justify-content: center; gap: 20px;
         padding-bottom: 30px;
         align-items: center;
@@ -112,34 +125,30 @@
 </head>
 <body>
   
-  <!-- PRE-AR KAMERA FEED (Sofort sichtbar) -->
+  <!-- PRE-AR KAMERA FEED -->
   <video id="bg-video" autoplay muted playsinline></video>
 
-  <!-- START SCREEN -->
+  <!-- START SCREEN (Optisch) -->
   <div id="start-screen">
       <div class="tap-icon">👆</div>
       <h1>Herrenhausen AR</h1>
-      <p>Auf den Bildschirm tippen zum Starten</p>
+      <p>Tippen um AR zu starten</p>
   </div>
 
-  <!-- HAUPT INTERFACE (Wird nach Start sichtbar) -->
+  <!-- AR INTERFACE -->
   <div id="ar-overlay-container">
-      
-      <!-- System Buttons -->
       <button id="closeBtn" class="sys-btn">✕ Beenden</button>
       
-      <!-- Info Box -->
       <div class="info-wrapper">
         <div class="info-box">
           <h2 id="targetName">Suche Ziele...</h2>
           <p>Entfernung: <span id="dist">-</span> m</p>
-          <p>Ausrichtung: <span id="rot-value">180</span>°</p> <!-- WINKEL ANZEIGE -->
+          <p>Ausrichtung: <span id="rot-value">180</span>°</p> 
           <div id="status">Warte auf GNSS</div>
           <div id="debug-console">System bereit.</div>
         </div>
       </div>
 
-      <!-- Rotations Buttons -->
       <div class="controls-wrapper">
           <button class="rot-btn" id="rotLeft">↺</button>
           <span style="font-size: 12px; opacity: 0.7;">ROTATION</span>
@@ -149,7 +158,6 @@
       <button id="resetBtn" class="sys-btn">Neustart</button>
   </div>
 
-  <!-- IMPORT MAP -->
   <script type="importmap">
     {
       "imports": {
@@ -196,15 +204,9 @@
     const MAX_HISTORY = 5; 
     let isPositionLocked = false; 
 
-    // Kamera-Vorschau sofort starten
+    // Startet die 2D Kamera
     start2DCamera();
-
-    // Event Listener für den "Start Screen"
-    document.getElementById('start-screen').addEventListener('click', () => {
-        if (!renderer) {
-            init();
-        }
-    });
+    init();
 
     function start2DCamera() {
         const video = document.getElementById('bg-video');
@@ -216,7 +218,6 @@
     }
 
     function init() {
-      // 1. Setup Three.js
       const container = document.createElement('div');
       document.body.appendChild(container);
 
@@ -237,7 +238,6 @@
       scene.add(reticle);
       window.arReticle = reticle; 
 
-      // 2. Modelle laden
       const loader = new GLTFLoader();
       
       LOCATIONS.forEach((loc) => {
@@ -258,15 +258,12 @@
           if(size.y > 0) scaleFactor = TARGET_HEIGHT / size.y;
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-          // PIVOT KORREKTUR (Statue auf den Boden stellen)
-          // Wir berechnen die Box NACH Skalierung neu
+          // PIVOT KORREKTUR
           const scaledBox = new THREE.Box3().setFromObject(model);
-          const minY = scaledBox.min.y; // Der tiefste Punkt des Modells (die Füße)
-          
-          // Wir schieben das Modell um -minY nach unten
+          const minY = scaledBox.min.y;
           model.position.y -= minY;
 
-          // --- INITIALE ROTATION (SÜDEN / 180 GRAD) ---
+          // INIT ROTATION (180 Grad)
           model.rotation.y = Math.PI; 
 
           group.add(model);
@@ -280,7 +277,6 @@
         });
       });
 
-      // 3. Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -288,36 +284,36 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // 4. WebXR Session
-      const arOverlay = document.getElementById('ar-overlay-container');
+      // --- AR BUTTON KONFIGURATION ---
+      // Wir übergeben das 'ar-overlay-container' als DOM Overlay,
+      // damit die UI-Elemente sichtbar bleiben.
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
-        domOverlay: { root: arOverlay } 
+        domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
-      btn.style.display = 'none'; 
       document.body.appendChild(btn);
-      
-      // Auto-Klick Simulation
-      btn.click();
-      
-      // UI Umschalten
-      document.getElementById('start-screen').style.display = 'none';
-      arOverlay.style.display = 'flex';
-      
-      // JETZT: Rotations-Buttons einblenden (Erst im AR Modus)
-      document.querySelector('.controls-wrapper').style.display = 'flex';
-      
-      // Hintergrundvideo stoppen
-      const video = document.getElementById('bg-video');
-      if(video.srcObject) {
-          video.srcObject.getTracks().forEach(t => t.stop());
-          video.style.display = 'none';
-      }
+
+      // Event: AR Session gestartet
+      btn.addEventListener('click', () => {
+          // UI Umschalten
+          document.getElementById('start-screen').style.display = 'none';
+          document.getElementById('ar-overlay-container').style.display = 'flex';
+          document.querySelector('.controls-wrapper').style.display = 'flex';
+
+          // Video stoppen
+          const video = document.getElementById('bg-video');
+          if(video.srcObject) {
+              video.srcObject.getTracks().forEach(t => t.stop());
+              video.style.display = 'none';
+          }
+          
+          // Render Loop starten
+          animate();
+      });
 
       setupUIEvents();
       startGNSS();
       window.addEventListener('resize', onWindowResize);
-      renderer.setAnimationLoop(render);
     }
 
     function setupUIEvents() {
@@ -329,20 +325,17 @@
         
         document.getElementById('resetBtn').addEventListener('click', () => location.reload());
 
-        // --- MANUELLE ROTATION ---
-        const rotStep = 0.1; // Radiant Schritte (ca. 5.7 Grad)
+        const rotStep = 0.1; 
 
         const updateRotDisplay = (radians) => {
-            // Radiant in Grad (0-360)
             let degrees = Math.round(THREE.MathUtils.radToDeg(radians));
-            degrees = (degrees % 360 + 360) % 360; // Normalisieren
+            degrees = (degrees % 360 + 360) % 360; 
             document.getElementById('rot-value').innerText = degrees;
         };
 
         document.getElementById('rotLeft').addEventListener('click', () => {
             LOCATIONS.forEach(loc => {
                 if (loc.object3D && loc.object3D.visible && loc.loaded) {
-                    // Wir drehen das Kind-Element (Modell), nicht die GPS-Gruppe
                     const model = loc.object3D.children[0];
                     model.rotation.y += rotStep;
                     updateRotDisplay(model.rotation.y);
@@ -393,7 +386,6 @@
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
-            // Titel nicht abschneiden, aber im Debug kurz halten
             debugTxt += `${loc.title.substr(0,10)}: ${Math.round(dist)}m\n`;
 
             if (dist < closestDist) {
@@ -464,18 +456,15 @@
 
             if (hitPose) {
                const matrix = hitPose.transform.matrix;
-               // Y-Normalenvektor ist Index 5 in der Matrix
                const normalY = matrix[5]; 
 
-               // NUR HORIZONTALE FLÄCHEN (Boden) akzeptieren
-               // 0.85 = sehr flach. < 0.5 wäre Wand/Schräge.
+               // NUR HORIZONTALE FLÄCHEN (Boden)
                if (normalY > 0.85) {
                    const hitPos = hitPose.transform.position;
                    LOCATIONS.forEach(loc => {
                        if (loc.object3D && loc.object3D.visible) {
                            const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
                            if (distToModel < 5.0) {
-                               // Lerp zur sanften Höhenanpassung
                                loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
                            }
                        }
