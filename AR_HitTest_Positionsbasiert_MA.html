@@ -2,62 +2,112 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten - Virtueller Rundgang AR</title>
+  <title>Herrenhäuser Gärten - GNSS AR</title>
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
   <style>
-    /* Basis-Styling */
-    body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
+    /* Grund-Layout */
+    body { margin: 0; background-color: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: white; }
     
-    /* 
-       Hintergrund-Video (Kamera-Vorschau vor AR-Start)
-    */
+    /* Hintergrund-Video (Vorschau) */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        object-fit: cover; z-index: 0; opacity: 0.6;
+        object-fit: cover; z-index: 0; opacity: 0.5;
     }
 
-    /* Container für UI Elemente */
+    /* 
+       START SCREEN OVERLAY 
+       Ersetzt den kleinen Button durch eine vollflächige "Tippen zum Starten" Fläche 
+    */
+    #start-screen {
+        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 999; 
+        background: rgba(0,0,0,0.4);
+        display: flex; flex-direction: column; justify-content: center; align-items: center;
+        cursor: pointer;
+    }
+    #start-screen h1 { font-size: 2rem; text-shadow: 0 2px 10px black; pointer-events: none; }
+    #start-screen p { font-size: 1.2rem; pointer-events: none; }
+    .tap-icon { font-size: 3rem; margin-bottom: 10px; animation: pulse 1.5s infinite; }
+
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
+
+    /* AR UI Container */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; pointer-events: none;
-      display: flex; flex-direction: column; justify-content: space-between;
+      z-index: 100; pointer-events: none; /* Klicks gehen durch */
+      display: none; /* Erst sichtbar nach Start */
+      flex-direction: column; justify-content: space-between;
     }
 
-    /* Info Bereich */
-    .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+    /* Info Box (Oben) */
+    .info-wrapper { padding: 15px; display: flex; flex-direction: column; align-items: center; }
 
     .info-box {
-      background: rgba(0, 0, 0, 0.6); padding: 10px; border-radius: 8px;
-      backdrop-filter: blur(4px); border: 1px solid rgba(255,255,255,0.2);
-      pointer-events: auto; align-self: center; min-width: 250px; text-align: center;
+      background: rgba(0, 0, 0, 0.7); 
+      padding: 15px; border-radius: 12px;
+      backdrop-filter: blur(10px); 
+      border: 1px solid rgba(255,255,255,0.15);
+      pointer-events: auto; 
+      min-width: 280px; max-width: 90%;
+      text-align: center;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
     }
     
-    h1 { margin: 0 0 5px 0; font-size: 1.1rem; }
-    p { margin: 0; font-size: 0.9rem; color: #ccc; }
-    #status { color: #ccc; font-weight: bold; }
-    .active-target { color: #4f4; font-weight: bold; } 
+    /* Texte - Umbruch erlauben */
+    .info-box h2 { 
+        margin: 0 0 5px 0; font-size: 1.2rem; color: #fff; 
+        white-space: normal; /* Mehrzeilig erlauben */
+        line-height: 1.3;
+    }
+    .info-box p { margin: 2px 0; font-size: 0.95rem; color: #ddd; }
+    
+    #status { color: #ccc; font-weight: bold; font-size: 0.8rem; text-transform: uppercase; margin-top: 5px; }
+    .active-target { color: #4f4; text-shadow: 0 0 5px rgba(0,255,0,0.5); } 
 
-    /* Debug Text (klein unten) */
+    /* Rotations-Steuerung (Unten Mitte) */
+    .controls-wrapper {
+        pointer-events: auto;
+        display: flex; justify-content: center; gap: 20px;
+        padding-bottom: 30px;
+        align-items: center;
+    }
+
+    .rot-btn {
+        background: rgba(255, 255, 255, 0.2);
+        border: 2px solid white;
+        color: white;
+        width: 60px; height: 60px;
+        border-radius: 50%;
+        font-size: 24px;
+        cursor: pointer;
+        backdrop-filter: blur(5px);
+        display: flex; justify-content: center; align-items: center;
+        transition: background 0.2s;
+        user-select: none;
+        -webkit-tap-highlight-color: transparent;
+    }
+    .rot-btn:active { background: rgba(255,255,255,0.5); }
+
+    /* System Buttons (Oben/Unten Rechts) */
+    .sys-btn {
+        position: absolute; right: 15px; z-index: 200;
+        background: rgba(50, 50, 50, 0.8);
+        color: white; border: 1px solid #777;
+        padding: 8px 15px; border-radius: 20px;
+        font-size: 11px; font-weight: bold;
+        pointer-events: auto; cursor: pointer;
+        text-transform: uppercase;
+    }
+    #closeBtn { top: 15px; background: rgba(200, 50, 50, 0.8); border-color: #f55; }
+    #resetBtn { bottom: 15px; right: 15px; position: fixed; } /* Fix für mobile Safaris */
+
+    /* Debug Text */
     #debug-console {
-        font-family: monospace; font-size: 10px; color: #ffff00;
-        background: rgba(0,0,0,0.8); padding: 5px; margin-top: 5px;
-        text-align: left; white-space: pre-wrap; pointer-events: none;
+        font-family: monospace; font-size: 9px; color: #ffeb3b;
+        margin-top: 8px; text-align: left; opacity: 0.8;
     }
-
-    /* Buttons */
-    .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
-
-    .ar-btn {
-        position: absolute; z-index: 200; color: white; padding: 12px 20px;
-        border-radius: 30px; font-weight: bold; cursor: pointer;
-        border: 1px solid rgba(255,255,255,0.5); background: rgba(0, 0, 0, 0.5);
-        backdrop-filter: blur(5px); pointer-events: auto; text-transform: uppercase;
-        font-size: 12px; letter-spacing: 1px;
-    }
-    #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
-    #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
   </style>
 </head>
 <body>
@@ -65,24 +115,40 @@
   <!-- PRE-AR KAMERA FEED -->
   <video id="bg-video" autoplay muted playsinline></video>
 
-  <!-- UI OVERLAY -->
-  <div id="ar-overlay-container">
-      <div class="button-wrapper">
-          <button id="closeBtn" class="ar-btn">✕ Schließen</button>
-          <button id="resetBtn" class="ar-btn">↺ Neustart</button>
-      </div>
-      <div class="info-wrapper">
-        <div class="info-box">
-          <h1>Herrenhäuser Gärten - Virtueller Rundgang in AR</h1>
-          <p id="msg">Initialisiere Anwendung...</p>
-          <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
-          <p>Entfernung: <span id="dist">-</span> Meter</p>
-          <p>Status: <span id="status">Warte auf GPS-Signal...</span></p>
-          <div id="debug-console">Lade Systemkomponenten...</div>
-        </div>
-      </div>
+  <!-- START SCREEN (Ersetzt den kleinen Button) -->
+  <div id="start-screen">
+      <div class="tap-icon">👆</div>
+      <h1>Herrenhausen AR</h1>
+      <p>Auf den Bildschirm tippen zum Starten</p>
   </div>
 
+  <!-- HAUPT INTERFACE (Wird nach Start sichtbar) -->
+  <div id="ar-overlay-container">
+      
+      <!-- System Buttons -->
+      <button id="closeBtn" class="sys-btn">✕ Beenden</button>
+      
+      <!-- Info Box -->
+      <div class="info-wrapper">
+        <div class="info-box">
+          <h2 id="targetName">Suche Ziele...</h2>
+          <p>Entfernung: <span id="dist">-</span> m</p>
+          <div id="status">Warte auf GNSS</div>
+          <div id="debug-console">System bereit.</div>
+        </div>
+      </div>
+
+      <!-- Rotations Buttons -->
+      <div class="controls-wrapper">
+          <button class="rot-btn" id="rotLeft">↺</button>
+          <span style="font-size: 12px; opacity: 0.7;">ROTATION</span>
+          <button class="rot-btn" id="rotRight">↻</button>
+      </div>
+
+      <button id="resetBtn" class="sys-btn">Neustart</button>
+  </div>
+
+  <!-- IMPORT MAP -->
   <script type="importmap">
     {
       "imports": {
@@ -97,10 +163,10 @@
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // --- EINSTELLUNGEN ---
+    // --- KONFIGURATION ---
     const LOCATIONS = [
       {
-        title: 'Niederdeutscher Blumengarten',
+        title: 'Erste Statue',
         lat: 52.388754, 
         lon: 9.817867,
         url: '3D_models/Statue_3D.glb', 
@@ -117,16 +183,11 @@
       }
     ];
 
-    // Sichtbarkeit ab 500 Metern
     const VISIBILITY_DISTANCE = 500.0; 
-    
-    // Position wird "eingefroren" (Lock) unter 3 Metern
-    const FREEZE_DISTANCE_METERS = 3.0; 
+    const FREEZE_DISTANCE_METERS = 3.0; // Lock erst ab 3m
+    const TARGET_HEIGHT = 3.0; // Wunsch-Höhe der Statue in Metern
 
-    // Zielhöhe der Statue in Metern
-    const TARGET_HEIGHT = 3.0;
-
-    // --- GLOBALE VARIABLEN ---
+    // --- VARIABLEN ---
     let camera, scene, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
@@ -134,104 +195,93 @@
     const MAX_HISTORY = 5; 
     let isPositionLocked = false; 
 
-    // Startet die 2D Kamera (für den Hintergrund vor AR Start)
+    // Kamera-Vorschau starten
     start2DCamera();
 
-    init();
-    animate();
+    // Event Listener für den "Start Screen"
+    document.getElementById('start-screen').addEventListener('click', () => {
+        // Wir initiieren init() erst beim Klick
+        if (!renderer) {
+            init();
+        }
+    });
 
     function start2DCamera() {
         const video = document.getElementById('bg-video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-            .then(function(stream) {
-                video.srcObject = stream;
-            })
-            .catch(function(err) {
-                console.log("Kamera Fehler (Pre-AR):", err);
-            });
+            .then(stream => video.srcObject = stream)
+            .catch(err => console.log("Cam Info:", err));
         }
     }
 
     function init() {
+      // 1. Setup Three.js
       const container = document.createElement('div');
       document.body.appendChild(container);
 
       scene = new THREE.Scene();
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
 
-      // --- LICHT ---
+      // Licht
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 3);
       dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
 
-      // --- RETICLE (Boden-Cursor) ---
-      // Hilft zu sehen, wo der Hit-Test den Boden erkennt
-      const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
-      const reticleMat = new THREE.MeshBasicMaterial(); 
-      const reticle = new THREE.Mesh(reticleGeo, reticleMat);
-      reticle.matrixAutoUpdate = false;
+      // Reticle (Unsichtbar, nur für interne Logik)
+      const reticle = new THREE.Mesh(
+          new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
+          new THREE.MeshBasicMaterial()
+      );
       reticle.visible = false; 
       scene.add(reticle);
       window.arReticle = reticle; 
 
-      // --- MODELLE LADEN ---
+      // 2. Modelle laden
       const loader = new GLTFLoader();
       
       LOCATIONS.forEach((loc) => {
-        // Container-Gruppe für das Objekt
         const group = new THREE.Group();
         group.visible = false; 
         scene.add(group);
         loc.object3D = group; 
 
-        logToDebug(`Lade Modell: ${loc.title}...`);
+        logToDebug(`Lade: ${loc.title}`);
 
         loader.load(loc.url, (gltf) => {
           const model = gltf.scene;
 
-          // 1. BOUNDING BOX BERECHNEN
+          // Bounding Box Analyse
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
-          const center = box.getCenter(new THREE.Vector3());
-
-          // 2. SKALIERUNG AUF 3 METER
-          // Wenn die Höhe (Y) bekannt ist, berechnen wir den Faktor
+          
+          // Skalierung auf exakt 3 Meter
           let scaleFactor = 1.0;
-          if(size.y > 0) {
-              scaleFactor = TARGET_HEIGHT / size.y;
-          }
+          if(size.y > 0) scaleFactor = TARGET_HEIGHT / size.y;
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-          // 3. PIVOT KORREKTUR (WICHTIG!)
-          // Wir müssen das Modell so verschieben, dass die Füße bei Y=0 sind.
-          // Durch das Skalieren ändern sich die Maße, wir müssen die Box neu berechnen
-          // oder den Offset skalieren.
-          // Einfacher Weg: Wir holen uns den tiefsten Punkt (min.y) der skalierten Box.
-          
-          // Box aktualisieren nach Skalierung:
+          // PIVOT KORREKTUR (Anti-Schwebeflug)
+          // Wir berechnen die Box NACH Skalierung
           const scaledBox = new THREE.Box3().setFromObject(model);
           const minY = scaledBox.min.y;
-
-          // Wir schieben das Modell um -minY nach unten. 
-          // Wenn minY z.B. +1.80m ist (schwebt), schieben wir es um -1.80m.
+          
+          // Wir ziehen den niedrigsten Punkt ab, damit die Füße bei Y=0 sind
           model.position.y -= minY;
 
           group.add(model);
           loc.loaded = true;
-          logToDebug(`Erfolg: ${loc.title} (Höhe: 3m)`);
+          logToDebug(`OK: ${loc.title}`);
           
-          // UI sofort aktualisieren
-          updateUI("Modelle geladen. Warte auf GPS...");
+          updateUI("Modelle bereit. Warte auf GNSS...");
 
         }, undefined, (err) => {
-          logToDebug(`FEHLER beim Laden von ${loc.title}`);
+            logToDebug(`FEHLER: ${loc.title}`);
         });
       });
 
-      // --- RENDERER ---
+      // 3. Renderer
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -239,67 +289,92 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // --- AR BUTTON ---
+      // 4. WebXR Session Starten (versteckt via ARButton Logik)
+      // Wir erstellen den Button, klicken ihn aber programmatisch, da wir schon im User-Click Event sind
+      const arOverlay = document.getElementById('ar-overlay-container');
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
-        domOverlay: { root: document.getElementById('ar-overlay-container') } 
+        domOverlay: { root: arOverlay } 
       });
-      
-      btn.addEventListener('click', () => {
-          const video = document.getElementById('bg-video');
-          if(video.srcObject) {
-              video.srcObject.getTracks().forEach(track => track.stop());
-              video.style.display = 'none';
-          }
-      });
-      
+      // Button verstecken, wir nutzen unseren eigenen Screen
+      btn.style.display = 'none'; 
       document.body.appendChild(btn);
+      
+      // Simuliere Klick auf den AR Button um Session zu starten
+      btn.click();
+      
+      // UI Umschalten
+      document.getElementById('start-screen').style.display = 'none';
+      arOverlay.style.display = 'flex';
+      
+      // Hintergrundvideo stoppen
+      const video = document.getElementById('bg-video');
+      if(video.srcObject) {
+          video.srcObject.getTracks().forEach(t => t.stop());
+          video.style.display = 'none';
+      }
 
-      // Buttons Events
-      document.getElementById('closeBtn').addEventListener('click', async () => {
-          const session = renderer.xr.getSession();
-          if (session) await session.end();
-          try { window.close(); } catch(e) {}
-          window.history.back();
-      });
-      document.getElementById('resetBtn').addEventListener('click', () => {
-          location.reload();
-      });
+      // Event Listener UI
+      setupUIEvents();
 
-      startGPS();
+      // GNSS Starten
+      startGNSS();
       window.addEventListener('resize', onWindowResize);
+      renderer.setAnimationLoop(render);
     }
 
-    function startGPS() {
+    function setupUIEvents() {
+        document.getElementById('closeBtn').addEventListener('click', async () => {
+             const session = renderer.xr.getSession();
+             if (session) await session.end();
+             window.history.back();
+        });
+        
+        document.getElementById('resetBtn').addEventListener('click', () => location.reload());
+
+        // --- MANUELLE ROTATION ---
+        // Dreht das aktuell sichtbare Modell
+        const rotSpeed = 0.1; // Radiant pro Klick
+
+        document.getElementById('rotLeft').addEventListener('click', () => {
+            LOCATIONS.forEach(loc => {
+                if (loc.object3D && loc.object3D.visible && loc.loaded) {
+                    // Wir drehen das Kind-Element (das Modell selbst), nicht die GPS-Gruppe
+                    loc.object3D.children[0].rotation.y += rotSpeed;
+                }
+            });
+        });
+
+        document.getElementById('rotRight').addEventListener('click', () => {
+            LOCATIONS.forEach(loc => {
+                if (loc.object3D && loc.object3D.visible && loc.loaded) {
+                    loc.object3D.children[0].rotation.y -= rotSpeed;
+                }
+            });
+        });
+    }
+
+    function startGNSS() {
       if (!navigator.geolocation) {
-         updateUI("Fehler: GPS wird nicht unterstützt.", "error");
+         updateUI("GNSS nicht verfügbar", "error");
          return;
       }
 
-      // Falls GPS hängt, Hilfstext anzeigen
-      setTimeout(() => {
-          const status = document.getElementById('status').innerText;
-          if(status.includes("Warte")) {
-              updateUI("Warte noch auf GPS... (Bitte im Freien testen)");
-          }
-      }, 5000);
-
       navigator.geolocation.watchPosition((pos) => {
-        // UI Fix: Sobald Daten da sind, Text ändern
-        if(document.getElementById('status').innerText.includes("Warte")) {
-             document.getElementById('status').innerText = "GPS-Signal aktiv (Tracking läuft)";
-             document.getElementById('status').style.color = "#fff";
-             updateUI("Standort gefunden. Suche Ziele in der Nähe...");
+        // UI Update wenn Signal da ist
+        const statusEl = document.getElementById('status');
+        if(statusEl.innerText.includes("Warte")) {
+             statusEl.innerText = "GNSS Signal aktiv";
+             statusEl.style.color = "#fff";
         }
 
         const lat = pos.coords.latitude;
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
-        // GPS Glättung
+        // Glättung
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
-
         let avgLat = 0, avgLon = 0;
         positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
         avgLat /= positionHistory.length;
@@ -307,13 +382,14 @@
 
         let closestDist = 99999;
         let closestLoc = null;
-        let debugTxt = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (Genauigkeit: ±${Math.round(acc)}m)\n`;
+        let debugTxt = `GNSS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
 
         LOCATIONS.forEach(loc => {
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
-            debugTxt += `${loc.title.substr(0,10)}..: ${Math.round(dist)}m\n`;
+            // Name nicht abschneiden, aber im Debug kurz halten
+            debugTxt += `${loc.title.substr(0,10)}: ${Math.round(dist)}m\n`;
 
             if (dist < closestDist) {
                 closestDist = dist;
@@ -321,22 +397,12 @@
             }
 
             if (dist < VISIBILITY_DISTANCE) {
-                // GPS Positionierung (X/Z) NUR wenn nicht gelockt
+                // Nur updaten, wenn nicht gelockt
                 if (!isPositionLocked) {
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
                 }
-                
                 loc.object3D.visible = true;
-                
-                // --- ROTATION ---
-                // Kontinuierliche Rotation um die Y-Achse (entspricht vertikaler Achse in WebGL)
-                // Damit man die Statue von allen Seiten sieht
-                if(loc.loaded) {
-                    // Dreht sich langsam (ca. 60 Grad pro Sekunde bei 60fps)
-                    loc.object3D.children[0].rotation.y += 0.005; 
-                }
-
             } else {
                 loc.object3D.visible = false;
             }
@@ -350,31 +416,28 @@
             
             if(closestDist < 15.0) {
                  document.getElementById('targetName').classList.add("active-target");
-                 updateUI("Ziel in unmittelbarer Nähe!");
             } else {
                  document.getElementById('targetName').classList.remove("active-target");
             }
         }
 
-        // Lock Logic (< 3 Meter)
+        // Lock Logic (Unter 3 Meter)
         if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
             if (!isPositionLocked) {
                 isPositionLocked = true;
-                document.getElementById('status').innerText = "SLAM Lock (Position fixiert)";
+                document.getElementById('status').innerText = "SLAM Lock (Fixiert)";
                 document.getElementById('status').style.color = "#0ff";
             }
         } else if (closestDist > 5.0) { 
-            // Entsperren
             isPositionLocked = false;
             if(document.getElementById('status').innerText.includes("Lock")) {
-                 document.getElementById('status').innerText = "GPS Tracking aktiv";
+                 document.getElementById('status').innerText = "GNSS Tracking";
                  document.getElementById('status').style.color = "#ccc";
             }
         }
 
       }, (err) => {
-        logToDebug("GPS Fehler: " + err.message);
-        updateUI("GPS Fehler: Kein Signal.", "error");
+        logToDebug("GNSS Error: " + err.message);
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
@@ -390,35 +453,40 @@
 
         if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
-          const reticle = window.arReticle;
-
+          
           if (hitTestResults.length > 0) {
             const hit = hitTestResults[0];
             const refSpace = renderer.xr.getReferenceSpace();
             const hitPose = hit.getPose(refSpace);
 
             if (hitPose) {
-               reticle.visible = true;
-               reticle.matrix.fromArray(hitPose.transform.matrix);
-               const hitPos = hitPose.transform.position;
-               
-               LOCATIONS.forEach(loc => {
-                   if (loc.object3D && loc.object3D.visible) {
-                       const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
-                       
-                       // Höhenanpassung via Hit-Test
-                       // Radius erweitert auf 5m, damit es besser greift
-                       if (distToModel < 5.0) {
-                           // Wir setzen die Position der Gruppe auf Bodenhöhe
-                           // Da wir im Loader das Modell innerhalb der Gruppe korrigiert haben (Füße auf 0),
-                           // müssen wir hier die Gruppe auf die hitPos.y setzen.
-                           loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
+               // --- FILTER FÜR HORIZONTALE EBENEN ---
+               // Wir prüfen die Rotations-Matrix der erkannten Ebene.
+               // In der Matrix (Spalten-Major) repräsentiert Spalte 2 (Index 4,5,6) den Y-Vektor (Normalenvektor).
+               // Wenn Element 5 (Y-Komponente des Vektors) nahe 1 ist, zeigt die Fläche nach oben.
+               // Ist es nahe 0, ist es eine Wand.
+               const matrix = hitPose.transform.matrix;
+               const normalY = matrix[5]; // Y-Komponente der Normalen
+
+               // Toleranz: > 0.85 bedeutet sehr flach (Boden). < 0.5 wäre schräg/Wand.
+               if (normalY > 0.85) {
+                   
+                   const hitPos = hitPose.transform.position;
+                   
+                   LOCATIONS.forEach(loc => {
+                       if (loc.object3D && loc.object3D.visible) {
+                           const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
+                           
+                           // Wir updaten die Höhe nur, wenn der Boden < 5m vom Objekt erkannt wird
+                           if (distToModel < 5.0) {
+                               // Setze Y exakt auf Hit-Position (Füße sind korrigiert)
+                               // Lerp für weichere Bewegung, aber schneller (0.2)
+                               loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
+                           }
                        }
-                   }
-               });
+                   });
+               }
             }
-          } else {
-              reticle.visible = false;
           }
         }
       }
@@ -450,7 +518,7 @@
     }
 
     function updateUI(txt, type="normal") {
-      const el = document.getElementById('msg');
+      const el = document.getElementById('status');
       if(el) {
           el.innerText = txt;
           el.style.color = type === "error" ? "red" : "#ccc";
@@ -464,7 +532,7 @@
     }
 
     function animate() {
-      renderer.setAnimationLoop(render);
+      renderer.setAnimationLoop(render); // Kein Argument übergeben, nutzt interne Render-Funktion
     }
   </script>
 </body>
