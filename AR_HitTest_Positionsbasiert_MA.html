@@ -2,160 +2,108 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten - GNSS AR</title>
-  
+  <title>Herrenhäuser Gärten - Virtueller Rundgang AR (GNSS)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
   <style>
-    /* Grund-Layout */
-    body { margin: 0; background-color: #000; overflow: hidden; font-family: 'Segoe UI', sans-serif; color: white; }
+    /* Basis-Styling */
+    body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
-    /* Hintergrund-Video (Vorschau) */
+    /* Hintergrund-Video vor AR-Start */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        object-fit: cover; z-index: 0; opacity: 1.0; 
+        object-fit: cover; z-index: 0; opacity: 0.6;
     }
 
-    /* 
-       START SCREEN OVERLAY 
-       Dies liegt optisch oben, aber wir lassen den ARButton technisch darüber liegen.
-    */
-    #start-screen {
-        position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-        z-index: 10; 
-        background: rgba(0,0,0,0.3);
-        display: flex; flex-direction: column; justify-content: center; align-items: center;
-        pointer-events: none; /* WICHTIG: Klicks gehen durch zum ARButton */
-    }
-    #start-screen h1 { font-size: 2rem; text-shadow: 0 2px 5px black; margin: 0; }
-    #start-screen p { font-size: 1.2rem; text-shadow: 0 1px 3px black; margin-top: 10px; }
-    .tap-icon { font-size: 4rem; margin-bottom: 20px; animation: pulse 1.5s infinite; filter: drop-shadow(0 2px 5px rgba(0,0,0,0.5)); }
-
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.1); } 100% { transform: scale(1); } }
-
-    /* 
-       STYLING DES OFFIZIELLEN AR BUTTONS
-       Wir machen ihn unsichtbar, aber vollflächig klickbar über dem Start-Screen.
-    */
-    #ARButton {
-        position: absolute !important;
-        top: 0 !important; left: 0 !important;
-        width: 100% !important; height: 100% !important;
-        background: transparent !important; /* Unsichtbar */
-        border: none !important;
-        z-index: 20 !important; /* Über dem Start-Screen */
-        cursor: pointer !important;
-    }
-
-    /* AR UI Container (Erst sichtbar NACH Start) */
+    /* Container für UI Elemente */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; pointer-events: none; 
-      display: none; /* Versteckt am Anfang */
-      flex-direction: column; justify-content: space-between;
+      z-index: 100; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between;
     }
 
-    /* Info Box */
-    .info-wrapper { padding: 15px; display: flex; flex-direction: column; align-items: center; }
+    /* Info Bereich */
+    .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
     .info-box {
-      background: rgba(0, 0, 0, 0.7); 
-      padding: 15px; border-radius: 12px;
-      backdrop-filter: blur(10px); 
-      border: 1px solid rgba(255,255,255,0.15);
-      pointer-events: auto; 
-      min-width: 280px; max-width: 90%;
-      text-align: center;
-      box-shadow: 0 4px 20px rgba(0,0,0,0.5);
+      background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 12px;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2);
+      pointer-events: auto; align-self: center; min-width: 280px; text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
     }
     
-    .info-box h2 { 
-        margin: 0 0 5px 0; font-size: 1.2rem; color: #fff; 
-        white-space: normal; line-height: 1.3;
-    }
-    .info-box p { margin: 2px 0; font-size: 0.95rem; color: #ddd; }
-    
-    #status { color: #ccc; font-weight: bold; font-size: 0.8rem; text-transform: uppercase; margin-top: 5px; }
-    .active-target { color: #4f4; text-shadow: 0 0 5px rgba(0,255,0,0.5); } 
-
-    /* Rotations-Steuerung */
-    .controls-wrapper {
-        pointer-events: auto;
-        display: none; 
-        justify-content: center; gap: 20px;
-        padding-bottom: 30px;
-        align-items: center;
-    }
-
-    .rot-btn {
-        background: rgba(255, 255, 255, 0.2);
-        border: 2px solid white;
-        color: white;
-        width: 60px; height: 60px;
-        border-radius: 50%;
-        font-size: 24px;
-        cursor: pointer;
-        backdrop-filter: blur(5px);
-        display: flex; justify-content: center; align-items: center;
-        transition: background 0.2s;
-        user-select: none;
-        -webkit-tap-highlight-color: transparent;
-    }
-    .rot-btn:active { background: rgba(255,255,255,0.5); }
-
-    /* System Buttons */
-    .sys-btn {
-        position: absolute; right: 15px; z-index: 200;
-        background: rgba(50, 50, 50, 0.8);
-        color: white; border: 1px solid #777;
-        padding: 8px 15px; border-radius: 20px;
-        font-size: 11px; font-weight: bold;
-        pointer-events: auto; cursor: pointer;
-        text-transform: uppercase;
-    }
-    #closeBtn { top: 15px; background: rgba(200, 50, 50, 0.8); border-color: #f55; }
-    #resetBtn { bottom: 15px; right: 15px; position: fixed; }
+    /* Titel: Zeilenumbruch erlaubt, keine Kürzung */
+    h1 { margin: 0 0 8px 0; font-size: 1.1rem; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
+    p { margin: 0; font-size: 0.9rem; color: #ccc; padding: 2px 0; }
+    #status { color: #ccc; font-weight: bold; }
+    .active-target { color: #4f4; font-weight: bold; } 
 
     /* Debug Text */
     #debug-console {
-        font-family: monospace; font-size: 9px; color: #ffeb3b;
-        margin-top: 8px; text-align: left; opacity: 0.8;
+        font-family: monospace; font-size: 10px; color: #ffff00;
+        background: rgba(0,0,0,0.8); padding: 5px; margin-top: 10px;
+        text-align: left; white-space: pre-wrap; pointer-events: none;
+        max-height: 80px; overflow: hidden; border-radius: 4px;
     }
+
+    /* Buttons */
+    .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
+
+    .ar-btn {
+        position: absolute; z-index: 200; color: white; padding: 12px 20px;
+        border-radius: 30px; font-weight: bold; cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.5); background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px); pointer-events: auto; text-transform: uppercase;
+        font-size: 12px; letter-spacing: 1px;
+    }
+    #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
+    #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
+
+    /* Rotation Controls: Erscheinen erst im AR-Modus */
+    .controls-wrapper {
+      position: absolute; bottom: 100px; left: 0; width: 100%;
+      display: none; /* display: none am Anfang */
+      justify-content: center; gap: 40px; pointer-events: none;
+      z-index: 300;
+    }
+    .rotate-btn {
+      width: 75px; height: 75px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.6);
+      color: white; font-size: 32px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; pointer-events: auto;
+      backdrop-filter: blur(10px); user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .rotate-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
   </style>
 </head>
 <body>
   
-  <!-- PRE-AR KAMERA FEED -->
   <video id="bg-video" autoplay muted playsinline></video>
 
-  <!-- START SCREEN (Optisch) -->
-  <div id="start-screen">
-      <div class="tap-icon">👆</div>
-      <h1>Herrenhausen AR</h1>
-      <p>Tippen um AR zu starten</p>
-  </div>
-
-  <!-- AR INTERFACE -->
   <div id="ar-overlay-container">
-      <button id="closeBtn" class="sys-btn">✕ Beenden</button>
-      
+      <div class="button-wrapper">
+          <button id="closeBtn" class="ar-btn">✕ Schließen</button>
+          <button id="resetBtn" class="ar-btn">↺ Neustart</button>
+      </div>
+
+      <!-- Manuelle Rotation -->
+      <div class="controls-wrapper" id="rotation-controls">
+          <div class="rotate-btn" id="rotateLeft">←</div>
+          <div class="rotate-btn" id="rotateRight">→</div>
+      </div>
+
       <div class="info-wrapper">
         <div class="info-box">
-          <h2 id="targetName">Suche Ziele...</h2>
-          <p>Entfernung: <span id="dist">-</span> m</p>
-          <p>Ausrichtung: <span id="rot-value">180</span>°</p> 
-          <div id="status">Warte auf GNSS</div>
-          <div id="debug-console">System bereit.</div>
+          <h1>Herrenhäuser Gärten - Virtueller Rundgang AR</h1>
+          <p id="msg">Initialisiere Anwendung...</p>
+          <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
+          <p>Entfernung: <span id="dist">-</span> Meter</p>
+          <p>Ausrichtung: <span id="rotationDisplay">180</span>°</p>
+          <p>Status: <span id="status">Warte auf GNSS-Signal...</span></p>
+          <div id="debug-console">Lade Systemkomponenten...</div>
         </div>
       </div>
-
-      <div class="controls-wrapper">
-          <button class="rot-btn" id="rotLeft">↺</button>
-          <span style="font-size: 12px; opacity: 0.7;">ROTATION</span>
-          <button class="rot-btn" id="rotRight">↻</button>
-      </div>
-
-      <button id="resetBtn" class="sys-btn">Neustart</button>
   </div>
 
   <script type="importmap">
@@ -172,10 +120,10 @@
     import { ARButton } from 'three/addons/webxr/ARButton.js';
     import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 
-    // --- KONFIGURATION ---
+    // --- EINSTELLUNGEN ---
     const LOCATIONS = [
       {
-        title: 'Erste Statue',
+        title: 'Erste Statue am Großen Garten',
         lat: 52.388754, 
         lon: 9.817867,
         url: '3D_models/Statue_3D.glb', 
@@ -183,7 +131,7 @@
         loaded: false
       },
       {
-        title: 'Borghesischer Fechter',
+        title: 'Borghesischer Fechter am Gartentheater',
         lat: 52.389472, 
         lon: 9.699222,
         url: '3D_models/BorghesischerFechter_3D.glb', 
@@ -193,27 +141,30 @@
     ];
 
     const VISIBILITY_DISTANCE = 500.0; 
-    const FREEZE_DISTANCE_METERS = 3.0; 
-    const TARGET_HEIGHT = 3.0; 
+    const TARGET_HEIGHT = 3.0;
+    const INITIAL_ROTATION_DEG = 180;
 
-    // --- VARIABLEN ---
     let camera, scene, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
+    let currentRotation = INITIAL_ROTATION_DEG;
     let positionHistory = []; 
     const MAX_HISTORY = 5; 
-    let isPositionLocked = false; 
 
-    // Startet die 2D Kamera
     start2DCamera();
     init();
+    animate();
 
     function start2DCamera() {
         const video = document.getElementById('bg-video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-            .then(stream => video.srcObject = stream)
-            .catch(err => console.log("Cam Info:", err));
+            .then(function(stream) {
+                video.srcObject = stream;
+            })
+            .catch(function(err) {
+                console.log("Kamera Fehler (Pre-AR):", err);
+            });
         }
     }
 
@@ -230,10 +181,11 @@
       dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
 
-      const reticle = new THREE.Mesh(
-          new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2),
-          new THREE.MeshBasicMaterial()
-      );
+      // RETICLE
+      const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+      const reticleMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 }); 
+      const reticle = new THREE.Mesh(reticleGeo, reticleMat);
+      reticle.matrixAutoUpdate = false;
       reticle.visible = false; 
       scene.add(reticle);
       window.arReticle = reticle; 
@@ -246,34 +198,32 @@
         scene.add(group);
         loc.object3D = group; 
 
-        logToDebug(`Lade: ${loc.title}`);
+        logToDebug(`Lade: ${loc.title}...`);
 
         loader.load(loc.url, (gltf) => {
           const model = gltf.scene;
 
+          // 1. SKALIERUNG
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
-          
-          let scaleFactor = 1.0;
-          if(size.y > 0) scaleFactor = TARGET_HEIGHT / size.y;
+          let scaleFactor = size.y > 0 ? TARGET_HEIGHT / size.y : 1.0;
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
 
-          // PIVOT KORREKTUR
+          // 2. EXAKTE PIVOT KORREKTUR
+          // Wir berechnen die Box des skalierten Modells und ziehen den tiefsten Punkt ab
           const scaledBox = new THREE.Box3().setFromObject(model);
           const minY = scaledBox.min.y;
-          model.position.y -= minY;
+          model.position.y -= minY; 
 
-          // INIT ROTATION (180 Grad)
-          model.rotation.y = Math.PI; 
+          // 3. START-AUSRICHTUNG (180 GRAD)
+          model.rotation.y = THREE.MathUtils.degToRad(INITIAL_ROTATION_DEG);
 
           group.add(model);
           loc.loaded = true;
           logToDebug(`OK: ${loc.title}`);
-          
           updateUI("Modelle bereit. Warte auf GNSS...");
-
         }, undefined, (err) => {
-            logToDebug(`FEHLER: ${loc.title}`);
+          logToDebug(`Fehler: ${loc.title}`);
         });
       });
 
@@ -284,87 +234,63 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // --- AR BUTTON KONFIGURATION ---
-      // Wir übergeben das 'ar-overlay-container' als DOM Overlay,
-      // damit die UI-Elemente sichtbar bleiben.
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
-      document.body.appendChild(btn);
-
-      // Event: AR Session gestartet
+      
       btn.addEventListener('click', () => {
-          // UI Umschalten
-          document.getElementById('start-screen').style.display = 'none';
-          document.getElementById('ar-overlay-container').style.display = 'flex';
-          document.querySelector('.controls-wrapper').style.display = 'flex';
-
-          // Video stoppen
           const video = document.getElementById('bg-video');
           if(video.srcObject) {
-              video.srcObject.getTracks().forEach(t => t.stop());
+              video.srcObject.getTracks().forEach(track => track.stop());
               video.style.display = 'none';
           }
-          
-          // Render Loop starten
-          animate();
+          // Pfeile erscheinen erst jetzt
+          document.getElementById('rotation-controls').style.display = 'flex';
+      });
+      
+      document.body.appendChild(btn);
+
+      // Manuelle Rotation
+      document.getElementById('rotateLeft').addEventListener('pointerdown', () => changeRotation(-5));
+      document.getElementById('rotateRight').addEventListener('pointerdown', () => changeRotation(5));
+
+      document.getElementById('closeBtn').addEventListener('click', async () => {
+          const session = renderer.xr.getSession();
+          if (session) await session.end();
+          try { window.close(); } catch(e) {}
+          window.history.back();
+      });
+      document.getElementById('resetBtn').addEventListener('click', () => {
+          location.reload();
       });
 
-      setupUIEvents();
       startGNSS();
       window.addEventListener('resize', onWindowResize);
     }
 
-    function setupUIEvents() {
-        document.getElementById('closeBtn').addEventListener('click', async () => {
-             const session = renderer.xr.getSession();
-             if (session) await session.end();
-             window.history.back();
-        });
+    function changeRotation(delta) {
+        currentRotation = (currentRotation + delta + 360) % 360;
+        document.getElementById('rotationDisplay').innerText = currentRotation;
         
-        document.getElementById('resetBtn').addEventListener('click', () => location.reload());
-
-        const rotStep = 0.1; 
-
-        const updateRotDisplay = (radians) => {
-            let degrees = Math.round(THREE.MathUtils.radToDeg(radians));
-            degrees = (degrees % 360 + 360) % 360; 
-            document.getElementById('rot-value').innerText = degrees;
-        };
-
-        document.getElementById('rotLeft').addEventListener('click', () => {
-            LOCATIONS.forEach(loc => {
-                if (loc.object3D && loc.object3D.visible && loc.loaded) {
-                    const model = loc.object3D.children[0];
-                    model.rotation.y += rotStep;
-                    updateRotDisplay(model.rotation.y);
-                }
-            });
-        });
-
-        document.getElementById('rotRight').addEventListener('click', () => {
-            LOCATIONS.forEach(loc => {
-                if (loc.object3D && loc.object3D.visible && loc.loaded) {
-                    const model = loc.object3D.children[0];
-                    model.rotation.y -= rotStep;
-                    updateRotDisplay(model.rotation.y);
-                }
-            });
+        const rad = THREE.MathUtils.degToRad(currentRotation);
+        LOCATIONS.forEach(loc => {
+            if (loc.object3D && loc.object3D.children[0]) {
+                loc.object3D.children[0].rotation.y = rad;
+            }
         });
     }
 
     function startGNSS() {
       if (!navigator.geolocation) {
-         updateUI("GNSS nicht verfügbar", "error");
+         updateUI("Fehler: GNSS nicht unterstützt.", "error");
          return;
       }
 
       navigator.geolocation.watchPosition((pos) => {
-        const statusEl = document.getElementById('status');
-        if(statusEl.innerText.includes("Warte")) {
-             statusEl.innerText = "GNSS Signal aktiv";
-             statusEl.style.color = "#fff";
+        if(document.getElementById('status').innerText.includes("Warte")) {
+             document.getElementById('status').innerText = "GNSS aktiv";
+             document.getElementById('status').style.color = "#fff";
         }
 
         const lat = pos.coords.latitude;
@@ -373,6 +299,7 @@
 
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
+
         let avgLat = 0, avgLon = 0;
         positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
         avgLat /= positionHistory.length;
@@ -380,13 +307,13 @@
 
         let closestDist = 99999;
         let closestLoc = null;
-        let debugTxt = `GNSS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
+        let debugTxt = `GNSS: ${avgLat.toFixed(6)}, ${avgLon.toFixed(6)} (±${Math.round(acc)}m)\n`;
 
         LOCATIONS.forEach(loc => {
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
-            debugTxt += `${loc.title.substr(0,10)}: ${Math.round(dist)}m\n`;
+            debugTxt += `${loc.title.substring(0, 15)}..: ${Math.round(dist)}m\n`;
 
             if (dist < closestDist) {
                 closestDist = dist;
@@ -394,10 +321,8 @@
             }
 
             if (dist < VISIBILITY_DISTANCE) {
-                if (!isPositionLocked) {
-                    loc.object3D.position.x = offset.x;
-                    loc.object3D.position.z = offset.z;
-                }
+                loc.object3D.position.x = offset.x;
+                loc.object3D.position.z = offset.z;
                 loc.object3D.visible = true;
             } else {
                 loc.object3D.visible = false;
@@ -412,27 +337,14 @@
             
             if(closestDist < 15.0) {
                  document.getElementById('targetName').classList.add("active-target");
+                 updateUI("Ziel erreicht!");
             } else {
                  document.getElementById('targetName').classList.remove("active-target");
             }
         }
 
-        if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
-            if (!isPositionLocked) {
-                isPositionLocked = true;
-                document.getElementById('status').innerText = "SLAM Lock (Fixiert)";
-                document.getElementById('status').style.color = "#0ff";
-            }
-        } else if (closestDist > 5.0) { 
-            isPositionLocked = false;
-            if(document.getElementById('status').innerText.includes("Lock")) {
-                 document.getElementById('status').innerText = "GNSS Tracking";
-                 document.getElementById('status').style.color = "#ccc";
-            }
-        }
-
       }, (err) => {
-        logToDebug("GNSS Error: " + err.message);
+        logToDebug("GNSS Fehler: " + err.message);
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
@@ -448,29 +360,35 @@
 
         if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
-          
+          const reticle = window.arReticle;
+
           if (hitTestResults.length > 0) {
             const hit = hitTestResults[0];
             const refSpace = renderer.xr.getReferenceSpace();
             const hitPose = hit.getPose(refSpace);
 
             if (hitPose) {
-               const matrix = hitPose.transform.matrix;
-               const normalY = matrix[5]; 
-
-               // NUR HORIZONTALE FLÄCHEN (Boden)
-               if (normalY > 0.85) {
+               // NUR HORIZONTALE EBENEN: Normalenvektor prüfen
+               // matrix[5] ist die Y-Komponente des lokalen Up-Vektors der Pose
+               const normalY = hitPose.transform.matrix[5]; 
+               
+               if (normalY > 0.9) { 
+                   reticle.visible = true;
+                   reticle.matrix.fromArray(hitPose.transform.matrix);
                    const hitPos = hitPose.transform.position;
+                   
                    LOCATIONS.forEach(loc => {
                        if (loc.object3D && loc.object3D.visible) {
-                           const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
-                           if (distToModel < 5.0) {
-                               loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
-                           }
+                           // Statue auf Bodenhöhe setzen
+                           loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
                        }
                    });
+               } else {
+                   reticle.visible = false;
                }
             }
+          } else {
+              reticle.visible = false;
           }
         }
       }
@@ -502,7 +420,7 @@
     }
 
     function updateUI(txt, type="normal") {
-      const el = document.getElementById('status');
+      const el = document.getElementById('msg');
       if(el) {
           el.innerText = txt;
           el.style.color = type === "error" ? "red" : "#ccc";
