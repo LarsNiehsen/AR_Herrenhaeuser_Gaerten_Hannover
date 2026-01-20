@@ -1,0 +1,424 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Herrenhäuser Gärten - GNSS Rundgang AR</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  
+  <style>
+    body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
+    
+    #bg-video {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: cover; z-index: 0; opacity: 0.6;
+    }
+
+    #ar-overlay-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 100; pointer-events: none;
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+
+    .info-box {
+      background: rgba(0, 0, 0, 0.75); padding: 15px; border-radius: 12px;
+      backdrop-filter: blur(12px); border: 1px solid rgba(255,255,255,0.2);
+      pointer-events: auto; align-self: center; min-width: 280px; text-align: center;
+      transition: all 0.5s cubic-bezier(0.19, 1, 0.22, 1);
+    }
+    
+    .info-box.matched {
+        border-color: #00ffcc;
+        background: rgba(0, 30, 30, 0.85);
+        box-shadow: 0 0 25px rgba(0, 255, 204, 0.4);
+    }
+    
+    h1 { 
+        margin: 0 0 8px 0; 
+        font-size: 1.1rem; 
+        line-height: 1.3; 
+        white-space: normal; 
+        overflow-wrap: break-word; 
+    }
+    p { margin: 0; font-size: 0.85rem; color: #ccc; padding: 1px 0; }
+    #status { color: #fff; font-weight: bold; }
+
+    #match-badge {
+        display: inline-block; background: #00aa88; color: white; 
+        padding: 4px 10px; border-radius: 6px; font-size: 0.7rem; 
+        font-weight: bold; margin-bottom: 8px; opacity: 0; 
+        text-transform: uppercase; letter-spacing: 1px;
+    }
+    #match-badge.visible { opacity: 1; }
+
+    #debug-console {
+        font-family: monospace; font-size: 9px; color: #00ff00;
+        background: rgba(0,0,0,0.8); padding: 8px; margin-top: 10px;
+        text-align: left; white-space: pre-wrap; pointer-events: none;
+        max-height: 80px; overflow: hidden; border-radius: 6px;
+    }
+
+    .ar-btn {
+        position: absolute; z-index: 200; color: white; padding: 12px 24px;
+        border-radius: 30px; font-weight: bold; cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.3); background: rgba(0, 0, 0, 0.6);
+        backdrop-filter: blur(8px); pointer-events: auto; text-transform: uppercase;
+        font-size: 11px; letter-spacing: 1.2px;
+    }
+    #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.8); }
+    #resetBtn { bottom: 30px; right: 20px; background: rgba(50, 50, 50, 0.7); }
+
+    .controls-wrapper {
+      position: absolute; bottom: 120px; left: 0; width: 100%;
+      display: none; justify-content: center; gap: 40px; pointer-events: none;
+    }
+    .rotate-btn {
+      width: 70px; height: 70px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.1); border: 2px solid rgba(255, 255, 255, 0.4);
+      color: white; font-size: 30px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; pointer-events: auto;
+      backdrop-filter: blur(10px);
+      user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+
+    #direction-indicator {
+        position: absolute; bottom: 30px; left: 20px; width: 70px; height: 70px;
+        background: rgba(0,0,0,0.5); border-radius: 50%; border: 1px solid rgba(255,255,255,0.2);
+        display: none; justify-content: center; align-items: center; z-index: 400;
+    }
+    #arrow {
+        width: 0; height: 0; 
+        border-left: 12px solid transparent; border-right: 12px solid transparent;
+        border-bottom: 24px solid white; transform-origin: center center;
+    }
+  </style>
+</head>
+<body>
+  
+  <video id="bg-video" autoplay muted playsinline></video>
+
+  <div id="ar-overlay-container">
+      <div id="direction-indicator"><div id="arrow"></div></div>
+      <div class="button-wrapper">
+          <button id="closeBtn" class="ar-btn">✕</button>
+          <button id="resetBtn" class="ar-btn">↺</button>
+      </div>
+      <div class="controls-wrapper" id="rotation-controls">
+          <div class="rotate-btn" id="rotateLeft">←</div>
+          <div class="rotate-btn" id="rotateRight">→</div>
+      </div>
+      <div class="info-wrapper">
+        <div class="info-box" id="infoBox">
+          <div id="match-badge">Präzisions-Anker aktiv</div>
+          <h1 id="mainTitle">GNSS Rundgang AR</h1>
+          <p id="msg">Initialisiere GNSS...</p>
+          <p>Ziel: <span id="targetName">-</span></p>
+          <p>Entfernung: <span id="dist">-</span>m</p>
+          <p>Ausrichtung: <span id="rotVal">180</span>°</p>
+          <p>Status: <span id="status">Suche Satelliten...</span></p>
+          <div id="debug-console">Berechne Anker-Mapping...</div>
+        </div>
+      </div>
+  </div>
+
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { ARButton } from 'three/addons/webxr/ARButton.js';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+
+    const LOCATIONS = [
+      {
+        id: 'niederdeutscher_blumengarten',
+        title: 'Niederdeutscher Blumengarten',
+        lat: 52.388194, 
+        lon: 9.697861,
+        url: '3D_models/Statue_3D.glb',
+        // Drei Bilder für verschiedene Ansichten (Vorne, Links-Hinten, Rechts-Vorne)
+        trackingImgs: [
+          'ImageMatching/NiederdeutscherBlumengarten_1.jpg',
+          'ImageMatching/NiederdeutscherBlumengarten_2.jpg',
+          'ImageMatching/NiederdeutscherBlumengarten_3.jpg'
+        ], 
+        trackingWidth: 1.5,
+        trackingOrientation: 'vertical',
+        object3D: null, loaded: false, matched: false
+      },
+      {
+        id: 'fontaine',
+        title: 'Große Fontäne',
+        lat: 52.385968, lon: 9.695931,
+        url: '3D_models/GrosseFontaine.glb',
+        trackingImgs: ['https://images.unsplash.com/photo-1562629824-19069d658f8e?auto=format&fit=crop&q=80&w=400'],
+        trackingWidth: 8.0,
+        trackingOrientation: 'horizontal', 
+        object3D: null, loaded: false, matched: false, isAnimated: true
+      }
+    ];
+
+    let camera, scene, renderer;
+    let currentRotation = 180;
+    let waterParticles = null;
+    let closestLoc = null;
+    let hitTestSource = null;
+    let hitTestSourceRequested = false;
+    const imageToLocationMap = new Map();
+
+    async function loadTrackingImages() {
+      const trackedImages = [];
+      let globalImgIndex = 0;
+      for (let i = 0; i < LOCATIONS.length; i++) {
+        const loc = LOCATIONS[i];
+        if (!loc.trackingImgs) continue;
+        for (const imgUrl of loc.trackingImgs) {
+            try {
+              const response = await fetch(imgUrl);
+              const blob = await response.blob();
+              const bitmap = await createImageBitmap(blob);
+              trackedImages.push({ image: bitmap, widthInMeters: loc.trackingWidth });
+              imageToLocationMap.set(globalImgIndex++, i);
+            } catch (e) { 
+                console.warn("Konnte Tracking-Bild nicht laden:", imgUrl);
+                logToDebug("Fehler: " + loc.title + " Bild fehlt."); 
+            }
+        }
+      }
+      return trackedImages;
+    }
+
+    async function init() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+      scene = new THREE.Scene();
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
+      scene.add(new THREE.HemisphereLight(0xffffff, 0x444444, 4));
+      
+      const trackedImages = await loadTrackingImages();
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      renderer.xr.enabled = true;
+      renderer.xr.setReferenceSpaceType('local-floor');
+      container.appendChild(renderer.domElement);
+
+      const arButton = ARButton.createButton(renderer, {
+          requiredFeatures: ['image-tracking', 'hit-test', 'dom-overlay'],
+          trackedImages: trackedImages.length > 0 ? trackedImages : undefined,
+          domOverlay: { root: document.getElementById('ar-overlay-container') }
+      });
+
+      arButton.addEventListener('click', () => {
+          document.getElementById('bg-video').style.display = 'none';
+          document.getElementById('rotation-controls').style.display = 'flex';
+          document.getElementById('direction-indicator').style.display = 'flex';
+          updateUI("GNSS Rundgang aktiv");
+      });
+      document.body.appendChild(arButton);
+
+      const loader = new GLTFLoader();
+      LOCATIONS.forEach(loc => {
+          const group = new THREE.Group();
+          group.visible = false;
+          scene.add(group);
+          loc.object3D = group;
+
+          loader.load(loc.url, (gltf) => {
+              const model = gltf.scene;
+              const box = new THREE.Box3().setFromObject(model);
+              const scale = 3.0 / box.getSize(new THREE.Vector3()).y;
+              model.scale.set(scale, scale, scale);
+              
+              const updatedBox = new THREE.Box3().setFromObject(model);
+              model.position.y -= updatedBox.min.y;
+              model.rotation.y = THREE.MathUtils.degToRad(180);
+              
+              group.add(model);
+              loc.loaded = true;
+              if (loc.isAnimated) waterParticles = createWaterParticles(group);
+          }, undefined, (e) => {
+              logToDebug("GLTF Fehler: " + loc.title);
+          });
+      });
+
+      document.getElementById('rotateLeft').onpointerdown = (e) => { e.preventDefault(); adjustRotation(-10); };
+      document.getElementById('rotateRight').onpointerdown = (e) => { e.preventDefault(); adjustRotation(10); };
+      document.getElementById('closeBtn').onclick = () => { renderer.xr.getSession()?.end(); window.history.back(); };
+      document.getElementById('resetBtn').onclick = () => location.reload();
+
+      startGNSS();
+      animate();
+    }
+
+    function adjustRotation(delta) {
+        currentRotation = (currentRotation + delta + 360) % 360;
+        document.getElementById('rotVal').innerText = currentRotation;
+        LOCATIONS.forEach(loc => {
+            if(loc.object3D && loc.object3D.children[0]) {
+                loc.object3D.children[0].rotation.y = THREE.MathUtils.degToRad(currentRotation);
+            }
+        });
+    }
+
+    function resetParticle(i, pos, vel) {
+        pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
+        const isCore = Math.random() > 0.25;
+        if(isCore) {
+            vel[i*3] = (Math.random() - 0.5) * 0.03;
+            vel[i*3+1] = Math.random() * 0.3 + 0.45;
+            vel[i*3+2] = (Math.random() - 0.5) * 0.03;
+        } else {
+            vel[i*3] = (Math.random() - 0.5) * 0.2;
+            vel[i*3+1] = Math.random() * 0.2 + 0.25;
+            vel[i*3+2] = (Math.random() - 0.5) * 0.2;
+        }
+    }
+
+    function createWaterParticles(parent) {
+        const geo = new THREE.BufferGeometry();
+        const count = 2000;
+        const pos = new Float32Array(count * 3);
+        const vel = new Float32Array(count * 3);
+        for(let i=0; i<count; i++) {
+            resetParticle(i, pos, vel);
+        }
+        geo.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+        const mat = new THREE.PointsMaterial({ 
+            color: 0xccf0ff, 
+            size: 0.05, 
+            transparent: true, 
+            opacity: 0.75,
+            blending: THREE.AdditiveBlending 
+        });
+        const points = new THREE.Points(geo, mat);
+        points.userData.velocities = vel;
+        parent.add(points);
+        return points;
+    }
+
+    function updateParticles(points) {
+        const p = points.geometry.attributes.position.array;
+        const v = points.userData.velocities;
+        for(let i=0; i<p.length/3; i++) {
+            p[i*3]+=v[i*3]; p[i*3+1]+=v[i*3+1]; p[i*3+2]+=v[i*3+2]; 
+            v[i*3+1]-=0.015; 
+            if(v[i*3+1] < 0.1) {
+                v[i*3] *= 1.01;
+                v[i*3+2] *= 1.01;
+            }
+            if(p[i*3+1]<0) { 
+                resetParticle(i, p, v);
+            }
+        }
+        points.geometry.attributes.position.needsUpdate = true;
+    }
+
+    function startGNSS() {
+        if(!navigator.geolocation) return;
+        navigator.geolocation.watchPosition(pos => {
+            const { latitude: lat, longitude: lon, accuracy: acc } = pos.coords;
+            let minDist = 99999;
+            LOCATIONS.forEach(loc => {
+                const d = haversine(lat, lon, loc.lat, loc.lon);
+                if(d < minDist) { minDist = d; closestLoc = loc; }
+                if(d < 50 && !loc.matched) {
+                    const off = getOffset(lat, lon, loc.lat, loc.lon);
+                    loc.object3D.position.x = off.x;
+                    loc.object3D.position.z = off.z;
+                    loc.object3D.visible = true;
+                }
+            });
+            document.getElementById('targetName').innerText = closestLoc?.title || "-";
+            document.getElementById('dist').innerText = Math.round(minDist);
+            document.getElementById('status').innerText = `GNSS Signal aktiv (±${Math.round(acc)}m)`;
+        }, null, { enableHighAccuracy: true });
+    }
+
+    function render(time, frame) {
+        if (frame) {
+            const session = renderer.xr.getSession();
+            if (!hitTestSourceRequested) {
+                session.requestReferenceSpace('viewer').then(r => {
+                    session.requestHitTestSource({ space: r }).then(s => hitTestSource = s);
+                });
+                hitTestSourceRequested = true;
+            }
+
+            if (session.getImageTrackingResults) {
+                const imgResults = frame.getImageTrackingResults();
+                for (const res of imgResults) {
+                    const locIndex = imageToLocationMap.get(res.index);
+                    const loc = LOCATIONS[locIndex];
+                    const pose = frame.getPose(res.imageSpace, renderer.xr.getReferenceSpace());
+                    if (pose && res.trackingState === 'tracked') {
+                        const targetPos = new THREE.Vector3().setFromMatrixPosition(pose.transform.matrix);
+                        const targetQuat = new THREE.Quaternion().setFromRotationMatrix(pose.transform.matrix);
+                        if (loc.trackingOrientation === 'vertical') {
+                            const correction = new THREE.Quaternion().setFromAxisAngle(new THREE.Vector3(1, 0, 0), -Math.PI / 2);
+                            targetQuat.multiply(correction);
+                        }
+                        loc.object3D.position.lerp(targetPos, 0.1);
+                        loc.object3D.quaternion.slerp(targetQuat, 0.1);
+                        loc.matched = true;
+                        document.getElementById('infoBox').classList.add('matched');
+                        document.getElementById('match-badge').classList.add('visible');
+                        document.getElementById('status').innerText = "GNSS-ANKER GEFUNDEN";
+                    }
+                }
+            }
+
+            if (hitTestSource) {
+                const hitResults = frame.getHitTestResults(hitTestSource);
+                if (hitResults.length > 0) {
+                    const pose = hitResults[0].getPose(renderer.xr.getReferenceSpace());
+                    if (pose && pose.transform.matrix[5] > 0.95) {
+                        const hY = pose.transform.position.y;
+                        LOCATIONS.forEach(l => { 
+                            if(l.object3D.visible && !l.matched) {
+                                l.object3D.position.y = THREE.MathUtils.lerp(l.object3D.position.y, hY, 0.05); 
+                            }
+                        });
+                    }
+                }
+            }
+
+            if(closestLoc?.object3D) {
+                const cP = new THREE.Vector3(); camera.getWorldPosition(cP);
+                const tP = new THREE.Vector3(); closestLoc.object3D.getWorldPosition(tP);
+                const fwd = new THREE.Vector3(0,0,-1).applyQuaternion(camera.quaternion);
+                const ang = Math.atan2(tP.x - cP.x, tP.z - cP.z) - Math.atan2(fwd.x, fwd.z);
+                document.getElementById('arrow').style.transform = `rotate(${ang}rad)`;
+            }
+            if(waterParticles?.parent?.visible) updateParticles(waterParticles);
+        }
+        renderer.render(scene, camera);
+    }
+
+    function haversine(la1, lo1, la2, lo2) {
+        const R = 6371e3; const r = Math.PI/180;
+        const a = Math.sin((la2-la1)*r/2)**2 + Math.cos(la1*r)*Math.cos(la2*r)*Math.sin((lo2-lo1)*r/2)**2;
+        return 2*R*Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function getOffset(la1, lo1, la2, lo2) {
+        const R = 6378137;
+        return { x: (lo2-lo1)*Math.PI/180 * Math.cos(la1*Math.PI/180) * R, z: -(la2-la1)*Math.PI/180 * R };
+    }
+
+    function logToDebug(t) { const el = document.getElementById('debug-console'); if(el) el.innerText = t + "\n" + el.innerText.substring(0, 150); }
+    function updateUI(m) { const el = document.getElementById('msg'); if(el) el.innerText = m; }
+    function animate() { renderer.setAnimationLoop(render); }
+
+    window.onload = init;
+  </script>
+</body>
+</html>
