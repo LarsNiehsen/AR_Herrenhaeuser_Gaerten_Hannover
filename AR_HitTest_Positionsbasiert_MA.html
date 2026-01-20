@@ -2,7 +2,7 @@
 <html lang="de">
 <head>
   <meta charset="utf-8" />
-  <title>Herrenhäuser Gärten - markerloses AR</title>
+  <title>Herrenhäuser Gärten - AR</title>
   
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
@@ -10,7 +10,16 @@
     /* Basis-Styling */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
-    /* Container für UI Elemente */
+    /* 
+       Hintergrund-Video für den Start-Screen 
+       (Damit man die Kamera sieht, bevor AR startet)
+    */
+    #bg-video {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: cover; z-index: 0; opacity: 0.6; /* Leicht abgedunkelt für Lesbarkeit */
+    }
+
+    /* Container für UI Elemente (über dem Video/WebGL) */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       z-index: 100; pointer-events: none;
@@ -30,12 +39,12 @@
     p { margin: 0; font-size: 0.9rem; color: #ccc; }
     #status { color: #888; font-weight: bold; }
     .active-target { color: #4f4; } 
-    
-    /* DEBUG TEXT (NEU: Zeigt Koordinaten an) */
+
+    /* Debug Text für GNSS Infos */
     #debug-console {
-        font-family: monospace; font-size: 10px; color: #ff5555;
+        font-family: monospace; font-size: 10px; color: #ffff00;
         background: rgba(0,0,0,0.8); padding: 5px; margin-top: 5px;
-        text-align: left; white-space: pre-wrap;
+        text-align: left; white-space: pre-wrap; pointer-events: none;
     }
 
     /* Buttons */
@@ -54,6 +63,10 @@
 </head>
 <body>
   
+  <!-- PRE-AR KAMERA FEED -->
+  <video id="bg-video" autoplay muted playsinline></video>
+
+  <!-- UI OVERLAY -->
   <div id="ar-overlay-container">
       <div class="button-wrapper">
           <button id="closeBtn" class="ar-btn">✕ Schließen</button>
@@ -61,13 +74,11 @@
       </div>
       <div class="info-wrapper">
         <div class="info-box">
-          <h1>Herrenhäuser Gärten - Virtueller Rundgang in AR</h1>
+          <h1>Herrenhäuser Gärten AR</h1>
           <p id="msg">Initialisiere...</p>
-          <p>Nächstes Ziel: <span id="targetName">-</span></p>
-          <p>Distanz: <span id="dist">-</span> m</p>
-          <p>Status: <span id="status">Warte auf GPS</span></p>
-          <!-- DEBUG OUTPUT -->
-          <div id="debug-console">Warte auf Daten...</div>
+          <p>Ziel: <span id="targetName">-</span> (<span id="dist">-</span> m)</p>
+          <p>Status: <span id="status">Warte auf GNSS</span></p>
+          <div id="debug-console">System startklar...</div>
         </div>
       </div>
   </div>
@@ -93,95 +104,105 @@
         lat: 52.388754, 
         lon: 9.817867,
         url: './3D_models/Statue_3D.glb', 
-        scale: 2.0, // Skalierung deutlich erhöht für Sichtbarkeit
-        rotation: 0, 
-        object3D: null 
+        object3D: null,
+        loaded: false
       },
       {
         title: 'Borghesischer Fechter',
         lat: 52.389472, 
         lon: 9.699222,
         url: './3D_models/BorghesischerFechter_3D.glb', 
-        scale: 2.0, 
-        rotation: 180, 
-        object3D: null
+        object3D: null,
+        loaded: false
       }
     ];
 
-    // Sichtbarkeit drastisch erhöht, damit man auch weit entfernte Objekte sieht
     const VISIBILITY_DISTANCE = 500.0; 
-    const FREEZE_DISTANCE_METERS = 10.0; 
+    
+    // HIER GEÄNDERT: Lock erst unter 3 Metern
+    const FREEZE_DISTANCE_METERS = 3.0; 
 
     // --- GLOBALE VARIABLEN ---
     let camera, scene, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
-    
-    // GPS
     let positionHistory = []; 
     const MAX_HISTORY = 5; 
     let isPositionLocked = false; 
 
+    // Startet die 2D Kamera (für den Hintergrund vor AR Start)
+    start2DCamera();
+
     init();
     animate();
+
+    // Funktion für das Hintergrund-Video vor AR-Start
+    function start2DCamera() {
+        const video = document.getElementById('bg-video');
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(function(stream) {
+                video.srcObject = stream;
+            })
+            .catch(function(err) {
+                console.log("Kamera Fehler (Pre-AR):", err);
+            });
+        }
+    }
 
     function init() {
       const container = document.createElement('div');
       document.body.appendChild(container);
 
       scene = new THREE.Scene();
-      // Far Plane auf 2000m erhöht, damit entfernte Objekte nicht abgeschnitten werden
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
 
-      // Starkes Licht für bessere Sichtbarkeit
-      const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
+      // Licht Setup
+      const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 3);
       dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
 
-      // --- 1. REFERENZ WÜRFEL (GELB) ---
-      // Dieser Würfel ist NICHT GPS gesteuert. Er muss SOFORT sichtbar sein.
-      // Er schwebt 2 Meter VOR dem Startpunkt (z = -2).
-      const refGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
-      const refMat = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Leuchtendes Gelb
-      const refCube = new THREE.Mesh(refGeo, refMat);
-      refCube.position.set(0, 0, -2); 
-      scene.add(refCube);
-      // ----------------------------------
+      // --- RETICLE (Boden-Cursor) ---
+      const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
+      const reticleMat = new THREE.MeshBasicMaterial(); 
+      const reticle = new THREE.Mesh(reticleGeo, reticleMat);
+      reticle.matrixAutoUpdate = false;
+      reticle.visible = false; 
+      scene.add(reticle);
+      window.arReticle = reticle; 
 
       // --- MODELLE LADEN ---
       const loader = new GLTFLoader();
       
-      LOCATIONS.forEach((loc, index) => {
+      LOCATIONS.forEach((loc) => {
         const group = new THREE.Group();
         group.visible = false; 
         scene.add(group);
         loc.object3D = group; 
 
-        // Rote Wireframe Box um jedes Modell (Debugging)
-        // Hilft zu sehen, wo das Modell ist, auch wenn Texturen fehlen
-        const debugBox = new THREE.Mesh(
-            new THREE.BoxGeometry(2, 2, 2), 
-            new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
-        );
-        debugBox.position.y = 1; 
-        group.add(debugBox);
+        logToDebug(`Lade: ${loc.title}...`);
 
         loader.load(loc.url, (gltf) => {
-          // debugBox.visible = false; // Wir lassen die Box an zum Testen!
           const model = gltf.scene;
-          model.scale.set(loc.scale, loc.scale, loc.scale);
-          model.rotation.y = loc.rotation * (Math.PI / 180);
-          group.add(model);
-          console.log(`${loc.title} geladen.`);
+
+          // Auto-Scaling auf 2 Meter Höhe
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
           
-          if(index === LOCATIONS.length - 1) {
-             updateUI("Daten bereit. Suche GPS...", "normal");
-          }
+          let scaleFactor = 1.0;
+          if(size.y > 0) scaleFactor = 2.0 / size.y; // Zielhöhe 2m
+          
+          model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+          model.position.y = 0; 
+          
+          group.add(model);
+          loc.loaded = true;
+          logToDebug(`OK: ${loc.title}`);
+
         }, undefined, (err) => {
-          console.error(`Fehler bei ${loc.title}:`, err);
-          document.getElementById('debug-console').innerText += `\nFehler Laden: ${loc.title}`;
+          logToDebug(`FEHLER: ${loc.title} nicht geladen.`);
         });
       });
 
@@ -193,50 +214,43 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
-      // --- AR BUTTON ---
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
+      
+      // Beim Klick auf "Start AR" das Hintergrund-Video stoppen
+      btn.addEventListener('click', () => {
+          const video = document.getElementById('bg-video');
+          if(video.srcObject) {
+              video.srcObject.getTracks().forEach(track => track.stop());
+              video.style.display = 'none';
+          }
+      });
+      
       document.body.appendChild(btn);
 
-      // --- BUTTON EVENTS ---
+      // Buttons
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
           try { window.close(); } catch(e) {}
           window.history.back();
       });
-
-      // Umbenannt in "Neustart"
       document.getElementById('resetBtn').addEventListener('click', () => {
           location.reload();
       });
 
-      startGPS();
+      startGNSS();
       window.addEventListener('resize', onWindowResize);
     }
 
-    // --- GPS ---
-    function startGPS() {
-      if (!navigator.geolocation) {
-        updateUI("GPS nicht unterstützt", "error");
-        return;
-      }
+    function startGNSS() {
+      if (!navigator.geolocation) return;
 
-      // Timeout Warnung
-      setTimeout(() => {
-          if(document.getElementById('status').innerText.includes("Warte")) {
-              updateUI("Kein GPS Empfang. Draußen?", "error");
-          }
-      }, 8000);
-      
       navigator.geolocation.watchPosition((pos) => {
-        // UI Fix
-        const statusEl = document.getElementById('status');
-        if(statusEl.innerText.includes("Warte")) {
-            statusEl.innerText = "GPS Aktiv";
-            statusEl.style.color = "#fff";
+        if(document.getElementById('status').innerText.includes("Warte")) {
+             document.getElementById('status').innerText = "GNSS Aktiv";
         }
 
         const lat = pos.coords.latitude;
@@ -253,16 +267,13 @@
 
         let closestDist = 99999;
         let closestLoc = null;
-        let debugText = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
+        let debugTxt = `GNSS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
 
         LOCATIONS.forEach(loc => {
-            if (!loc.object3D) return;
-
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
-            // DEBUG: Zeige wo das Objekt relativ zu dir sein sollte
-            debugText += `${loc.title.substr(0,5)}: Dist=${Math.round(dist)}m | X=${Math.round(offset.x)} Z=${Math.round(offset.z)}\n`;
+            debugTxt += `${loc.title.substr(0,7)}: ${Math.round(dist)}m\n`;
 
             if (dist < closestDist) {
                 closestDist = dist;
@@ -270,6 +281,7 @@
             }
 
             if (dist < VISIBILITY_DISTANCE) {
+                // GNSS Positionierung (X/Z)
                 if (!isPositionLocked) {
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
@@ -280,36 +292,37 @@
             }
         });
 
-        // Debug Text ausgeben
-        document.getElementById('debug-console').innerText = debugText;
+        document.getElementById('debug-console').innerText = debugTxt;
 
         if (closestLoc) {
             document.getElementById('targetName').innerText = closestLoc.title;
-            const distRounded = Math.round(closestDist);
-            document.getElementById('dist').innerText = distRounded;
+            document.getElementById('dist').innerText = Math.round(closestDist);
             
             if(closestDist < 15.0) {
-                updateUI("Ziel erreicht!", "normal");
-                document.getElementById('targetName').classList.add("active-target");
+                 document.getElementById('targetName').classList.add("active-target");
             } else {
-                updateUI(`Gehe zum Ziel (${distRounded}m)`, "normal");
-                document.getElementById('targetName').classList.remove("active-target");
+                 document.getElementById('targetName').classList.remove("active-target");
             }
         }
 
-        // Lock Logik
+        // Lock Logic (Jetzt < 3 Meter)
         if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
             if (!isPositionLocked) {
                 isPositionLocked = true;
                 document.getElementById('status').innerText = "SLAM Lock";
                 document.getElementById('status').style.color = "#0ff";
             }
-        } else if (closestDist > 20) {
+        } else if (closestDist > 5.0) { 
+            // Entsperren, wenn man sich wieder leicht entfernt
             isPositionLocked = false;
+            if(document.getElementById('status').innerText.includes("Lock")) {
+                 document.getElementById('status').innerText = "GNSS Tracking";
+                 document.getElementById('status').style.color = "#888";
+            }
         }
 
       }, (err) => {
-        updateUI("GPS Error: " + err.code, "error");
+        logToDebug("GNSS Error: " + err.message);
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
@@ -325,23 +338,41 @@
 
         if (hitTestSource) {
           const hitTestResults = frame.getHitTestResults(hitTestSource);
+          
+          const reticle = window.arReticle;
+
           if (hitTestResults.length > 0) {
             const hit = hitTestResults[0];
-            const hitPos = hit.getPose(renderer.xr.getReferenceSpace()).transform.position;
+            const refSpace = renderer.xr.getReferenceSpace();
+            const hitPose = hit.getPose(refSpace);
+
+            if (hitPose) {
+               reticle.visible = true;
+               reticle.matrix.fromArray(hitPose.transform.matrix);
+               const hitPos = hitPose.transform.position;
                
-            LOCATIONS.forEach(loc => {
-               if (loc.object3D && loc.object3D.visible) {
-                   const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
-                   // Wenn wir Boden in der Nähe des Objekts sehen, Höhe anpassen
-                   if (distToModel < 5.0) {
-                       loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
+               LOCATIONS.forEach(loc => {
+                   if (loc.object3D && loc.object3D.visible) {
+                       const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
+                       
+                       // Höhenanpassung via Hit-Test
+                       if (distToModel < 5.0) {
+                           loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.2);
+                       }
                    }
-               }
-            });
+               });
+            }
+          } else {
+              reticle.visible = false;
           }
         }
       }
       renderer.render(scene, camera);
+    }
+
+    function logToDebug(text) {
+        const el = document.getElementById('debug-console');
+        el.innerText = text + "\n" + el.innerText;
     }
 
     function calcOffset(lat1, lon1, lat2, lon2) {
@@ -361,14 +392,6 @@
       const dLon = (lon2-lon1)*rad;
       const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
       return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
-    }
-
-    function updateUI(txt, type="normal") {
-      const el = document.getElementById('msg');
-      if(el) {
-          el.innerText = txt;
-          el.style.color = type === "error" ? "red" : "#ccc";
-      }
     }
 
     function onWindowResize() {
