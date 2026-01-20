@@ -7,14 +7,17 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
   <style>
+    /* Basis-Styling */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
+    /* Container für UI Elemente */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
       z-index: 100; pointer-events: none;
       display: flex; flex-direction: column; justify-content: space-between;
     }
 
+    /* Info Bereich */
     .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
     .info-box {
@@ -27,7 +30,15 @@
     p { margin: 0; font-size: 0.9rem; color: #ccc; }
     #status { color: #888; font-weight: bold; }
     .active-target { color: #4f4; } 
+    
+    /* DEBUG TEXT (NEU: Zeigt Koordinaten an) */
+    #debug-console {
+        font-family: monospace; font-size: 10px; color: #ff5555;
+        background: rgba(0,0,0,0.8); padding: 5px; margin-top: 5px;
+        text-align: left; white-space: pre-wrap;
+    }
 
+    /* Buttons */
     .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
 
     .ar-btn {
@@ -38,7 +49,7 @@
         font-size: 12px; letter-spacing: 1px;
     }
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
-    #camBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
+    #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
   </style>
 </head>
 <body>
@@ -46,7 +57,7 @@
   <div id="ar-overlay-container">
       <div class="button-wrapper">
           <button id="closeBtn" class="ar-btn">✕ Schließen</button>
-          <button id="camBtn" class="ar-btn">📷 Kamera</button>
+          <button id="resetBtn" class="ar-btn">↺ Neustart</button>
       </div>
       <div class="info-wrapper">
         <div class="info-box">
@@ -55,6 +66,8 @@
           <p>Nächstes Ziel: <span id="targetName">-</span></p>
           <p>Distanz: <span id="dist">-</span> m</p>
           <p>Status: <span id="status">Warte auf GPS</span></p>
+          <!-- DEBUG OUTPUT -->
+          <div id="debug-console">Warte auf Daten...</div>
         </div>
       </div>
   </div>
@@ -80,7 +93,7 @@
         lat: 52.388754, 
         lon: 9.817867,
         url: './3D_models/Statue_3D.glb', 
-        scale: 1.5, // HIER ERHÖHT: Falls Modell zu klein war
+        scale: 2.0, // Skalierung deutlich erhöht für Sichtbarkeit
         rotation: 0, 
         object3D: null 
       },
@@ -89,21 +102,24 @@
         lat: 52.389472, 
         lon: 9.699222,
         url: './3D_models/BorghesischerFechter_3D.glb', 
-        scale: 1.5, // HIER ERHÖHT
+        scale: 2.0, 
         rotation: 180, 
         object3D: null
       }
     ];
 
-    const VISIBILITY_DISTANCE = 50.0; // Sicherstellen, dass es früh genug sichtbar ist
+    // Sichtbarkeit drastisch erhöht, damit man auch weit entfernte Objekte sieht
+    const VISIBILITY_DISTANCE = 500.0; 
     const FREEZE_DISTANCE_METERS = 10.0; 
 
-    // Globale Variablen
+    // --- GLOBALE VARIABLEN ---
     let camera, scene, renderer;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
+    
+    // GPS
     let positionHistory = []; 
-    const MAX_HISTORY = 5; // Weniger History für schnellere Reaktion
+    const MAX_HISTORY = 5; 
     let isPositionLocked = false; 
 
     init();
@@ -114,14 +130,25 @@
       document.body.appendChild(container);
 
       scene = new THREE.Scene();
-      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 1000);
+      // Far Plane auf 2000m erhöht, damit entfernte Objekte nicht abgeschnitten werden
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
 
-      // Licht verstärken, falls Modelle schwarz sind
+      // Starkes Licht für bessere Sichtbarkeit
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 3);
       scene.add(ambientLight);
-      const dirLight = new THREE.DirectionalLight(0xffffff, 2);
-      dirLight.position.set(0, 10, 5);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+      dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
+
+      // --- 1. REFERENZ WÜRFEL (GELB) ---
+      // Dieser Würfel ist NICHT GPS gesteuert. Er muss SOFORT sichtbar sein.
+      // Er schwebt 2 Meter VOR dem Startpunkt (z = -2).
+      const refGeo = new THREE.BoxGeometry(0.5, 0.5, 0.5);
+      const refMat = new THREE.MeshBasicMaterial({ color: 0xffff00 }); // Leuchtendes Gelb
+      const refCube = new THREE.Mesh(refGeo, refMat);
+      refCube.position.set(0, 0, -2); 
+      scene.add(refCube);
+      // ----------------------------------
 
       // --- MODELLE LADEN ---
       const loader = new GLTFLoader();
@@ -132,37 +159,33 @@
         scene.add(group);
         loc.object3D = group; 
 
-        // 1. DEBUG WÜRFEL (Rote Box)
-        // Falls das Modell nicht lädt, sieht man zumindest diesen roten Würfel!
+        // Rote Wireframe Box um jedes Modell (Debugging)
+        // Hilft zu sehen, wo das Modell ist, auch wenn Texturen fehlen
         const debugBox = new THREE.Mesh(
-            new THREE.BoxGeometry(1, 1, 1), // 1 Meter groß
+            new THREE.BoxGeometry(2, 2, 2), 
             new THREE.MeshBasicMaterial({ color: 0xff0000, wireframe: true })
         );
-        debugBox.position.y = 0.5; // Auf den Boden setzen
+        debugBox.position.y = 1; 
         group.add(debugBox);
-        // -----------------------
 
         loader.load(loc.url, (gltf) => {
-          // Wenn Modell geladen: Rote Box entfernen (oder verstecken)
-          debugBox.visible = false;
-
+          // debugBox.visible = false; // Wir lassen die Box an zum Testen!
           const model = gltf.scene;
           model.scale.set(loc.scale, loc.scale, loc.scale);
           model.rotation.y = loc.rotation * (Math.PI / 180);
           group.add(model);
-          
-          console.log(`${loc.title} erfolgreich geladen.`);
+          console.log(`${loc.title} geladen.`);
           
           if(index === LOCATIONS.length - 1) {
-             updateUI("Daten geladen. Prüfe Standort...", "normal");
+             updateUI("Daten bereit. Suche GPS...", "normal");
           }
         }, undefined, (err) => {
           console.error(`Fehler bei ${loc.title}:`, err);
-          updateUI(`Ladefehler: ${loc.title} (siehe Konsole)`, "error");
-          // Rote Box bleibt sichtbar als Fallback
+          document.getElementById('debug-console').innerText += `\nFehler Laden: ${loc.title}`;
         });
       });
 
+      // --- RENDERER ---
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -170,38 +193,50 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
+      // --- AR BUTTON ---
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
       document.body.appendChild(btn);
 
-      // Buttons
+      // --- BUTTON EVENTS ---
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
           try { window.close(); } catch(e) {}
           window.history.back();
       });
-      document.getElementById('camBtn').addEventListener('click', () => {
-          setTimeout(() => location.reload(), 300);
+
+      // Umbenannt in "Neustart"
+      document.getElementById('resetBtn').addEventListener('click', () => {
+          location.reload();
       });
 
       startGPS();
       window.addEventListener('resize', onWindowResize);
     }
 
+    // --- GPS ---
     function startGPS() {
       if (!navigator.geolocation) {
-        updateUI("GPS Fehler: Nicht unterstützt", "error");
+        updateUI("GPS nicht unterstützt", "error");
         return;
       }
+
+      // Timeout Warnung
+      setTimeout(() => {
+          if(document.getElementById('status').innerText.includes("Warte")) {
+              updateUI("Kein GPS Empfang. Draußen?", "error");
+          }
+      }, 8000);
       
       navigator.geolocation.watchPosition((pos) => {
-        // FIX: Text aktualisieren, sobald GPS da ist
-        const msgEl = document.getElementById('msg');
-        if(msgEl.innerText.includes("Warte") || msgEl.innerText.includes("Prüfe")) {
-            updateUI("GPS Signal aktiv. Suche Ziele...", "normal");
+        // UI Fix
+        const statusEl = document.getElementById('status');
+        if(statusEl.innerText.includes("Warte")) {
+            statusEl.innerText = "GPS Aktiv";
+            statusEl.style.color = "#fff";
         }
 
         const lat = pos.coords.latitude;
@@ -218,63 +253,64 @@
 
         let closestDist = 99999;
         let closestLoc = null;
+        let debugText = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
 
         LOCATIONS.forEach(loc => {
             if (!loc.object3D) return;
 
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
+            const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
+            // DEBUG: Zeige wo das Objekt relativ zu dir sein sollte
+            debugText += `${loc.title.substr(0,5)}: Dist=${Math.round(dist)}m | X=${Math.round(offset.x)} Z=${Math.round(offset.z)}\n`;
+
             if (dist < closestDist) {
                 closestDist = dist;
                 closestLoc = loc;
             }
 
-            // Sichtbarkeitsprüfung
             if (dist < VISIBILITY_DISTANCE) {
                 if (!isPositionLocked) {
-                    const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
                 }
                 loc.object3D.visible = true;
-                
-                // Debug Ausgabe in der Konsole wenn sichtbar
-                // console.log("Objekt sichtbar bei Distanz:", dist);
-
             } else {
                 loc.object3D.visible = false;
             }
         });
+
+        // Debug Text ausgeben
+        document.getElementById('debug-console').innerText = debugText;
 
         if (closestLoc) {
             document.getElementById('targetName').innerText = closestLoc.title;
             const distRounded = Math.round(closestDist);
             document.getElementById('dist').innerText = distRounded;
             
-            // Färbe Text grün wenn nah genug
-            if(closestDist < VISIBILITY_DISTANCE) {
+            if(closestDist < 15.0) {
+                updateUI("Ziel erreicht!", "normal");
                 document.getElementById('targetName').classList.add("active-target");
-                document.getElementById('msg').innerText = "Ziel in Sichtweite!";
             } else {
+                updateUI(`Gehe zum Ziel (${distRounded}m)`, "normal");
                 document.getElementById('targetName').classList.remove("active-target");
             }
         }
 
+        // Lock Logik
         if (closestDist < FREEZE_DISTANCE_METERS && acc < 25) {
             if (!isPositionLocked) {
                 isPositionLocked = true;
-                document.getElementById('status').innerText = "SLAM Lock (Fixiert)";
+                document.getElementById('status').innerText = "SLAM Lock";
                 document.getElementById('status').style.color = "#0ff";
             }
-        } else if (closestDist > VISIBILITY_DISTANCE + 5) {
+        } else if (closestDist > 20) {
             isPositionLocked = false;
-            document.getElementById('status').innerText = "GPS Tracking";
-            document.getElementById('status').style.color = "#888";
         }
 
       }, (err) => {
-        updateUI("GPS Fehler: " + err.message, "error");
-      }, { enableHighAccuracy: true, maximumAge: 0 });
+        updateUI("GPS Error: " + err.code, "error");
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 10000 });
     }
 
     function render(timestamp, frame) {
@@ -296,7 +332,7 @@
             LOCATIONS.forEach(loc => {
                if (loc.object3D && loc.object3D.visible) {
                    const distToModel = Math.sqrt(Math.pow(hitPos.x - loc.object3D.position.x, 2) + Math.pow(hitPos.z - loc.object3D.position.z, 2));
-                   // Radius für Höhenanpassung vergrößert
+                   // Wenn wir Boden in der Nähe des Objekts sehen, Höhe anpassen
                    if (distToModel < 5.0) {
                        loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
                    }
