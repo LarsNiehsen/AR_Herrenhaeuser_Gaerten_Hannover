@@ -162,7 +162,22 @@
     })();
   </script>
 
-      <script>
+    <script>
+    (function () {
+      const startBtn = document.getElementById('startARBtIT');
+      startBtn.addEventListener('click', (ev) => {
+        // Must open synchronously on the click event so browser treats it as user-initiated
+        const newWin = window.open('', '_blank');
+        if (!newWin) {
+          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
+          return;
+        }
+        newWin.location.href = 'AR_HitTest_Positionsbasiert_ImageMatching_MA.html';
+      });
+    })();
+  </script>
+
+    <script>
     (function () {
       const startBtn = document.getElementById('startARBtT');
       startBtn.addEventListener('click', (ev) => {
