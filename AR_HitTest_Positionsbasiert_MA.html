@@ -5,37 +5,29 @@
   <title>Herrenhäuser Gärten - Virtueller Rundgang AR (GNSS)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
-  <!-- Basis ArUco Bibliothek -->
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@0.2.0/src/cv.js"></script>
-  <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@0.2.0/src/aruco.js"></script>
-  
-  <!-- ERGÄNZUNG: Notwendig für 3D Achsen Berechnung (SVD & POSIT) -->
-  <script type="text/javascript" src="https://unpkg.com/js-aruco@0.1.0/src/svd.js"></script>
-  <script type="text/javascript" src="https://unpkg.com/js-aruco@0.1.0/src/posit1.js"></script>
-
   <style>
     /* --- CSS DESIGN BEREICH --- */
+    
+    /* Basis-Einstellungen für Vollbild ohne Scrollbalken */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
+    /* Hintergrund-Video (Kamera-Feed für Nicht-WebXR Modus / Fallback) */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         object-fit: cover; z-index: 0; opacity: 0.6;
     }
 
-    /* Canvas für ArUco Zeichnungen (Roter Rahmen & Achsen) */
-    #aruco-canvas {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        z-index: 50; pointer-events: none;
-    }
-
+    /* Container für UI-Elemente über der AR-Ansicht */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; pointer-events: none;
+      z-index: 100; pointer-events: none; /* Klicks gehen durch, außer auf Buttons */
       display: flex; flex-direction: column; justify-content: space-between;
     }
 
+    /* Info-Box Wrapper */
     .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
+    /* Die halb-transparente Info-Box unten */
     .info-box {
       background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 12px;
       backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2);
@@ -46,9 +38,11 @@
     h1 { margin: 0 0 8px 0; font-size: 1.1rem; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
     p { margin: 0; font-size: 0.9rem; color: #ccc; padding: 2px 0; }
     
+    /* Status-Farben */
     #status { color: #ccc; font-weight: bold; }
     .active-target { color: #4f4; font-weight: bold; } 
 
+    /* Debug-Konsole für GPS-Koordinaten */
     #debug-console {
         font-family: monospace; font-size: 10px; color: #ffff00;
         background: rgba(0,0,0,0.8); padding: 5px; margin-top: 10px;
@@ -56,6 +50,7 @@
         max-height: 80px; overflow: hidden; border-radius: 4px;
     }
 
+    /* Button-Positionierung */
     .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
 
     .ar-btn {
@@ -68,6 +63,7 @@
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
     #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
 
+    /* Manuelle Rotations-Kontrollen (werden angezeigt bei Klick) */
     .controls-wrapper {
       position: absolute; bottom: 100px; left: 0; width: 100%;
       display: none; 
@@ -84,6 +80,7 @@
     }
     .rotate-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
 
+    /* Richtungs-Pfeil UI unten links */
     #direction-indicator {
         position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
         background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
@@ -99,9 +96,10 @@
 </head>
 <body>
   
+  <!-- Hintergrundvideo (wird ausgeblendet im AR Modus, dient als Fallback) -->
   <video id="bg-video" autoplay muted playsinline></video>
-  <canvas id="aruco-canvas"></canvas>
 
+  <!-- Overlay UI Elemente -->
   <div id="ar-overlay-container">
       <div id="direction-indicator">
           <div id="arrow"></div>
@@ -123,6 +121,7 @@
           <p id="msg">Initialisiere Anwendung...</p>
           <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
           <p>Entfernung: <span id="dist">-</span> Meter</p>
+          <!-- Zeigt aktuelle Ausrichtung des nahesten Objekts an -->
           <p>Ausrichtung: <span id="rotationDisplay">-</span>°</p>
           <p>Status: <span id="status">Warte auf GNSS-Signal...</span></p>
           <div id="debug-console">Lade Systemkomponenten...</div>
@@ -130,6 +129,7 @@
       </div>
   </div>
 
+  <!-- Import Map für Three.js Module -->
   <script type="importmap">
     {
       "imports": {
@@ -157,8 +157,7 @@
         object3D: null,
         infoSprite: null,
         loaded: false,
-        locked: false,
-        arucoId: 1 
+        locked: false
       },
       {
         title: 'Borghesischer Fechter',
@@ -171,8 +170,7 @@
         object3D: null,
         infoSprite: null,
         loaded: false,
-        locked: false,
-        arucoId: 2 
+        locked: false
       },
       {
         title: 'Große Fontäne',
@@ -181,13 +179,12 @@
         url: '3D_models/GrosseFontaine.glb',
         infoText: 'Große Fontäne',
         link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-        rotation: 180, 
+        rotation: 180, // Standard
         object3D: null,
         infoSprite: null,
         loaded: false,
         locked: false,
-        isAnimated: true, 
-        arucoId: 3 
+        isAnimated: true // Wasser-Partikel
       },
       {
         title: 'Große Fontäne',
@@ -196,7 +193,7 @@
         url: '3D_models/GrosseFontaine.glb',
         infoText: 'Große Fontäne',
         link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-        rotation: 180, 
+        rotation: 180, // Standard
         object3D: null,
         infoSprite: null,
         loaded: false,
@@ -206,52 +203,32 @@
     ];
 
     // --- EINSTELLUNGEN ---
-    const VISIBILITY_DISTANCE = 75.0; 
-    const LOCK_DISTANCE = 0.5; 
-    const TARGET_HEIGHT = 3.0; 
-    const DEFAULT_ROTATION = 180; 
+    const VISIBILITY_DISTANCE = 75.0; // ÄNDERUNG: Jetzt 75 Meter Sichtweite
+    const LOCK_DISTANCE = 0.5; // Abstand, ab dem das Objekt "eingerastet" bleibt
+    const TARGET_HEIGHT = 3.0; // Zielhöhe der Modelle in Metern
+    const DEFAULT_ROTATION = 180; // Fallback Rotation
 
     // Globale Variablen für Three.js
     let camera, scene, renderer, raycaster;
     let hitTestSource = null;
     let hitTestSourceRequested = false;
     let positionHistory = []; 
-    const MAX_HISTORY = 5; 
+    const MAX_HISTORY = 5; // Für GPS Glättung
     let modelsReady = false;
     let gnssReady = false;
     let closestLocRef = null;
 
-    // ArUco Variablen
-    let arucoDetector = null;
-    let arucoCanvas, arucoCtx;
-    let posit = null; // Für 3D Pose
-
+    // Partikel-System Variable
     let waterParticles = null;
 
-    start2DCamera(); 
+    // Start der Anwendung
+    start2DCamera(); // Fallback Kamera starten
     init();
     animate();
 
+    // Funktion um auf die Handykamera zuzugreifen (für UI Hintergrund vor AR-Start)
     function start2DCamera() {
         const video = document.getElementById('bg-video');
-        arucoCanvas = document.getElementById('aruco-canvas');
-        arucoCtx = arucoCanvas.getContext('2d');
-
-        // ArUco Initialisierung
-        if (window.AR) {
-            console.log("Initialisiere ArUco...");
-            arucoDetector = new AR.Detector({
-                dictionaryName: 'ARUCO_MIP_36h12',
-                maxHammingDistance: 2
-            });
-            // POSIT Initialisierung (Modellgröße z.B. 35mm, Brennweite = Canvas Breite)
-            // Hinweis: Falls POSIT Script nicht lädt, wird das hier übersprungen
-            if (typeof POSIT !== 'undefined') {
-                posit = new POSIT(35, video.videoWidth); 
-            }
-            requestAnimationFrame(processArucoVideo);
-        }
-
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
             .then(function(stream) {
@@ -263,167 +240,7 @@
         }
     }
 
-    // --- ARUCO VERARBEITUNGSSCHLEIFE ---
-    function processArucoVideo() {
-        const video = document.getElementById('bg-video');
-        
-        if (video.readyState === video.HAVE_ENOUGH_DATA) {
-            // Canvas Größe an Video anpassen
-            if (arucoCanvas.width !== video.videoWidth || arucoCanvas.height !== video.videoHeight) {
-                arucoCanvas.width = video.videoWidth;
-                arucoCanvas.height = video.videoHeight;
-                // POSIT Focal length aktualisieren wenn sich Größe ändert
-                if(posit) posit.focalLength = video.videoWidth;
-            }
-
-            try {
-                const tempCanvas = document.createElement('canvas');
-                tempCanvas.width = video.videoWidth;
-                tempCanvas.height = video.videoHeight;
-                const tempCtx = tempCanvas.getContext('2d');
-                tempCtx.drawImage(video, 0, 0);
-                const imageData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-                
-                const markers = arucoDetector.detect(imageData);
-                
-                arucoCtx.clearRect(0, 0, arucoCanvas.width, arucoCanvas.height);
-
-                drawMarkers(markers);
-                handleArucoLogic(markers);
-
-            } catch (e) {
-                // Fehler ignorieren
-            }
-        }
-        requestAnimationFrame(processArucoVideo);
-    }
-
-    // Zeichnet rote Rahmen und 3D Achsen
-    function drawMarkers(markers) {
-        if (!markers || markers.length === 0) return;
-
-        markers.forEach(marker => {
-            const corners = marker.corners;
-            
-            // 1. Roter Rahmen um den Marker
-            arucoCtx.strokeStyle = "red";
-            arucoCtx.lineWidth = 3;
-            arucoCtx.beginPath();
-            arucoCtx.moveTo(corners[0].x, corners[0].y);
-            arucoCtx.lineTo(corners[1].x, corners[1].y);
-            arucoCtx.lineTo(corners[2].x, corners[2].y);
-            arucoCtx.lineTo(corners[3].x, corners[3].y);
-            arucoCtx.closePath();
-            arucoCtx.stroke();
-
-            // 2. ID Text
-            arucoCtx.fillStyle = "red";
-            arucoCtx.font = "bold 20px sans-serif";
-            arucoCtx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 15);
-
-            // 3. 3D Achsen Zeichnen (X=Rot, Y=Grün, Z=Blau)
-            if (posit) {
-                drawAxis(marker);
-            }
-        });
-    }
-
-    // Berechnet und zeichnet die 3D Achsen
-    function drawAxis(marker) {
-        const pose = posit.pose(marker.corners);
-        const rotation = pose.bestRotation;
-        const translation = pose.bestTranslation;
-        const center = {x: 0, y: 0, z: 0};
-        const xAxis = {x: 35/2, y: 0, z: 0}; // Länge der Achsen (halbe Markergröße)
-        const yAxis = {x: 0, y: 35/2, z: 0};
-        const zAxis = {x: 0, y: 0, z: -35/2};
-
-        const center2D = project(center, rotation, translation);
-        const x2D = project(xAxis, rotation, translation);
-        const y2D = project(yAxis, rotation, translation);
-        const z2D = project(zAxis, rotation, translation);
-
-        if(!center2D || !x2D || !y2D || !z2D) return;
-
-        arucoCtx.lineWidth = 3;
-
-        // X-Achse (Rot)
-        arucoCtx.strokeStyle = "red";
-        arucoCtx.beginPath();
-        arucoCtx.moveTo(center2D.x, center2D.y);
-        arucoCtx.lineTo(x2D.x, x2D.y);
-        arucoCtx.stroke();
-
-        // Y-Achse (Grün)
-        arucoCtx.strokeStyle = "#0f0";
-        arucoCtx.beginPath();
-        arucoCtx.moveTo(center2D.x, center2D.y);
-        arucoCtx.lineTo(y2D.x, y2D.y);
-        arucoCtx.stroke();
-
-        // Z-Achse (Blau)
-        arucoCtx.strokeStyle = "blue";
-        arucoCtx.beginPath();
-        arucoCtx.moveTo(center2D.x, center2D.y);
-        arucoCtx.lineTo(z2D.x, z2D.y);
-        arucoCtx.stroke();
-    }
-
-    // Hilfsfunktion: 3D Punkt auf 2D Screen projizieren
-    function project(point, r, t) {
-        const x = point.x, y = point.y, z = point.z;
-        const focalLength = arucoCanvas.width; // Annahme: Focal Length = Breite
-        const canvasWidth = arucoCanvas.width;
-        const canvasHeight = arucoCanvas.height;
-
-        // Rotation + Translation
-        const x2 = x * r[0][0] + y * r[0][1] + z * r[0][2] + t[0];
-        const y2 = x * r[1][0] + y * r[1][1] + z * r[1][2] + t[1];
-        const z2 = x * r[2][0] + y * r[2][1] + z * r[2][2] + t[2];
-
-        if (z2 <= 0) return null; // Hinter der Kamera
-
-        // Projektion
-        const x3 = (x2 * focalLength) / z2;
-        const y3 = (y2 * focalLength) / z2;
-
-        return {
-            x: x3 + canvasWidth / 2,
-            y: -y3 + canvasHeight / 2
-        };
-    }
-
-    function handleArucoLogic(markers) {
-        if (!markers || markers.length === 0) return;
-
-        markers.forEach(marker => {
-            const id = marker.id;
-            
-            if (id === 0) {
-                if (!gnssReady) {
-                    gnssReady = true;
-                    document.getElementById('status').innerText = "Scan ID 0: Startposition fixiert";
-                    document.getElementById('status').style.color = "#4f4";
-                    checkReadyStatus();
-                    logToDebug("ArUco ID 0 erkannt: Kalibrierung/Start.");
-                }
-            }
-            else if (id >= 1 && id <= 3) {
-                const targetLoc = LOCATIONS.find(l => l.arucoId === id);
-                if (targetLoc && targetLoc.loaded) {
-                    if (!targetLoc.locked) {
-                        targetLoc.locked = true;
-                        targetLoc.object3D.visible = true;
-                        document.getElementById('targetName').innerText = targetLoc.title;
-                        document.getElementById('status').innerText = "Marker ID " + id + " erkannt!";
-                        document.getElementById('status').style.color = "#4f4";
-                        logToDebug("ArUco ID " + id + " erkannt: " + targetLoc.title + " aktiviert.");
-                    }
-                }
-            }
-        });
-    }
-
+    // --- PARTIKEL EFFEKTE (Wasser) ---
     function createWaterEffect() {
         const geometry = new THREE.BufferGeometry();
         const count = 500;
@@ -434,6 +251,8 @@
             positions[i * 3] = 0;
             positions[i * 3 + 1] = 0;
             positions[i * 3 + 2] = 0;
+            
+            // Zufällige Geschwindigkeit für Spritzeffekt
             velocities[i * 3] = (Math.random() - 0.5) * 0.1; 
             velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; 
             velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1; 
@@ -462,7 +281,11 @@
             positions[i * 3] += velocities[i * 3];
             positions[i * 3 + 1] += velocities[i * 3 + 1];
             positions[i * 3 + 2] += velocities[i * 3 + 2];
+
+            // Schwerkraft
             velocities[i * 3 + 1] -= 0.01;
+
+            // Reset wenn Boden berührt
             if (positions[i * 3 + 1] < 0) {
                 positions[i * 3] = 0;
                 positions[i * 3 + 1] = 0;
@@ -475,26 +298,35 @@
         points.geometry.attributes.position.needsUpdate = true;
     }
 
+    // --- INFO TEXT TEXTUR ERSTELLEN ---
     function createInfoWindow(text) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
         canvas.width = 512;
         canvas.height = 128;
+        
+        // Halbtransparenter Hintergrund
         context.fillStyle = 'rgba(0, 0, 0, 0.7)';
         roundRect(context, 0, 0, 512, 128, 20, true, false);
+        
+        // Text
         context.font = 'bold 26px sans-serif';
         context.fillStyle = 'white';
         context.textAlign = 'center';
-        context.fillText(text, 256, 75); 
+        context.fillText(text, 256, 75); // Zentrierter Text
+        
         const texture = new THREE.CanvasTexture(canvas);
         const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
         const sprite = new THREE.Sprite(spriteMaterial);
+        
+        // Skalierung des Info-Schildes
         sprite.scale.set(2.0, 0.5, 1);
-        sprite.position.y = 3.5; 
-        sprite.name = "info_sprite"; 
+        sprite.position.y = 3.5; // Schwebt über dem Modell
+        sprite.name = "info_sprite"; // Wichtig für Raycasting
         return sprite;
     }
 
+    // Hilfsfunktion für abgerundete Rechtecke im Canvas
     function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
         ctx.beginPath();
         ctx.moveTo(x + radius, y);
@@ -511,6 +343,7 @@
         if (stroke) ctx.stroke();
     }
 
+    // --- THREE.JS INITIALISIERUNG ---
     function init() {
       const container = document.createElement('div');
       document.body.appendChild(container);
@@ -519,12 +352,14 @@
       camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
       raycaster = new THREE.Raycaster();
 
+      // Beleuchtung
       const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
       scene.add(ambientLight);
       const dirLight = new THREE.DirectionalLight(0xffffff, 3);
       dirLight.position.set(0, 20, 10);
       scene.add(dirLight);
 
+      // Boden-Markierung (Reticle) für AR-Platzierungshilfe
       const reticleGeo = new THREE.RingGeometry(0.15, 0.2, 32).rotateX(-Math.PI / 2);
       const reticleMat = new THREE.MeshBasicMaterial({ color: 0x44ff44 }); 
       const reticle = new THREE.Mesh(reticleGeo, reticleMat);
@@ -533,37 +368,43 @@
       scene.add(reticle);
       window.arReticle = reticle; 
 
+      // 3D Modelle laden
       const loader = new GLTFLoader();
       let loadedCount = 0;
       
       LOCATIONS.forEach((loc) => {
         const group = new THREE.Group();
-        group.visible = false; 
+        group.visible = false; // Unsichtbar bis GPS triggert
         scene.add(group);
         loc.object3D = group; 
 
         loader.load(loc.url, (gltf) => {
           const model = gltf.scene;
           
+          // Skalierung berechnen
           const box = new THREE.Box3().setFromObject(model);
           const size = box.getSize(new THREE.Vector3());
           let scaleFactor = size.y > 0 ? TARGET_HEIGHT / size.y : 1.0;
           model.scale.set(scaleFactor, scaleFactor, scaleFactor);
           
+          // Auf den Boden setzen
           const scaledBox = new THREE.Box3().setFromObject(model);
           const minY = scaledBox.min.y;
           model.position.y -= minY; 
           
+          // --- ÄNDERUNG: INDIVIDUELLE ROTATION ANWENDEN ---
           const rotationToUse = loc.rotation !== undefined ? loc.rotation : DEFAULT_ROTATION;
           model.rotation.y = THREE.MathUtils.degToRad(rotationToUse);
           
           group.add(model);
           
+          // Wasser-Effekt hinzufügen falls markiert
           if (loc.isAnimated) {
               waterParticles = createWaterEffect();
               group.add(waterParticles);
           }
 
+          // Info-Schild hinzufügen
           const info = createInfoWindow(loc.infoText);
           group.add(info);
           loc.infoSprite = info;
@@ -579,6 +420,7 @@
         });
       });
 
+      // Renderer Setup
       renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
       renderer.setPixelRatio(window.devicePixelRatio);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -586,15 +428,18 @@
       renderer.xr.setReferenceSpaceType('local-floor'); 
       container.appendChild(renderer.domElement);
 
+      // AR Start-Button
       const btn = ARButton.createButton(renderer, {
         requiredFeatures: ['hit-test', 'dom-overlay'],
         domOverlay: { root: document.getElementById('ar-overlay-container') } 
       });
       
+      // Beim Starten von AR: Video ausblenden und UI aktivieren
       btn.addEventListener('click', () => {
           const video = document.getElementById('bg-video');
-          if(video) {
-              video.style.opacity = '0'; 
+          if(video.srcObject) {
+              video.srcObject.getTracks().forEach(track => track.stop());
+              video.style.display = 'none';
           }
           document.getElementById('rotation-controls').style.display = 'flex';
           document.getElementById('direction-indicator').style.display = 'flex';
@@ -602,21 +447,24 @@
       
       document.body.appendChild(btn);
 
+      // --- KLICK INTERAKTION (Raycasting) ---
       const controller = renderer.xr.getController(0);
       controller.addEventListener('select', onSelect);
       scene.add(controller);
 
+      // Event Listener für UI Buttons
       document.getElementById('rotateLeft').addEventListener('pointerdown', () => changeRotation(-5));
       document.getElementById('rotateRight').addEventListener('pointerdown', () => changeRotation(5));
       
       document.getElementById('closeBtn').addEventListener('click', async () => {
           const session = renderer.xr.getSession();
           if (session) await session.end();
-          window.close(); 
+          window.close(); // Versucht Tab zu schließen
       });
       
       document.getElementById('resetBtn').addEventListener('click', () => location.reload());
 
+      // GPS Starten
       startGNSS();
       window.addEventListener('resize', onWindowResize);
     }
@@ -628,14 +476,21 @@
         }
     }
 
+    // --- ÄNDERUNG: VERBESSERTE KLICK-LOGIK ---
     function onSelect() {
+        // Strahl von der Mitte der Kamera aus senden (Fadenkreuz-Prinzip)
         raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+        
         LOCATIONS.forEach(loc => {
+            // Nur prüfen, wenn Objekt sichtbar und geladen
             if (loc.object3D && loc.object3D.visible) {
+                // Wir prüfen, ob IRGENDEIN Teil der Gruppe getroffen wird (Text oder Modell)
                 const intersects = raycaster.intersectObjects(loc.object3D.children, true);
+                
                 if (intersects.length > 0) {
                     console.log("Objekt getroffen: " + loc.title);
                     if(loc.link) {
+                        // Öffnet den Link im neuen Tab
                         window.open(loc.link, '_blank');
                     }
                 }
@@ -643,9 +498,11 @@
         });
     }
 
+    // Manuelle Rotation anpassen (Falls GPS/Kompass ungenau)
     function changeRotation(delta) {
         if(!closestLocRef || !closestLocRef.object3D) return;
-        const model = closestLocRef.object3D.children.find(child => child.type === 'Group' || child.type === 'Scene'); 
+        
+        const model = closestLocRef.object3D.children.find(child => child.type === 'Group' || child.type === 'Scene'); // Sucht das GLTF Modell
         if(model) {
             model.rotation.y += THREE.MathUtils.degToRad(delta);
             const deg = Math.round(THREE.MathUtils.radToDeg(model.rotation.y) % 360);
@@ -653,6 +510,7 @@
         }
     }
 
+    // --- GNSS / GPS LOGIK ---
     function startGNSS() {
       if (!navigator.geolocation) {
           updateUI("GNSS nicht unterstützt", "error");
@@ -663,6 +521,7 @@
         const lon = pos.coords.longitude;
         const acc = pos.coords.accuracy;
 
+        // Glättung der Position (Durchschnitt der letzten 5 Werte)
         positionHistory.push({ lat, lon });
         if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
         let avgLat = 0, avgLon = 0;
@@ -671,9 +530,9 @@
         avgLon /= positionHistory.length;
 
         if (!gnssReady) {
-            gnssReady = true;
-            document.getElementById('status').innerText = "GNSS aktiv"; 
-            checkReadyStatus();
+                    gnssReady = true;
+                    document.getElementById('status').innerText = "GNSS aktiv"; 
+                    checkReadyStatus();
         }
 
         let closestDist = 99999;
@@ -681,6 +540,8 @@
 
         LOCATIONS.forEach(loc => {
             const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
+            
+            // Berechnung der relativen Position in 3D-Weltkoordinaten
             const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
             
             if (dist < closestDist) {
@@ -689,7 +550,9 @@
                 closestLocRef = loc;
             }
 
+            // Sichtbarkeitsprüfung
             if (dist < VISIBILITY_DISTANCE) {
+                // Wenn sehr nah und Reticle sichtbar -> Position fixieren (optionales Feature)
                 if (dist < LOCK_DISTANCE && loc.loaded && window.arReticle && window.arReticle.visible) {
                     if (!loc.locked) {
                         loc.locked = true;
@@ -697,23 +560,26 @@
                         document.getElementById('status').style.color = "#4f4";
                     }
                 } else if (!loc.locked) {
+                    // Aktualisiere Position basierend auf GPS Offset
                     loc.object3D.position.x = offset.x;
                     loc.object3D.position.z = offset.z;
                 }
                 loc.object3D.visible = true;
             } else {
-                if(!loc.locked) {
-                    loc.object3D.visible = false;
-                }
+                loc.object3D.visible = false;
+                loc.locked = false; 
             }
         });
 
+        // Debug Informationen im UI aktualisieren
         let debugMsg = `GNSS: ${avgLat.toFixed(6)}, ${avgLon.toFixed(6)} (±${Math.round(acc)}m)\n`;
         if (closestLoc) {
             document.getElementById('targetName').innerText = closestLoc.title;
             document.getElementById('dist').innerText = Math.round(closestDist);
             
+            // Zeige Rotation des aktuellen Objekts im UI
             if(closestLoc.object3D && closestLoc.object3D.children[0]) {
+                 // Wir suchen das GLTF Mesh für die Rotation
                  const model = closestLoc.object3D.children.find(c => c.type === 'Group' || c.type === 'Scene');
                  if(model) {
                     const deg = Math.round(THREE.MathUtils.radToDeg(model.rotation.y) % 360);
@@ -729,10 +595,12 @@
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
     }
 
+    // --- RENDER LOOP ---
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
         
+        // Hit-Test Quelle anfordern (für Bodenerkennung)
         if (!hitTestSourceRequested) {
           session.requestReferenceSpace('viewer').then((refSpace) => {
             session.requestHitTestSource({ space: refSpace }).then((source) => { hitTestSource = source; });
@@ -750,14 +618,17 @@
             const hitPose = hit.getPose(refSpace);
 
             if (hitPose) {
+               // Reticle nur anzeigen, wenn Fläche horizontal ist
                const normalY = hitPose.transform.matrix[5]; 
                if (normalY > 0.9) { 
                    reticle.visible = true;
                    reticle.matrix.fromArray(hitPose.transform.matrix);
                    
+                   // Optionale Höhenkorrektur der Objekte basierend auf Bodenerkennung
                    const hitPos = hitPose.transform.position;
                    LOCATIONS.forEach(loc => {
                        if (loc.object3D && loc.object3D.visible && !loc.locked) {
+                           // Sanftes Angleichen der Höhe
                            loc.object3D.position.y = THREE.MathUtils.lerp(loc.object3D.position.y, hitPos.y, 0.1);
                        }
                    });
@@ -770,23 +641,28 @@
           }
         }
 
+        // Animation der Wasserpartikel
         if (waterParticles && waterParticles.parent && waterParticles.parent.visible) {
             updateWaterEffect(waterParticles);
         }
 
+        // Richtungs-Pfeil Update (Kompass-Simulation)
         if (closestLocRef && closestLocRef.object3D) {
             const camPos = new THREE.Vector3();
             camera.getWorldPosition(camPos);
             const targetPos = new THREE.Vector3();
             closestLocRef.object3D.getWorldPosition(targetPos);
             
+            // Winkel zum Ziel
             const dx = targetPos.x - camPos.x;
             const dz = targetPos.z - camPos.z;
             const bearingToTarget = Math.atan2(dx, dz);
             
+            // Blickrichtung der Kamera
             const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
             const camBearing = Math.atan2(forward.x, forward.z);
             
+            // Pfeil drehen
             const arrowRotation = bearingToTarget - camBearing;
             document.getElementById('arrow').style.transform = `rotate(${arrowRotation}rad)`;
         }
@@ -794,21 +670,26 @@
       renderer.render(scene, camera);
     }
 
+    // Hilfsfunktion: Logging in die HTML-Konsole
     function logToDebug(text) {
         const el = document.getElementById('debug-console');
         if (el) el.innerText = text + "\n" + el.innerText.substring(0, 200);
     }
 
+    // --- MATHEMATISCHE HILFSFUNKTIONEN ---
+    
+    // Berechnet X/Z Abstand in Metern basierend auf Lat/Lon Differenz
     function calcOffset(lat1, lon1, lat2, lon2) {
-      const R = 6378137; 
+      const R = 6378137; // Erdradius
       const dLat = (lat2 - lat1) * Math.PI / 180;
       const dLon = (lon2 - lon1) * Math.PI / 180;
       const lat1Rad = lat1 * Math.PI / 180;
       const dx = dLon * Math.cos(lat1Rad) * R;
-      const dz = -dLat * R; 
+      const dz = -dLat * R; // Invertiert, da Three.js Z nach "Süden" (aus Screen heraus) positiv ist bei Standard
       return { x: dx, z: dz };
     }
 
+    // Haversine Formel für Distanz in Metern
     function haversineDist(lat1, lon1, lat2, lon2) {
       const R = 6371e3; 
       const rad = Math.PI/180;
