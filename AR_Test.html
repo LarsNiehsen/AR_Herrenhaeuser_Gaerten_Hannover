@@ -228,10 +228,12 @@
             startCamera();
         });
 
+        // Rotation über Buttons
         document.getElementById('rotLeft').addEventListener('click', () => rotateCurrentModel(-0.2));
         document.getElementById('rotRight').addEventListener('click', () => rotateCurrentModel(0.2));
 
         function rotateCurrentModel(amount) {
+            // Dreht das Modell um die lokale Z-Achse (entspricht Drehung auf dem Marker)
             if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
                 loadedMeshes[currentTrackingID].rotation.z += amount;
             }
@@ -302,12 +304,18 @@
                     model.scale.set(config.scale, config.scale, config.scale);
                     model.position.z = 0; 
                     
-                    // --- KORREKTUR DER ROTATION ---
-                    // Vorher stand hier: Math.PI / 2 (90 Grad). Das führte zum Kippen.
-                    // Jetzt auf 0 gesetzt. Das Modell steht nun so, wie es erstellt wurde.
-                    model.rotation.x = 0; 
-                    // -----------------------------
+                    // --- KORREKTUR DER AUSRICHTUNG ---
+                    // Grundrotation: Modell aufrecht auf den Marker stellen (90 Grad um X)
+                    model.rotation.x = Math.PI / 2; 
 
+                    // Spezialkorrektur für ID 1 und ID 2:
+                    // Falls diese auf dem Kopf stehen, um 180 Grad (PI) um die Z-Achse drehen
+                    if (id === '1' || id === '2') {
+                        model.rotation.z += Math.PI; 
+                    }
+                    // ---------------------------------
+
+                    // Wasser-Partikel für ID 3 erstellen und anhängen
                     if (id === '3') {
                         const particles = createWaterEffect();
                         model.add(particles);
@@ -332,6 +340,7 @@
             });
         }
 
+        // Erstellt das Partikelsystem für den Wasser-Effekt
         function createWaterEffect() {
             const geometry = new THREE.BufferGeometry();
             const count = 500;
@@ -340,8 +349,9 @@
 
             for (let i = 0; i < count; i++) {
                 positions[i * 3] = 0; positions[i * 3 + 1] = 0; positions[i * 3 + 2] = 0;
+                // Geschwindigkeit der Partikel
                 velocities[i * 3] = (Math.random() - 0.5) * 0.1; 
-                velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; 
+                velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; // Y ist oben (im lokalen Raum)
                 velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1; 
             }
 
@@ -356,6 +366,7 @@
             return points;
         }
 
+        // Aktualisiert die Positionen der Wasser-Partikel
         function updateWaterEffect(points) {
             const positions = points.geometry.attributes.position.array;
             const velocities = points.userData.velocities;
@@ -365,7 +376,11 @@
                 positions[i * 3] += velocities[i * 3];
                 positions[i * 3 + 1] += velocities[i * 3 + 1];
                 positions[i * 3 + 2] += velocities[i * 3 + 2];
+                
+                // Schwerkraft simulieren
                 velocities[i * 3 + 1] -= 0.01;
+                
+                // Zurücksetzen, wenn Partikel den Boden berühren
                 if (positions[i * 3 + 1] < 0) {
                     positions[i * 3] = 0; positions[i * 3 + 1] = 0; positions[i * 3 + 2] = 0;
                     velocities[i * 3] = (Math.random() - 0.5) * 0.05;
@@ -417,12 +432,15 @@
         });
 
         // ==========================================
-        // RENDER LOOP
+        // RENDER SCHLEIFE (TICK)
         // ==========================================
         function tick() {
             requestAnimationFrame(tick);
 
+            // Animation König (ID 0)
             if (loadedMeshes[0] && loadedMeshes[0].visible) loadedMeshes[0].rotation.z += 0.01; 
+            
+            // Animation Fontäne (ID 3)
             if (loadedMeshes[3] && loadedMeshes[3].visible && loadedMeshes[3].userData.particles) {
                 updateWaterEffect(loadedMeshes[3].userData.particles);
             }
@@ -465,16 +483,13 @@
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
 
                         if (AR_MODELS[id]) {
-                            // --- KORREKTUR DER ÜBERLAGERUNG ---
-                            // Zwingend durch alle geladenen Modelle gehen und alle ausblenden,
-                            // die NICHT zur aktuellen ID gehören.
+                            // Überlagerungen verhindern: Alle anderen Modelle ausblenden
                             Object.keys(loadedMeshes).forEach(key => {
                                 const meshId = parseInt(key);
                                 if (meshId !== id) {
                                     loadedMeshes[meshId].visible = false;
                                 }
                             });
-                            // ----------------------------------
 
                             if (currentTrackingID !== id) {
                                 currentTrackingID = id;
@@ -499,7 +514,7 @@
                 if (lossCounter > maxLossFrames) {
                     markerGroup.visible = false;
                     
-                    // Alle Modelle vorsichtshalber unsichtbar schalten
+                    // Alle Modelle ausblenden
                     Object.values(loadedMeshes).forEach(m => m.visible = false);
 
                     infoContent.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
@@ -513,6 +528,7 @@
                 }
             }
 
+            // Bewegungsglättung anwenden
             if (markerGroup.visible) {
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
@@ -529,6 +545,7 @@
             
             if (hintTimeout) clearTimeout(hintTimeout);
             
+            // Hinweis nach 10 Sekunden ausblenden
             hintTimeout = setTimeout(() => {
                 hint.style.opacity = 0;
             }, 10000);
