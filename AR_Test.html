@@ -2,17 +2,11 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
-    <!-- 
-      Verhindert das Zoomen auf Mobilgeräten.
-      Wichtig für eine stabile AR-Erfahrung.
-    -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
         /* --- DESIGN (CSS) --- */
-
-        /* Grundeinstellungen für Vollbild ohne Ränder */
         body, html { 
             margin: 0; padding: 0; 
             width: 100%; height: 100%; 
@@ -23,28 +17,24 @@
 
         #container { position: relative; width: 100%; height: 100%; }
         
-        /* Layer 1: Hier wird das Videobild gezeichnet */
         #videoCanvas { 
             position: absolute; top: 0; left: 0; 
             width: 100%; height: 100%; 
             z-index: 1; pointer-events: none; 
         }
         
-        /* Layer 2: Hier werden die 3D-Modelle gezeichnet */
         #threeCanvas { 
             position: absolute; top: 0; left: 0; 
             width: 100%; height: 100%; 
-            z-index: 2; pointer-events: auto; /* Erlaubt Klicks */
+            z-index: 2; pointer-events: auto; 
         }
         
-        /* Das Video-Element dient nur als Datenquelle und ist unsichtbar */
         video { 
             position: absolute; top: 0; left: 0; 
             width: 1px; height: 1px; 
             opacity: 0; pointer-events: none; 
         }
 
-        /* Design für die Info-Boxen und Buttons */
         .ui-box {
             position: absolute; z-index: 100; 
             background: rgba(30, 30, 30, 0.85); 
@@ -53,11 +43,9 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
 
-        /* Buttons positionieren */
         #camBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-weight: bold; cursor: pointer; }
         #closeBtn { top: 20px; right: 20px; width: 40px; height: 40px; font-weight: bold; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
         
-        /* Rotations-Buttons */
         .rot-btn {
             bottom: 20px; width: 50px; height: 50px; 
             font-size: 24px; font-weight: bold; cursor: pointer;
@@ -67,23 +55,20 @@
         #rotLeft { left: 20px; }
         #rotRight { left: 80px; }
 
-        /* 
-           Status-Box oben links. 
-           Ersetzt die alte Koordinaten-Anzeige und den Ladebildschirm.
-        */
-        #statusBox {
+        /* Status-Box oben links */
+        #poseInfo {
             top: 20px; left: 20px; padding: 12px; 
             font-size: 13px; line-height: 1.4; 
             pointer-events: none; min-width: 200px; 
             font-family: monospace;
         }
-        #statusBox strong { 
+        #poseInfo strong { 
             display: block; margin-bottom: 8px; color: #00ffff; font-family: sans-serif;
             border-bottom: 1px solid rgba(255,255,255,0.3); padding-bottom: 4px; 
             text-transform: uppercase;
         }
         
-        /* Info-Box unten Mitte (Titel & Beschreibung des Modells) */
+        /* Info-Box unten Mitte */
         #objectInfo {
             position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
             width: 80%; max-width: 400px; text-align: center;
@@ -93,13 +78,13 @@
         #objTitle { margin: 0 0 5px 0; font-size: 1.1rem; color: #4f4; }
         #objText { margin: 0; font-size: 0.9rem; color: #ddd; }
 
-        /* Der Hinweis-Text in der Mitte */
+        /* Hinweis-Text */
         #clickHint {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: yellow; text-shadow: 1px 1px 2px black; font-weight: bold; font-family: sans-serif;
             z-index: 90; pointer-events: none; 
-            opacity: 0; /* Unsichtbar am Start */
-            transition: opacity 0.5s; /* Weiches Ein-/Ausblenden */
+            opacity: 0; 
+            transition: opacity 0.5s; 
             font-size: 1.2rem; background: rgba(0,0,0,0.5); padding: 10px; border-radius: 10px;
             text-align: center;
         }
@@ -108,37 +93,34 @@
 <body>
 
     <div id="container">
-        <!-- Schließen Button -->
         <button id="closeBtn" class="ui-box">✕</button>
         
-        <!-- Status-Fenster oben links (Hier steht jetzt alles Wichtige) -->
-        <div id="statusBox" class="ui-box">
-            <strong>System Status</strong>
-            <div id="statusContent">Initialisiere...</div>
+        <div id="poseInfo" class="ui-box">
+            <strong>Relative Lage Smartphone - Marker</strong>
+            <div id="infoContent">
+                Starte System...<br>
+                <span style="color: yellow;">Initialisiere...</span>
+            </div>
         </div>
 
-        <!-- Info-Fenster unten (Titel des Objekts) -->
         <div id="objectInfo" class="ui-box">
             <h3 id="objTitle">Titel</h3>
             <p id="objText">Beschreibung</p>
-            <small style="color:#aaa; display:block; margin-top:5px;">(Für weitere Informationen: Tippen zum Öffnen)</small>
+            <small style="color:#aaa; display:block; margin-top:5px;">(Tippen zum Öffnen)</small>
         </div>
 
-        <!-- Hinweis-Text (nur für 10 Sekunden sichtbar) -->
         <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
 
-        <!-- Buttons unten -->
         <button id="camBtn" class="ui-box">📷</button>
         <button id="rotLeft" class="ui-box rot-btn">↺</button>
         <button id="rotRight" class="ui-box rot-btn">↻</button>
         
-        <!-- Video und Zeichenflächen -->
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
         <canvas id="threeCanvas"></canvas>
     </div>
 
-    <!-- Externe Bibliotheken -->
+    <!-- Bibliotheken -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -152,9 +134,8 @@
         // ==========================================
 
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const markerSize = 100.0; // Marker-Größe in mm
+        const markerSize = 100.0; 
         
-        // Liste der 3D-Modelle und Infos
         const AR_MODELS = {
             0: {
                 url: '3D_models/Koenig.glb',
@@ -186,18 +167,15 @@
             }
         };
 
-        const minMarkerSize = 30; // Filter für kleine Marker
-        const maxLossFrames = 30; // Puffer bei Marker-Verlust
+        const minMarkerSize = 30; 
+        const maxLossFrames = 30; 
 
-        // Zugriff auf HTML Elemente
+        // HTML Referenzen
         const video = document.getElementById('video');
         const videoCanvas = document.getElementById('videoCanvas');
         const threeCanvas = document.getElementById('threeCanvas');
         const camBtn = document.getElementById('camBtn');
-        
-        // Status Anzeige oben links
-        const statusContent = document.getElementById('statusContent');
-        
+        const infoContent = document.getElementById('infoContent');
         const objectInfo = document.getElementById('objectInfo');
         const clickHint = document.getElementById('clickHint');
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
@@ -206,21 +184,19 @@
         let detector, posit;
         let renderer, scene, camera;
         let markerGroup;
-        const loadedMeshes = {}; // Speicher für geladene Modelle
+        const loadedMeshes = {}; 
         
-        // Status Tracking
+        // Tracking Status
         let currentTrackingID = -1; 
         let lossCounter = 0;
         let activeLink = null; 
-
-        // Timer für den Hinweis-Text
         let hintTimeout = null; 
 
         let currentFacingMode = 'environment';
         let stream = null;
         let isVideoReady = false;
 
-        // Glättung der Bewegung
+        // Glättung
         const lerpFactor = 0.15;
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
@@ -234,15 +210,10 @@
 
         window.onload = () => {
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
-            
             initThreeJS();
-            
-            // Modelle laden -> Aktualisiert jetzt die Anzeige oben links
             loadAllModels(); 
-            
             startCamera();
             setupInteractions();
-            
             requestAnimationFrame(tick);
         };
 
@@ -257,7 +228,6 @@
             startCamera();
         });
 
-        // Rotations-Logik
         document.getElementById('rotLeft').addEventListener('click', () => rotateCurrentModel(-0.2));
         document.getElementById('rotRight').addEventListener('click', () => rotateCurrentModel(0.2));
 
@@ -267,7 +237,6 @@
             }
         }
 
-        // Klick-Interaktion
         function setupInteractions() {
             threeCanvas.addEventListener('click', onCanvasClick, false);
             objectInfo.addEventListener('click', () => {
@@ -300,7 +269,6 @@
             }
         }
 
-        // Three.js Grundaufbau
         function initThreeJS() {
             renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
@@ -320,14 +288,12 @@
             markerGroup.visible = false;
         }
 
-        // Lädt alle Modelle und aktualisiert die Status-Box oben links
         function loadAllModels() {
             const loader = new THREE.GLTFLoader();
             const ids = Object.keys(AR_MODELS);
             let loadedCount = 0;
             
-            // Status-Update beim Start
-            statusContent.innerText = `Lade 3D-Modelle (0/${ids.length})...`;
+            infoContent.innerHTML = `Starte System...<br><span style="color:yellow;">Lade Modelle (0/${ids.length})...</span>`;
 
             ids.forEach(id => {
                 const config = AR_MODELS[id];
@@ -335,9 +301,13 @@
                     const model = gltf.scene;
                     model.scale.set(config.scale, config.scale, config.scale);
                     model.position.z = 0; 
-                    model.rotation.x = Math.PI / 2; 
+                    
+                    // --- KORREKTUR DER ROTATION ---
+                    // Vorher stand hier: Math.PI / 2 (90 Grad). Das führte zum Kippen.
+                    // Jetzt auf 0 gesetzt. Das Modell steht nun so, wie es erstellt wurde.
+                    model.rotation.x = 0; 
+                    // -----------------------------
 
-                    // Wasser-Effekt für Fontäne (ID 3)
                     if (id === '3') {
                         const particles = createWaterEffect();
                         model.add(particles);
@@ -350,23 +320,18 @@
 
                     loadedCount++;
                     
-                    // Status-Update bei Fortschritt
-                    statusContent.innerText = `Lade 3D-Modelle (${loadedCount}/${ids.length})...`;
-                    statusContent.style.color = "yellow";
+                    infoContent.innerHTML = `Starte System...<br><span style="color:yellow;">Lade Modelle (${loadedCount}/${ids.length})...</span>`;
                     
                     if(loadedCount === ids.length) {
-                        statusContent.innerText = "System bereit. Suche Marker...";
-                        statusContent.style.color = "#00ff00"; // Grün
+                        infoContent.innerHTML = `System bereit.<br><span style="color:#00ff00;">Warte auf Marker...</span>`;
                     }
                 }, undefined, (err) => {
                     console.error("Fehler bei ID " + id, err);
-                    statusContent.innerText = "Fehler beim Laden!";
-                    statusContent.style.color = "red";
+                    infoContent.innerHTML = `<span style="color:red;">Fehler beim Laden!</span>`;
                 });
             });
         }
 
-        // Partikel-System für Wasser
         function createWaterEffect() {
             const geometry = new THREE.BufferGeometry();
             const count = 500;
@@ -411,7 +376,6 @@
             points.geometry.attributes.position.needsUpdate = true;
         }
 
-        // Kamera & Resize
         function onResize() {
             const w = window.innerWidth;
             const h = window.innerHeight;
@@ -443,8 +407,7 @@
                 video.srcObject = stream;
                 video.play().catch(e => console.log(e));
             }).catch(err => {
-                statusContent.innerText = "Kamera-Fehler!";
-                statusContent.style.color = "red";
+                infoContent.innerHTML = `<span style="color:red;">Kamera-Fehler!</span>`;
             });
         }
 
@@ -459,7 +422,6 @@
         function tick() {
             requestAnimationFrame(tick);
 
-            // Animationen
             if (loadedMeshes[0] && loadedMeshes[0].visible) loadedMeshes[0].rotation.z += 0.01; 
             if (loadedMeshes[3] && loadedMeshes[3].visible && loadedMeshes[3].userData.particles) {
                 updateWaterEffect(loadedMeshes[3].userData.particles);
@@ -499,26 +461,33 @@
 
                     if (pose) {
                         drawAxis(pose.bestRotation, pose.bestTranslation, markerSize);
-                        
-                        // Status Box aktualisieren (Allgemeiner Status)
-                        statusContent.innerHTML = `<span style="color:#4f4;">Marker ID ${id} erkannt</span>`;
-                        
+                        updatePoseUI(pose.bestRotation, pose.bestTranslation, id);
                         updateObjectTargets(pose.bestRotation, pose.bestTranslation);
 
                         if (AR_MODELS[id]) {
-                            if (currentTrackingID !== id) {
-                                // Wechsel zu neuem Marker
-                                if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
-                                    loadedMeshes[currentTrackingID].visible = false;
+                            // --- KORREKTUR DER ÜBERLAGERUNG ---
+                            // Zwingend durch alle geladenen Modelle gehen und alle ausblenden,
+                            // die NICHT zur aktuellen ID gehören.
+                            Object.keys(loadedMeshes).forEach(key => {
+                                const meshId = parseInt(key);
+                                if (meshId !== id) {
+                                    loadedMeshes[meshId].visible = false;
                                 }
+                            });
+                            // ----------------------------------
+
+                            if (currentTrackingID !== id) {
                                 currentTrackingID = id;
                                 if (loadedMeshes[id]) {
                                     loadedMeshes[id].visible = true;
-                                    // Timer für Hinweistext neu starten
                                     triggerHint(); 
                                 }
                                 updateInfoUI(id);
                             }
+                            
+                            // Sicherstellen, dass das aktuelle Modell sichtbar ist
+                            if(loadedMeshes[id]) loadedMeshes[id].visible = true;
+                            
                             markerGroup.visible = true;
                         }
                     }
@@ -530,12 +499,13 @@
                 if (lossCounter > maxLossFrames) {
                     markerGroup.visible = false;
                     
-                    // Status und Hinweise zurücksetzen
-                    statusContent.innerHTML = `Suche Marker...`;
-                    statusContent.style.color = "white";
+                    // Alle Modelle vorsichtshalber unsichtbar schalten
+                    Object.values(loadedMeshes).forEach(m => m.visible = false);
+
+                    infoContent.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
                     
                     clickHint.style.opacity = 0;
-                    clearTimeout(hintTimeout); // Timer stoppen
+                    clearTimeout(hintTimeout); 
                     
                     objectInfo.style.display = 'none';
                     currentTrackingID = -1;
@@ -553,15 +523,12 @@
 
         // --- HILFSFUNKTIONEN ---
 
-        // Blendet den Hinweis für 10 Sekunden ein
         function triggerHint() {
             const hint = document.getElementById('clickHint');
             hint.style.opacity = 1;
             
-            // Alten Timer löschen, falls vorhanden
             if (hintTimeout) clearTimeout(hintTimeout);
             
-            // Nach 10 Sekunden (10000ms) ausblenden
             hintTimeout = setTimeout(() => {
                 hint.style.opacity = 0;
             }, 10000);
@@ -601,6 +568,44 @@
             context2D.strokeStyle = "red"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ax.x, ax.y); context2D.stroke();
             context2D.strokeStyle = "lime"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ay.x, ay.y); context2D.stroke();
             context2D.strokeStyle = "blue"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
+        }
+
+        function updatePoseUI(r, t, id) {
+            const m = new THREE.Matrix4();
+            m.set(
+                 r[0][0],  r[0][1],  r[0][2], t[0],
+                -r[1][0], -r[1][1], -r[1][2], -t[1],
+                -r[2][0], -r[2][1], -r[2][2], -t[2],
+                 0,        0,        0,       1
+            );
+            
+            const inv = m.invert();
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const scale = new THREE.Vector3();
+            inv.decompose(pos, quat, scale);
+            
+            const euler = new THREE.Euler().setFromQuaternion(quat);
+            
+            const x = (pos.x / 10).toFixed(0); 
+            const y = (pos.y / 10).toFixed(0);
+            const z = (pos.z / 10).toFixed(0);
+            
+            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
+            infoContent.innerHTML = `
+                <span style="color:yellow;">Gefunden: ID ${id}</span><br>
+                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
+                    <span style="color:#aaa;">Position:</span><br>
+                    X: ${x} cm | Y: ${y} cm | Z: ${z} cm
+                </div>
+                <div style="margin-top:8px;">
+                    <span style="color:#aaa;">Rotation:</span><br>
+                    Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
+                </div>
+            `;
         }
 
         function drawVideoFullscreen() {
