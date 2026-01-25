@@ -5,39 +5,37 @@
   <title>Herrenhäuser Gärten - Virtueller Rundgang AR (GNSS)</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
   
-  <!-- Ergänzung: ArUco Bibliothek für Marker-Erkennung -->
+  <!-- Basis ArUco Bibliothek -->
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@0.2.0/src/cv.js"></script>
   <script type="text/javascript" src="https://cdn.jsdelivr.net/npm/js-aruco2@0.2.0/src/aruco.js"></script>
+  
+  <!-- ERGÄNZUNG: Notwendig für 3D Achsen Berechnung (SVD & POSIT) -->
+  <script type="text/javascript" src="https://unpkg.com/js-aruco@0.1.0/src/svd.js"></script>
+  <script type="text/javascript" src="https://unpkg.com/js-aruco@0.1.0/src/posit1.js"></script>
 
   <style>
     /* --- CSS DESIGN BEREICH --- */
-    
-    /* Basis-Einstellungen für Vollbild ohne Scrollbalken */
     body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
     
-    /* Hintergrund-Video (Kamera-Feed für Nicht-WebXR Modus / Fallback) */
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         object-fit: cover; z-index: 0; opacity: 0.6;
     }
 
-    /* Ergänzung: Canvas für ArUco Zeichnungen (Roter Rahmen) */
+    /* Canvas für ArUco Zeichnungen (Roter Rahmen & Achsen) */
     #aruco-canvas {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         z-index: 50; pointer-events: none;
     }
 
-    /* Container für UI-Elemente über der AR-Ansicht */
     #ar-overlay-container {
       position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-      z-index: 100; pointer-events: none; /* Klicks gehen durch, außer auf Buttons */
+      z-index: 100; pointer-events: none;
       display: flex; flex-direction: column; justify-content: space-between;
     }
 
-    /* Info-Box Wrapper */
     .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
 
-    /* Die halb-transparente Info-Box unten */
     .info-box {
       background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 12px;
       backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2);
@@ -48,11 +46,9 @@
     h1 { margin: 0 0 8px 0; font-size: 1.1rem; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
     p { margin: 0; font-size: 0.9rem; color: #ccc; padding: 2px 0; }
     
-    /* Status-Farben */
     #status { color: #ccc; font-weight: bold; }
     .active-target { color: #4f4; font-weight: bold; } 
 
-    /* Debug-Konsole für GPS-Koordinaten */
     #debug-console {
         font-family: monospace; font-size: 10px; color: #ffff00;
         background: rgba(0,0,0,0.8); padding: 5px; margin-top: 10px;
@@ -60,7 +56,6 @@
         max-height: 80px; overflow: hidden; border-radius: 4px;
     }
 
-    /* Button-Positionierung */
     .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
 
     .ar-btn {
@@ -73,7 +68,6 @@
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
     #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
 
-    /* Manuelle Rotations-Kontrollen (werden angezeigt bei Klick) */
     .controls-wrapper {
       position: absolute; bottom: 100px; left: 0; width: 100%;
       display: none; 
@@ -90,7 +84,6 @@
     }
     .rotate-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
 
-    /* Richtungs-Pfeil UI unten links */
     #direction-indicator {
         position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
         background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
@@ -106,13 +99,9 @@
 </head>
 <body>
   
-  <!-- Hintergrundvideo (wird ausgeblendet im AR Modus, dient als Fallback) -->
   <video id="bg-video" autoplay muted playsinline></video>
-  
-  <!-- Ergänzung: Canvas Overlay für Marker -->
   <canvas id="aruco-canvas"></canvas>
 
-  <!-- Overlay UI Elemente -->
   <div id="ar-overlay-container">
       <div id="direction-indicator">
           <div id="arrow"></div>
@@ -134,7 +123,6 @@
           <p id="msg">Initialisiere Anwendung...</p>
           <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
           <p>Entfernung: <span id="dist">-</span> Meter</p>
-          <!-- Zeigt aktuelle Ausrichtung des nahesten Objekts an -->
           <p>Ausrichtung: <span id="rotationDisplay">-</span>°</p>
           <p>Status: <span id="status">Warte auf GNSS-Signal...</span></p>
           <div id="debug-console">Lade Systemkomponenten...</div>
@@ -142,7 +130,6 @@
       </div>
   </div>
 
-  <!-- Import Map für Three.js Module -->
   <script type="importmap">
     {
       "imports": {
@@ -171,7 +158,7 @@
         infoSprite: null,
         loaded: false,
         locked: false,
-        arucoId: 1 // Verknüpfung mit ArUco ID 1
+        arucoId: 1 
       },
       {
         title: 'Borghesischer Fechter',
@@ -185,7 +172,7 @@
         infoSprite: null,
         loaded: false,
         locked: false,
-        arucoId: 2 // Verknüpfung mit ArUco ID 2
+        arucoId: 2 
       },
       {
         title: 'Große Fontäne',
@@ -194,13 +181,13 @@
         url: '3D_models/GrosseFontaine.glb',
         infoText: 'Große Fontäne',
         link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-        rotation: 180, // Standard
+        rotation: 180, 
         object3D: null,
         infoSprite: null,
         loaded: false,
         locked: false,
-        isAnimated: true, // Wasser-Partikel
-        arucoId: 3 // Verknüpfung mit ArUco ID 3
+        isAnimated: true, 
+        arucoId: 3 
       },
       {
         title: 'Große Fontäne',
@@ -209,7 +196,7 @@
         url: '3D_models/GrosseFontaine.glb',
         infoText: 'Große Fontäne',
         link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-        rotation: 180, // Standard
+        rotation: 180, 
         object3D: null,
         infoSprite: null,
         loaded: false,
@@ -237,16 +224,14 @@
     // ArUco Variablen
     let arucoDetector = null;
     let arucoCanvas, arucoCtx;
+    let posit = null; // Für 3D Pose
 
-    // Partikel-System Variable
     let waterParticles = null;
 
-    // Start der Anwendung
     start2DCamera(); 
     init();
     animate();
 
-    // Funktion um auf die Handykamera zuzugreifen (für UI Hintergrund vor AR-Start)
     function start2DCamera() {
         const video = document.getElementById('bg-video');
         arucoCanvas = document.getElementById('aruco-canvas');
@@ -255,11 +240,15 @@
         // ArUco Initialisierung
         if (window.AR) {
             console.log("Initialisiere ArUco...");
-            // Nutze das spezifische Dictionary wie angefordert
             arucoDetector = new AR.Detector({
                 dictionaryName: 'ARUCO_MIP_36h12',
                 maxHammingDistance: 2
             });
+            // POSIT Initialisierung (Modellgröße z.B. 35mm, Brennweite = Canvas Breite)
+            // Hinweis: Falls POSIT Script nicht lädt, wird das hier übersprungen
+            if (typeof POSIT !== 'undefined') {
+                posit = new POSIT(35, video.videoWidth); 
+            }
             requestAnimationFrame(processArucoVideo);
         }
 
@@ -283,11 +272,11 @@
             if (arucoCanvas.width !== video.videoWidth || arucoCanvas.height !== video.videoHeight) {
                 arucoCanvas.width = video.videoWidth;
                 arucoCanvas.height = video.videoHeight;
+                // POSIT Focal length aktualisieren wenn sich Größe ändert
+                if(posit) posit.focalLength = video.videoWidth;
             }
 
-            // ArUco Erkennung
             try {
-                // Ein temporäres Canvas für die Bilddatenanalyse (damit wir Bilddaten bekommen)
                 const tempCanvas = document.createElement('canvas');
                 tempCanvas.width = video.videoWidth;
                 tempCanvas.height = video.videoHeight;
@@ -297,31 +286,29 @@
                 
                 const markers = arucoDetector.detect(imageData);
                 
-                // Canvas leeren für neuen Frame
                 arucoCtx.clearRect(0, 0, arucoCanvas.width, arucoCanvas.height);
 
                 drawMarkers(markers);
                 handleArucoLogic(markers);
 
             } catch (e) {
-                // Fehler abfangen, falls Bibliothek noch lädt oder Fehler wirft
+                // Fehler ignorieren
             }
         }
         requestAnimationFrame(processArucoVideo);
     }
 
-    // Zeichnet rote Rahmen und IDs
+    // Zeichnet rote Rahmen und 3D Achsen
     function drawMarkers(markers) {
         if (!markers || markers.length === 0) return;
 
         markers.forEach(marker => {
             const corners = marker.corners;
             
-            // Roter Rahmen
+            // 1. Roter Rahmen um den Marker
             arucoCtx.strokeStyle = "red";
-            arucoCtx.lineWidth = 4;
+            arucoCtx.lineWidth = 3;
             arucoCtx.beginPath();
-            
             arucoCtx.moveTo(corners[0].x, corners[0].y);
             arucoCtx.lineTo(corners[1].x, corners[1].y);
             arucoCtx.lineTo(corners[2].x, corners[2].y);
@@ -329,22 +316,89 @@
             arucoCtx.closePath();
             arucoCtx.stroke();
 
-            // ID Text zeichnen
+            // 2. ID Text
             arucoCtx.fillStyle = "red";
-            arucoCtx.font = "bold 24px sans-serif";
-            // Position leicht über der ersten Ecke
-            arucoCtx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 10);
+            arucoCtx.font = "bold 20px sans-serif";
+            arucoCtx.fillText("ID: " + marker.id, corners[0].x, corners[0].y - 15);
+
+            // 3. 3D Achsen Zeichnen (X=Rot, Y=Grün, Z=Blau)
+            if (posit) {
+                drawAxis(marker);
+            }
         });
     }
 
-    // Logik für erkannte Marker
+    // Berechnet und zeichnet die 3D Achsen
+    function drawAxis(marker) {
+        const pose = posit.pose(marker.corners);
+        const rotation = pose.bestRotation;
+        const translation = pose.bestTranslation;
+        const center = {x: 0, y: 0, z: 0};
+        const xAxis = {x: 35/2, y: 0, z: 0}; // Länge der Achsen (halbe Markergröße)
+        const yAxis = {x: 0, y: 35/2, z: 0};
+        const zAxis = {x: 0, y: 0, z: -35/2};
+
+        const center2D = project(center, rotation, translation);
+        const x2D = project(xAxis, rotation, translation);
+        const y2D = project(yAxis, rotation, translation);
+        const z2D = project(zAxis, rotation, translation);
+
+        if(!center2D || !x2D || !y2D || !z2D) return;
+
+        arucoCtx.lineWidth = 3;
+
+        // X-Achse (Rot)
+        arucoCtx.strokeStyle = "red";
+        arucoCtx.beginPath();
+        arucoCtx.moveTo(center2D.x, center2D.y);
+        arucoCtx.lineTo(x2D.x, x2D.y);
+        arucoCtx.stroke();
+
+        // Y-Achse (Grün)
+        arucoCtx.strokeStyle = "#0f0";
+        arucoCtx.beginPath();
+        arucoCtx.moveTo(center2D.x, center2D.y);
+        arucoCtx.lineTo(y2D.x, y2D.y);
+        arucoCtx.stroke();
+
+        // Z-Achse (Blau)
+        arucoCtx.strokeStyle = "blue";
+        arucoCtx.beginPath();
+        arucoCtx.moveTo(center2D.x, center2D.y);
+        arucoCtx.lineTo(z2D.x, z2D.y);
+        arucoCtx.stroke();
+    }
+
+    // Hilfsfunktion: 3D Punkt auf 2D Screen projizieren
+    function project(point, r, t) {
+        const x = point.x, y = point.y, z = point.z;
+        const focalLength = arucoCanvas.width; // Annahme: Focal Length = Breite
+        const canvasWidth = arucoCanvas.width;
+        const canvasHeight = arucoCanvas.height;
+
+        // Rotation + Translation
+        const x2 = x * r[0][0] + y * r[0][1] + z * r[0][2] + t[0];
+        const y2 = x * r[1][0] + y * r[1][1] + z * r[1][2] + t[1];
+        const z2 = x * r[2][0] + y * r[2][1] + z * r[2][2] + t[2];
+
+        if (z2 <= 0) return null; // Hinter der Kamera
+
+        // Projektion
+        const x3 = (x2 * focalLength) / z2;
+        const y3 = (y2 * focalLength) / z2;
+
+        return {
+            x: x3 + canvasWidth / 2,
+            y: -y3 + canvasHeight / 2
+        };
+    }
+
     function handleArucoLogic(markers) {
         if (!markers || markers.length === 0) return;
 
         markers.forEach(marker => {
             const id = marker.id;
             
-            // ID=0: Startscan / Kalibrierung
             if (id === 0) {
                 if (!gnssReady) {
                     gnssReady = true;
@@ -354,27 +408,15 @@
                     logToDebug("ArUco ID 0 erkannt: Kalibrierung/Start.");
                 }
             }
-            
-            // IDs 1, 2, 3: Modelle aktivieren
             else if (id >= 1 && id <= 3) {
-                // Wir suchen das Modell, das zu dieser ID passt
                 const targetLoc = LOCATIONS.find(l => l.arucoId === id);
-                
                 if (targetLoc && targetLoc.loaded) {
-                    // Falls Modell noch nicht gesperrt/fixiert ist
                     if (!targetLoc.locked) {
                         targetLoc.locked = true;
                         targetLoc.object3D.visible = true;
-                        
-                        // Setze das Modell vor die Kamera (da wir den Marker sehen)
-                        // Vereinfachte Annahme: Wenn wir den Marker sehen, ist das Modell nah
-                        // In einer vollen AR Implementierung würde man die PoseMatrix berechnen,
-                        // hier nutzen wir es als Trigger für "Gefunden".
-                        
                         document.getElementById('targetName').innerText = targetLoc.title;
                         document.getElementById('status').innerText = "Marker ID " + id + " erkannt!";
                         document.getElementById('status').style.color = "#4f4";
-                        
                         logToDebug("ArUco ID " + id + " erkannt: " + targetLoc.title + " aktiviert.");
                     }
                 }
@@ -382,7 +424,6 @@
         });
     }
 
-    // --- PARTIKEL EFFEKTE (Wasser) ---
     function createWaterEffect() {
         const geometry = new THREE.BufferGeometry();
         const count = 500;
@@ -434,7 +475,6 @@
         points.geometry.attributes.position.needsUpdate = true;
     }
 
-    // --- INFO TEXT TEXTUR ERSTELLEN ---
     function createInfoWindow(text) {
         const canvas = document.createElement('canvas');
         const context = canvas.getContext('2d');
@@ -471,7 +511,6 @@
         if (stroke) ctx.stroke();
     }
 
-    // --- THREE.JS INITIALISIERUNG ---
     function init() {
       const container = document.createElement('div');
       document.body.appendChild(container);
@@ -554,9 +593,8 @@
       
       btn.addEventListener('click', () => {
           const video = document.getElementById('bg-video');
-          // Video nicht stoppen, da ArUco es braucht, aber ausblenden für AR Session
           if(video) {
-              video.style.opacity = '0'; // Nur unsichtbar machen, damit Analyse weiterläuft falls möglich
+              video.style.opacity = '0'; 
           }
           document.getElementById('rotation-controls').style.display = 'flex';
           document.getElementById('direction-indicator').style.display = 'flex';
@@ -615,7 +653,6 @@
         }
     }
 
-    // --- GNSS / GPS LOGIK ---
     function startGNSS() {
       if (!navigator.geolocation) {
           updateUI("GNSS nicht unterstützt", "error");
@@ -665,7 +702,6 @@
                 }
                 loc.object3D.visible = true;
             } else {
-                // Nur unsichtbar machen, wenn NICHT durch ArUco gesperrt
                 if(!loc.locked) {
                     loc.object3D.visible = false;
                 }
@@ -693,7 +729,6 @@
       }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
     }
 
-    // --- RENDER LOOP ---
     function render(timestamp, frame) {
       if (frame) {
         const session = renderer.xr.getSession();
