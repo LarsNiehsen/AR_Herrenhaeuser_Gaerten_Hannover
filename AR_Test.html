@@ -146,21 +146,21 @@
             },
             1: {
                 url: '3D_models/Statue_3D.glb',
-                scale: 50.0, 
+                scale: 150.0, 
                 title: 'Niederdeutscher Blumengarten',
                 info: 'Sandsteinstatue "Veritas" von 1730',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten'
             },
             2: {
                 url: '3D_models/BorghesischerFechter_WebAR.glb',
-                scale: 15000.0,
+                scale: 25000.0,
                 title: 'Borghesischer Fechter',
                 info: 'Borghesischer Fechter am Gartentheater',
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen'
             },
             3: {
                 url: '3D_models/GrosseFontaine_WebAR.glb',
-                scale: 15000.0,
+                scale: 10000.0,
                 title: 'Große Fontäne',
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst'
@@ -310,7 +310,7 @@
 
                     // Spezialkorrektur für ID 1 und ID 2:
                     // Falls diese auf dem Kopf stehen, um 180 Grad (PI) um die Z-Achse drehen
-                    if (id === '1' || id === '2') {
+                    if (id === '1' || id === '2' || id === '3') {
                         model.rotation.z += Math.PI; 
                     }
                     // ---------------------------------
