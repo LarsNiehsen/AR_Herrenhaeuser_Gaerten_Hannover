@@ -2,11 +2,13 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <!-- Viewport-Einstellungen verhindern das Zoomen auf Mobilgeräten -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Herrenhäuser Gärten Hannover - AR mit ArUco & ThreeJS</title>
     
     <style>
         /* --- DESIGN (CSS) --- */
+        /* Grundlegendes Layout für Vollbild-Anwendung ohne Scrollbalken */
         body, html { 
             margin: 0; padding: 0; 
             width: 100%; height: 100%; 
@@ -17,24 +19,28 @@
 
         #container { position: relative; width: 100%; height: 100%; }
         
+        /* Canvas für den Videostrom (Hintergrund) */
         #videoCanvas { 
             position: absolute; top: 0; left: 0; 
             width: 100%; height: 100%; 
             z-index: 1; pointer-events: none; 
         }
         
+        /* Canvas für die 3D-Objekte (Vordergrund) */
         #threeCanvas { 
             position: absolute; top: 0; left: 0; 
             width: 100%; height: 100%; 
             z-index: 2; pointer-events: auto; 
         }
         
+        /* Das eigentliche Video-Element wird unsichtbar gehalten, da wir es auf den Canvas zeichnen */
         video { 
             position: absolute; top: 0; left: 0; 
             width: 1px; height: 1px; 
             opacity: 0; pointer-events: none; 
         }
 
+        /* Gemeinsamer Stil für Benutzeroberflächen-Elemente (Boxen) */
         .ui-box {
             position: absolute; z-index: 100; 
             background: rgba(30, 30, 30, 0.85); 
@@ -43,9 +49,11 @@
             box-shadow: 0 4px 6px rgba(0,0,0,0.5);
         }
 
+        /* Buttons für Kamera und Schließen */
         #camBtn { bottom: 20px; right: 20px; padding: 12px 20px; font-weight: bold; cursor: pointer; }
         #closeBtn { top: 20px; right: 20px; width: 40px; height: 40px; font-weight: bold; font-size: 20px; cursor: pointer; display: flex; align-items: center; justify-content: center; padding: 0; }
         
+        /* Rotations-Buttons unten links */
         .rot-btn {
             bottom: 20px; width: 50px; height: 50px; 
             font-size: 24px; font-weight: bold; cursor: pointer;
@@ -55,7 +63,7 @@
         #rotLeft { left: 20px; }
         #rotRight { left: 80px; }
 
-        /* Status-Box oben links */
+        /* Status-Box oben links (Debug-Infos) */
         #poseInfo {
             top: 20px; left: 20px; padding: 12px; 
             font-size: 13px; line-height: 1.4; 
@@ -68,7 +76,7 @@
             text-transform: uppercase;
         }
         
-        /* Info-Box unten Mitte */
+        /* Info-Box unten Mitte für Objektbeschreibungen */
         #objectInfo {
             position: absolute; bottom: 100px; left: 50%; transform: translateX(-50%);
             width: 80%; max-width: 400px; text-align: center;
@@ -78,7 +86,7 @@
         #objTitle { margin: 0 0 5px 0; font-size: 1.1rem; color: #4f4; }
         #objText { margin: 0; font-size: 0.9rem; color: #ddd; }
 
-        /* Hinweis-Text */
+        /* Hinweis-Text beim ersten Erkennen */
         #clickHint {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: yellow; text-shadow: 1px 1px 2px black; font-weight: bold; font-family: sans-serif;
@@ -93,6 +101,7 @@
 <body>
 
     <div id="container">
+        <!-- UI Elemente -->
         <button id="closeBtn" class="ui-box">✕</button>
         
         <div id="poseInfo" class="ui-box">
@@ -115,12 +124,13 @@
         <button id="rotLeft" class="ui-box rot-btn">↺</button>
         <button id="rotRight" class="ui-box rot-btn">↻</button>
         
+        <!-- Medien-Elemente -->
         <video id="video" playsinline muted autoplay></video>
         <canvas id="videoCanvas"></canvas>
         <canvas id="threeCanvas"></canvas>
     </div>
 
-    <!-- Bibliotheken -->
+    <!-- Externe Bibliotheken für Computer Vision (ArUco) und 3D-Rendering (Three.js) -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
@@ -130,12 +140,16 @@
 
     <script>
         // ==========================================
-        // EINSTELLUNGEN
+        // EINSTELLUNGEN & KONFIGURATION
         // ==========================================
 
+        // Name des Marker-Wörterbuchs (muss mit dem gedruckten Marker übereinstimmen)
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
+        
+        // physische Größe des Markers in Millimetern
         const markerSize = 100.0; 
         
+        // Konfiguration der 3D-Modelle, verknüpft mit Marker-IDs
         const AR_MODELS = {
             0: {
                 url: '3D_models/Koenig.glb',
@@ -153,24 +167,24 @@
             },
             2: {
                 url: '3D_models/BorghesischerFechter_WebAR.glb',
-                scale: 25000.0,
+                scale: 25000.0, // Sehr große Skalierung notwendig
                 title: 'Borghesischer Fechter',
                 info: 'Borghesischer Fechter am Gartentheater',
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen'
             },
             3: {
                 url: '3D_models/GrosseFontaine_WebAR.glb',
-                scale: 10000.0,
+                scale: 10000.0, // Skalierung 10.000: Wichtig für Partikelsystem-Berechnung
                 title: 'Große Fontäne',
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst'
             }
         };
 
-        const minMarkerSize = 30; 
-        const maxLossFrames = 30; 
+        const minMarkerSize = 30; // Mindestgröße des Markers in Pixeln für Erkennung
+        const maxLossFrames = 30; // Wie viele Frames darf der Marker fehlen, bevor das Objekt ausgeblendet wird
 
-        // HTML Referenzen
+        // HTML-Elemente in Variablen speichern für schnellen Zugriff
         const video = document.getElementById('video');
         const videoCanvas = document.getElementById('videoCanvas');
         const threeCanvas = document.getElementById('threeCanvas');
@@ -178,29 +192,32 @@
         const infoContent = document.getElementById('infoContent');
         const objectInfo = document.getElementById('objectInfo');
         const clickHint = document.getElementById('clickHint');
+        
+        // 2D-Kontext für das Zeichnen des Videobildes und der Debug-Linien
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Globale Variablen
-        let detector, posit;
-        let renderer, scene, camera;
-        let markerGroup;
-        const loadedMeshes = {}; 
+        // Globale Variablen für Tracking und Rendering
+        let detector, posit; // ArUco Detektor und Pose-Estimation
+        let renderer, scene, camera; // Three.js Standard-Komponenten
+        let markerGroup; // Gruppe, die das 3D-Objekt enthält und bewegt wird
+        const loadedMeshes = {}; // Speicher für geladene 3D-Modelle
         
-        // Tracking Status
-        let currentTrackingID = -1; 
-        let lossCounter = 0;
-        let activeLink = null; 
-        let hintTimeout = null; 
+        // Status-Variablen
+        let currentTrackingID = -1; // ID des aktuell erkannten Markers
+        let lossCounter = 0; // Zähler für verlorene Frames
+        let activeLink = null; // Link zum aktuellen Objekt
+        let hintTimeout = null; // Timer für den Hinweis-Text
 
-        let currentFacingMode = 'environment';
+        let currentFacingMode = 'environment'; // 'environment' = Rückkamera, 'user' = Frontkamera
         let stream = null;
         let isVideoReady = false;
 
-        // Glättung
-        const lerpFactor = 0.15;
+        // Variablen für Bewegungsglättung (Interpolation)
+        const lerpFactor = 0.15; // Wert zwischen 0 und 1 (kleiner = weicher aber langsamer)
         let targetPosition = new THREE.Vector3();
         let targetQuaternion = new THREE.Quaternion();
         
+        // Für Klick-Interaktion (Raycasting)
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
@@ -208,48 +225,68 @@
         // INITIALISIERUNG
         // ==========================================
 
+        // Wird ausgeführt, sobald die Seite geladen ist
         window.onload = () => {
+            // Initialisierung des ArUco-Detektors
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
+            
+            // Starten der 3D-Szene
             initThreeJS();
+            
+            // Laden aller Modelle im Hintergrund
             loadAllModels(); 
+            
+            // Kamera starten
             startCamera();
+            
+            // Klick-Events einrichten
             setupInteractions();
+            
+            // Starten der Render-Schleife
             requestAnimationFrame(tick);
         };
 
+        // Bei Fenstergrößenänderung (z.B. Drehen des Handys) anpassen
         window.addEventListener('resize', onResize);
         
+        // Schließen-Button Logik
         document.getElementById('closeBtn').addEventListener('click', () => {
             if(window.history.length > 1) window.history.back(); else window.close();
         });
 
+        // Kamera-Wechsel Button
         camBtn.addEventListener('click', () => {
             currentFacingMode = (currentFacingMode === 'environment') ? 'user' : 'environment';
             startCamera();
         });
 
-        // Rotation über Buttons
+        // Rotation der Modelle über Buttons
         document.getElementById('rotLeft').addEventListener('click', () => rotateCurrentModel(-0.2));
         document.getElementById('rotRight').addEventListener('click', () => rotateCurrentModel(0.2));
 
+        // Funktion zum Drehen des Modells um die eigene Achse
         function rotateCurrentModel(amount) {
-            // Dreht das Modell um die lokale Z-Achse (entspricht Drehung auf dem Marker)
+            // Prüfen, ob ein Modell aktiv ist
             if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
                 loadedMeshes[currentTrackingID].rotation.z += amount;
             }
         }
 
+        // Klick-Interaktion initialisieren
         function setupInteractions() {
             threeCanvas.addEventListener('click', onCanvasClick, false);
+            // Klick auf die Info-Box öffnet ebenfalls den Link
             objectInfo.addEventListener('click', () => {
                 if (activeLink) window.open(activeLink, '_blank');
             });
         }
 
+        // Verarbeitung von Klicks auf den 3D-Canvas
         function onCanvasClick(event) {
             if (currentTrackingID === -1 || !activeLink) return;
             event.preventDefault();
 
+            // Klick-Koordinaten ermitteln (Maus oder Touch)
             let clientX = event.clientX;
             let clientY = event.clientY;
             if (event.changedTouches && event.changedTouches.length > 0) {
@@ -257,13 +294,16 @@
                 clientY = event.changedTouches[0].clientY;
             }
 
+            // Umrechnung in normalisierte Gerätekoordinaten (-1 bis +1)
             mouse.x = (clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(clientY / window.innerHeight) * 2 + 1;
 
+            // "Strahl" von der Kamera durch die Klickposition senden
             raycaster.setFromCamera(mouse, camera);
             
             const currentMesh = loadedMeshes[currentTrackingID];
             if (currentMesh && currentMesh.visible) {
+                // Prüfen, ob der Strahl das Modell trifft
                 const intersects = raycaster.intersectObjects([currentMesh], true);
                 if (intersects.length > 0) {
                     window.open(activeLink, '_blank');
@@ -271,25 +311,31 @@
             }
         }
 
+        // Three.js Grundeinstellungen
         function initThreeJS() {
+            // Renderer mit transparentem Hintergrund erstellen
             renderer = new THREE.WebGLRenderer({ canvas: threeCanvas, alpha: true, antialias: true });
             renderer.setSize(window.innerWidth, window.innerHeight);
             renderer.setPixelRatio(window.devicePixelRatio);
 
             scene = new THREE.Scene();
+            // Kamera erstellen (Werte werden später bei onResize korrigiert)
             camera = new THREE.PerspectiveCamera(45, window.innerWidth / window.innerHeight, 0.1, 10000); 
             scene.add(camera);
             
-            scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
-            const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
+            // Beleuchtung hinzufügen
+            scene.add(new THREE.AmbientLight(0xffffff, 1.0)); // Grundhelligkeit
+            const dl = new THREE.DirectionalLight(0xffffff, 2.0); // Sonnenlicht
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
+            // Gruppe für den Marker erstellen (hier kommen die Modelle rein)
             markerGroup = new THREE.Group();
             scene.add(markerGroup);
             markerGroup.visible = false;
         }
 
+        // Lädt alle in der Konfiguration definierten 3D-Modelle
         function loadAllModels() {
             const loader = new THREE.GLTFLoader();
             const ids = Object.keys(AR_MODELS);
@@ -301,6 +347,7 @@
                 const config = AR_MODELS[id];
                 loader.load(config.url, (gltf) => {
                     const model = gltf.scene;
+                    // Skalierung anwenden (wichtig für die richtige Größe auf dem Marker)
                     model.scale.set(config.scale, config.scale, config.scale);
                     model.position.z = 0; 
                     
@@ -308,26 +355,28 @@
                     // Grundrotation: Modell aufrecht auf den Marker stellen (90 Grad um X)
                     model.rotation.x = Math.PI / 2; 
 
-                    // Spezialkorrektur für ID 1 und ID 2:
-                    // Falls diese auf dem Kopf stehen, um 180 Grad (PI) um die Z-Achse drehen
+                    // Spezialkorrektur für bestimmte IDs, falls sie verkehrt herum stehen
                     if (id === '1' || id === '2' || id === '3') {
                         model.rotation.z += Math.PI; 
                     }
-                    // ---------------------------------
 
-                    // Wasser-Partikel für ID 3 erstellen und anhängen
+                    // --- WASSER-EFFEKT FÜR FONTÄNE (ID 3) ---
                     if (id === '3') {
+                        // Partikelsystem wird als Kind-Objekt an das Modell angehängt.
+                        // WICHTIG: Da das Modell um 10.000 skaliert ist, werden auch die 
+                        // Partikelbewegungen um 10.000 skaliert.
                         const particles = createWaterEffect();
                         model.add(particles);
                         model.userData.particles = particles;
                     }
 
-                    model.visible = false;
+                    model.visible = false; // Erstmal unsichtbar machen
                     markerGroup.add(model);
                     loadedMeshes[id] = model;
 
                     loadedCount++;
                     
+                    // Status-Update in der UI
                     infoContent.innerHTML = `Starte System...<br><span style="color:yellow;">Lade Modelle (${loadedCount}/${ids.length})...</span>`;
                     
                     if(loadedCount === ids.length) {
@@ -340,25 +389,41 @@
             });
         }
 
+        // ==========================================
+        // PARTIKELSYSTEM (WASSERSTRAHL)
+        // ==========================================
+
         // Erstellt das Partikelsystem für den Wasser-Effekt
         function createWaterEffect() {
             const geometry = new THREE.BufferGeometry();
-            const count = 500;
+            const count = 2000; // Anzahl der Wassertropfen erhöht
             const positions = new Float32Array(count * 3);
             const velocities = new Float32Array(count * 3);
 
             for (let i = 0; i < count; i++) {
-                positions[i * 3] = 0; positions[i * 3 + 1] = 0; positions[i * 3 + 2] = 0;
+                // Startposition (0,0,0) ist relativ zum Modellursprung
+                positions[i * 3] = 0; 
+                positions[i * 3 + 1] = 0; 
+                positions[i * 3 + 2] = 0;
+                
                 // Geschwindigkeit der Partikel
-                velocities[i * 3] = (Math.random() - 0.5) * 0.1; 
-                velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; // Y ist oben (im lokalen Raum)
-                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1; 
+                // WICHTIG: Die Werte müssen sehr klein sein, da das Eltern-Modell 
+                // um den Faktor 10.000 skaliert ist.
+                // 0.0003 * 10.000 = 3 Einheiten Bewegung pro Frame in der Welt
+                velocities[i * 3] = (Math.random() - 0.5) * 0.0003; // Zufällige Streuung X
+                velocities[i * 3 + 1] = Math.random() * 0.0015 + 0.0015; // Bewegung nach oben (Y)
+                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.0003; // Zufällige Streuung Z
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            // Material für die Tropfen
             const material = new THREE.PointsMaterial({
-                color: 0x88ccff, size: 0.2, transparent: true,
-                opacity: 0.6, blending: THREE.AdditiveBlending
+                color: 0xaaddff, // Hellblau
+                size: 2.0, // Größe erhöht, damit man sie trotz Skalierung sieht
+                transparent: true,
+                opacity: 0.7,
+                blending: THREE.AdditiveBlending // Lässt überlappende Partikel leuchten
             });
 
             const points = new THREE.Points(geometry, material);
@@ -366,30 +431,43 @@
             return points;
         }
 
-        // Aktualisiert die Positionen der Wasser-Partikel
+        // Aktualisiert die Positionen der Wasser-Partikel in jedem Frame
         function updateWaterEffect(points) {
             const positions = points.geometry.attributes.position.array;
             const velocities = points.userData.velocities;
             const count = positions.length / 3;
 
+            // Schwerkraft muss ebenfalls extrem klein sein wegen der Skalierung
+            const gravity = 0.00004; 
+
             for (let i = 0; i < count; i++) {
+                // Position um Geschwindigkeit erhöhen
                 positions[i * 3] += velocities[i * 3];
                 positions[i * 3 + 1] += velocities[i * 3 + 1];
                 positions[i * 3 + 2] += velocities[i * 3 + 2];
                 
-                // Schwerkraft simulieren
-                velocities[i * 3 + 1] -= 0.01;
+                // Schwerkraft anwenden (Geschwindigkeit nach unten ziehen)
+                velocities[i * 3 + 1] -= gravity;
                 
-                // Zurücksetzen, wenn Partikel den Boden berühren
+                // Zurücksetzen, wenn Partikel unter den Boden fallen (y < 0)
                 if (positions[i * 3 + 1] < 0) {
-                    positions[i * 3] = 0; positions[i * 3 + 1] = 0; positions[i * 3 + 2] = 0;
-                    velocities[i * 3] = (Math.random() - 0.5) * 0.05;
-                    velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2;
-                    velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
+                    positions[i * 3] = 0; 
+                    positions[i * 3 + 1] = 0; 
+                    positions[i * 3 + 2] = 0;
+                    
+                    // Neue zufällige Geschwindigkeit beim Neustart
+                    velocities[i * 3] = (Math.random() - 0.5) * 0.0003;
+                    velocities[i * 3 + 1] = Math.random() * 0.0015 + 0.0015;
+                    velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.0003;
                 }
             }
+            // Three.js mitteilen, dass sich die Positionen geändert haben
             points.geometry.attributes.position.needsUpdate = true;
         }
+
+        // ==========================================
+        // KAMERA & RENDERING LOGIK
+        // ==========================================
 
         function onResize() {
             const w = window.innerWidth;
@@ -397,11 +475,13 @@
             videoCanvas.width = w; videoCanvas.height = h;
             renderer.setSize(w, h);
             if (w > 0) {
+                // Pose-Estimation Objekt an neue Breite anpassen
                 posit = new POS.Posit(markerSize, w);
                 updateThreeJSCamera(w, h);
             }
         }
 
+        // Berechnet das Sichtfeld der 3D-Kamera passend zum Video
         function updateThreeJSCamera(cw, ch) {
             const focalLength = cw; 
             const fovRad = 2 * Math.atan((ch / 2) / focalLength);
@@ -410,8 +490,10 @@
             camera.updateProjectionMatrix();
         }
 
+        // Startet den Zugriff auf die Webcam
         function startCamera() {
             isVideoReady = false;
+            // Falls bereits ein Stream läuft, stoppen
             if (stream) stream.getTracks().forEach(t => t.stop());
 
             navigator.mediaDevices.getUserMedia({
@@ -426,38 +508,45 @@
             });
         }
 
+        // Event: Wenn Video-Metadaten geladen sind (Größe bekannt)
         video.addEventListener('loadedmetadata', () => {
             onResize();
             isVideoReady = true;
         });
 
         // ==========================================
-        // RENDER SCHLEIFE (TICK)
+        // HAUPTSCHLEIFE (RENDER LOOP)
         // ==========================================
         function tick() {
             requestAnimationFrame(tick);
 
-            // Animation König (ID 0)
+            // 1. Animationen ausführen
+            // Animation König (ID 0) dreht sich dauerhaft
             if (loadedMeshes[0] && loadedMeshes[0].visible) loadedMeshes[0].rotation.z += 0.01; 
             
-            // Animation Fontäne (ID 3)
+            // Animation Fontäne (ID 3): Partikel aktualisieren
             if (loadedMeshes[3] && loadedMeshes[3].visible && loadedMeshes[3].userData.particles) {
                 updateWaterEffect(loadedMeshes[3].userData.particles);
             }
 
             let markerFound = false;
 
+            // 2. Bildverarbeitung
             if (isVideoReady && video.videoWidth > 0) {
+                // Video auf den 2D-Canvas zeichnen
                 drawVideoFullscreen();
 
+                // Bilddaten für ArUco holen
                 const imageData = context2D.getImageData(0, 0, videoCanvas.width, videoCanvas.height);
                 let markers = detector.detect(imageData);
 
+                // Filter: Zu kleine Marker ignorieren (vermindert Zittern)
                 markers = markers.filter(m => {
                     const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
                     return d > minMarkerSize;
                 });
 
+                // Marker ID 97 ignorieren (Beispiel)
                 markers = markers.filter(m => m.id !== 97);
 
                 if (markers.length > 0) {
@@ -467,14 +556,17 @@
                     const marker = markers[0]; 
                     const id = marker.id;
 
+                    // Visuelles Feedback: Roter Rahmen um Marker zeichnen
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, id);
 
+                    // Ecken zentrieren für Pose-Berechnung
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (videoCanvas.width / 2),
                         y: (videoCanvas.height / 2) - c.y
                     }));
                     
+                    // 3D-Position berechnen
                     const pose = posit.pose(cornersCentered);
 
                     if (pose) {
@@ -491,6 +583,7 @@
                                 }
                             });
 
+                            // Wenn ein neuer Marker erkannt wird
                             if (currentTrackingID !== id) {
                                 currentTrackingID = id;
                                 if (loadedMeshes[id]) {
@@ -509,12 +602,12 @@
                 }
             }
 
+            // 3. Marker Verlust behandeln
             if (!markerFound) {
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
+                    // Nach zu vielen Frames ohne Marker -> Alles ausblenden
                     markerGroup.visible = false;
-                    
-                    // Alle Modelle ausblenden
                     Object.values(loadedMeshes).forEach(m => m.visible = false);
 
                     infoContent.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
@@ -528,17 +621,20 @@
                 }
             }
 
-            // Bewegungsglättung anwenden
+            // 4. Bewegungsglättung anwenden (Lerp)
+            // Statt das Modell hart zu setzen, nähert es sich der Zielposition an
             if (markerGroup.visible) {
                 markerGroup.position.lerp(targetPosition, lerpFactor);
                 markerGroup.quaternion.slerp(targetQuaternion, lerpFactor);
             }
 
+            // 5. Szene rendern
             renderer.render(scene, camera);
         }
 
         // --- HILFSFUNKTIONEN ---
 
+        // Blendet den Finger-Hinweis kurz ein
         function triggerHint() {
             const hint = document.getElementById('clickHint');
             hint.style.opacity = 1;
@@ -551,6 +647,7 @@
             }, 10000);
         }
 
+        // Aktualisiert Titel und Beschreibung
         function updateInfoUI(id) {
             const data = AR_MODELS[id];
             if (!data) return;
@@ -566,6 +663,7 @@
             objectInfo.style.display = 'block';
         }
 
+        // Projiziert einen 3D-Punkt auf den 2D-Bildschirm
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
@@ -576,6 +674,7 @@
             return { x: x * scale + (videoCanvas.width / 2), y: (videoCanvas.height / 2) - y * scale };
         }
 
+        // Zeichnet die Koordinatenachsen (RGB = XYZ)
         function drawAxis(rot, trans, len) {
             const o = project([0, 0, 0], rot, trans);
             const ax = project([len, 0, 0], rot, trans);
@@ -587,6 +686,7 @@
             context2D.strokeStyle = "blue"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
         }
 
+        // Aktualisiert die technischen Debug-Daten in der Box oben links
         function updatePoseUI(r, t, id) {
             const m = new THREE.Matrix4();
             m.set(
@@ -625,6 +725,7 @@
             `;
         }
 
+        // Zeichnet das Video so, dass es den Bildschirm füllt (Cover-Mode)
         function drawVideoFullscreen() {
             const cw = videoCanvas.width; const ch = videoCanvas.height;
             const vw = video.videoWidth; const vh = video.videoHeight;
@@ -635,18 +736,21 @@
             context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
         }
 
+        // Hilfsfunktion: Roter Kasten
         function drawRedBox(corners) {
             context2D.lineWidth = 4; context2D.strokeStyle = "rgba(255, 0, 0, 0.7)"; context2D.beginPath();
             corners.forEach((c, i) => { if (i === 0) context2D.moveTo(c.x, c.y); else context2D.lineTo(c.x, c.y); });
             context2D.closePath(); context2D.stroke();
         }
 
+        // Hilfsfunktion: ID Text
         function drawIdText(corners, id) {
             const pt = corners[0]; context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
             context2D.lineWidth = 4; context2D.strokeStyle = "black"; context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
             context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
+        // Konvertiert die Matrix-Rotation und Translation in Three.js Vektoren
         function updateObjectTargets(r, t) {
             targetPosition.set(t[0], -t[1], -t[2]);
             const m = new THREE.Matrix4();
