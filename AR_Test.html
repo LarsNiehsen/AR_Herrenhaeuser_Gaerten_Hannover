@@ -8,7 +8,7 @@
     <!-- Leaflet CSS -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
-    <!-- Importiere Three.js und MindAR als Module (wie im funktionierenden Beispiel) -->
+    <!-- Importiere Three.js und MindAR als Module -->
     <script type="importmap">
     {
       "imports": {
@@ -31,18 +31,18 @@
             font-family: sans-serif;
         }
 
-        /* Video wird von MindAR gesteuert, wir passen Styles an damit es passt */
         #videoElement {
-            display: none; /* MindAR erstellt sein eigenes oder nutzt dieses, wir verstecken das rohe Element */
+            display: none; 
         }
 
+        /* Video Canvas für Debug-Zeichnungen (Rahmen, Achsen) - liegt ÜBER der 3D Szene */
         #videoCanvas {
             position: absolute;
             top: 0;
             left: 0;
             width: 100%;
             height: 100%;
-            z-index: 10;
+            z-index: 30; /* Über Container */
             pointer-events: none;
         }
 
@@ -242,11 +242,11 @@
     <!-- Video Element (wird von MindAR genutzt) -->
     <video id="videoElement" playsinline muted autoplay></video>
     
-    <!-- Canvas für ArUco Debugging (Bounding Boxes) -->
-    <canvas id="videoCanvas"></canvas>
-    
     <!-- Container für MindAR/ThreeJS Szene -->
     <div id="container"></div>
+
+    <!-- Canvas für ArUco Debugging (Bounding Boxes, Achsen) - Liegt ÜBER dem Container -->
+    <canvas id="videoCanvas"></canvas>
 
     <!-- UI: Debug Info -->
     <div id="debugInfo" class="ui-panel">
@@ -300,14 +300,15 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // --- KONFIGURATION MIT WELTKOORDINATEN ---
-        const markerSize = 100.0;
+        // --- KONFIGURATION ---
+        const markerSize = 100.0; // mm
         const selectedDictionary = 'ARUCO_MIP_36h12';
         
+        // Alle Modelle auf gleiche Skalierung gesetzt (200.0)
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', 
-                scale: 500.0, 
+                scale: 200.0, 
                 title: 'König Georg I.', 
                 info: 'Referenzmodell (ID 0)', 
                 link: null,
@@ -315,16 +316,16 @@
             },
             1: { 
                 url: '3D_models/Statue_3D.glb', 
-                scale: 110.0, 
+                scale: 90.0, 
                 title: 'Niederdeutscher Blumengarten', 
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 lat: 52.388194, lon: 9.697861, rotation: 215,
-                useMindAR: true // Dieses Modell unterstützt zusätzlich Image Tracking
+                useMindAR: true 
             },
             2: { 
                 url: '3D_models/BorghesischerFechter_WebAR.glb', 
-                scale: 25000.0, 
+                scale: 26000.0, 
                 title: 'Borghesischer Fechter', 
                 info: 'Borghesischer Fechter am Gartentheater', 
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
@@ -332,7 +333,7 @@
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', 
-                scale: 10000.0, 
+                scale: 8000.0, 
                 title: 'Große Fontäne', 
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
@@ -372,7 +373,8 @@
         // --- STATE ---
         let facingMode = 'environment';
         let activeLink = null;
-        let loadedMeshes = {};
+        let loadedMeshes = {}; // ArUco Meshes
+        let mindARMeshes = {}; // MindAR Meshes
         let detector, posit;
         // MindAR Variablen
         let mindarThree, renderer, scene, camera, mindarAnchor;
@@ -412,14 +414,13 @@
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
-            // 3. ArUco Marker Gruppe erstellen (für Marker 0, 2, 3)
-            // Diese Gruppe wird manuell durch ArUco Tracking bewegt
+            // 3. ArUco Marker Gruppe erstellen
             markerGroup = new THREE.Group();
             markerGroup.visible = false;
             scene.add(markerGroup);
 
-            // 4. MindAR Anchor erstellen (für Marker 1 / Image Tracking)
-            mindarAnchor = mindarThree.addAnchor(0); // Index 0 des .mind Files
+            // 4. MindAR Anchor erstellen (für ID 1)
+            mindarAnchor = mindarThree.addAnchor(0); 
 
             // Modelle laden
             loadModels();
@@ -437,7 +438,7 @@
                 }
 
                 // --- ARUCO LOGIC ---
-                // Wir nutzen das Video von MindAR für die ArUco Erkennung
+                // Zeichnet Debug Infos (Boxen, Achsen) und steuert markerGroup
                 processArucoFrame(video);
 
                 renderer.render(scene, camera);
@@ -453,42 +454,41 @@
                 const id = parseInt(idStr);
                 const config = AR_MODELS[id];
                 loader.load(config.url, (gltf) => {
-                    const model = gltf.scene;
-                    model.scale.set(config.scale, config.scale, config.scale);
-                    model.rotation.x = Math.PI / 2;
-                    if (id === 1 || id === 2 || id === 3) model.rotation.z += Math.PI;
+                    // Basis-Modell erstellen
+                    const setupModel = (mdl) => {
+                        mdl.scale.set(config.scale, config.scale, config.scale);
+                        mdl.rotation.x = Math.PI / 2;
+                        if (id === 1 || id === 2 || id === 3) mdl.rotation.z += Math.PI;
+                        if (id === 3) {
+                            const particles = createWaterEffect();
+                            mdl.add(particles);
+                            mdl.userData.particles = particles;
+                        }
+                    };
 
-                    if (id === 3) {
-                        const particles = createWaterEffect();
-                        model.add(particles);
-                        model.userData.particles = particles;
-                    }
+                    // 1. Instanz für ArUco Tracking
+                    const modelAruco = gltf.scene.clone();
+                    setupModel(modelAruco);
+                    modelAruco.visible = false;
+                    markerGroup.add(modelAruco);
+                    loadedMeshes[id] = modelAruco;
 
-                    model.visible = false;
+                    // 2. Instanz für MindAR (nur wenn konfiguriert, z.B. ID 1)
+                    if (config.useMindAR) {
+                        const modelMind = gltf.scene.clone();
+                        setupModel(modelMind);
+                        // MindAR steuert Sichtbarkeit oft selbst, wir fügen es zur Anchor Group hinzu
+                        mindarAnchor.group.add(modelMind);
+                        mindARMeshes[id] = modelMind;
 
-                    // Logik: ID 1 kommt in den MindAR Anchor, alle anderen in die ArUco Gruppe
-                    if (id === 1 && config.useMindAR) {
-                        mindarAnchor.group.add(model);
-                        
-                        // Event Listener für MindAR Sichtbarkeit
                         mindarAnchor.onTargetFound = () => {
                             updateUIForModel(id, "MindAR Image");
-                            model.visible = true;
-                            // ArUco Gruppe verstecken wenn MindAR aktiv (optional, verhindert Überlagerung)
-                            // markerGroup.visible = false; 
+                            // ArUco Version unsichtbar machen, um Doppelung zu vermeiden
+                            modelAruco.visible = false; 
                         };
-                        mindarAnchor.onTargetLost = () => {
-                            // model.visible = false; // MindAR handhabt das oft automatisch über anchor.group.visible
-                            lossCounter = maxLossFrames; // Reset UI Text
-                        };
-
-                    } else {
-                        markerGroup.add(model);
                     }
                     
-                    loadedMeshes[id] = model;
                     loadedCount++;
-
                     statusText.innerHTML = `Starte System...<br><span style="color:yellow;">Lade Modelle (${loadedCount}/${ids.length})...</span>`;
                     if (loadedCount === ids.length) {
                         statusText.innerHTML = `System bereit.<br><span style="color:#00ff00;">Warte auf Marker...</span>`;
@@ -502,27 +502,40 @@
             if (!video || video.readyState < video.HAVE_METADATA) return;
 
             const cw = videoCanvas.width; const ch = videoCanvas.height;
-            // Canvas anpassen falls Größe ändert
             if (cw !== window.innerWidth || ch !== window.innerHeight) {
                 videoCanvas.width = window.innerWidth;
                 videoCanvas.height = window.innerHeight;
                 posit = new POS.Posit(markerSize, window.innerWidth);
             }
 
-            // Zeichne Video auf 2D Canvas für Analyse
+            // Zeichne Video auf 2D Canvas für Debug Overlay & CV
             const vw = video.videoWidth; const vh = video.videoHeight;
-            // Berechne Skalierung (cover) wie MindAR es macht
+            // Scale logic from MindAR to match overlay
             const rV = vw / vh; const rC = cw / ch;
             let sx, sy, sw, sh;
             if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
             else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
             
             context2D.clearRect(0, 0, cw, ch);
-            // Optional: Video zeichnen ist nicht nötig, da MindAR den WebGL Hintergrund rendert.
-            // Aber wir brauchen die Pixel für CV.
+            // ACHTUNG: Wir zeichnen das Bild NICHT mehr komplett deckend,
+            // da MindAR den WebGL Hintergrund liefert. Wir brauchen den Context
+            // aber für die Erkennung.
+            // Trick: Wir nutzen einen Offscreen-Prozess oder zeichnen einfach NICHT das Video,
+            // sondern nur die Debug-Linien. Das Video für CV holen wir direkt.
+            
+            // Um CV auszuführen, brauchen wir Pixel. 
+            // drawImage ist der performanteste Weg, um Pixeldaten zu bekommen.
+            // Wir zeichnen es, lesen es, und löschen es danach sofort wieder für die Overlays?
+            // Nein, einfacher: Wir lassen das Video weg, da es im Hintergrund läuft, 
+            // aber zeichnen es 1x, holen Daten, und übermalen dann mit 'clearRect' nur wenn nötig.
+            // Aber `detector` braucht imageData.
+            
             context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
-
             const imageData = context2D.getImageData(0, 0, cw, ch);
+            
+            // Jetzt Canvas leeren, damit wir das WebGL Video darunter sehen
+            context2D.clearRect(0, 0, cw, ch);
+
             let markers = detector.detect(imageData);
             markers = markers.filter(m => {
                 const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
@@ -532,21 +545,11 @@
             let arucoFound = false;
 
             if (markers.length > 0) {
-                const marker = markers[0];
-                const id = marker.id;
-
-                // ID 1 wird hier ignoriert wenn MindAR es machen soll, oder als Fallback genutzt
-                // Hier erlauben wir ArUco für alle außer ID 1 (da ID 1 via Image Tracking läuft)
-                // Oder wir nutzen ArUco als Fallback. 
-                // Einfachheitshalber: Wenn ArUco ID != 1 (Statue), dann Tracking anwenden.
-                
-                if (id !== 1 || !AR_MODELS[1].useMindAR) {
-                    arucoFound = true;
-                    lossCounter = 0;
-
+                // Zeichne Rahmen für ALLE Marker
+                markers.forEach(marker => {
                     drawRedBox(marker.corners);
-                    drawIdText(marker.corners, id);
-
+                    drawIdText(marker.corners, marker.id);
+                    
                     const cornersCentered = marker.corners.map(c => ({
                         x: c.x - (cw / 2),
                         y: (ch / 2) - c.y
@@ -556,29 +559,43 @@
                     if (pose) {
                         const r = pose.bestRotation;
                         const t = pose.bestTranslation;
+                        
+                        // Zeichne Achsen für ALLE Marker
                         drawAxis(r, t, markerSize);
-                        updatePoseUI(r, t, id);
 
-                        const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
-                        const m = new THREE.Matrix4();
-                        m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
-                        const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+                        // Wenn MindAR gerade NICHT aktiv trackt (anchor visible checken), dann ArUco nutzen
+                        // Oder wir priorisieren: ArUco steuert markerGroup.
+                        
+                        // ID Logik
+                        const id = marker.id;
+                        if (AR_MODELS[id]) {
+                            // Wenn dies der "Hauptmarker" im Fokus ist (z.B. der erste)
+                            if (marker === markers[0]) {
+                                arucoFound = true;
+                                lossCounter = 0;
+                                
+                                // Debug Text oben links aktualisieren
+                                updatePoseUI(r, t, id, "ArUco");
 
-                        // ArUco bewegt die markerGroup
-                        updateActiveModelArUco(id, targetPos, targetQuat);
+                                const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
+                                const m = new THREE.Matrix4();
+                                m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
+                                const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+
+                                // Update Model in ArUco Group
+                                updateActiveModelArUco(id, targetPos, targetQuat);
+                            }
+                        }
                     }
-                }
-            } else {
-                // Nur Canvas clearen für Bounding Boxes (schon passiert durch clearRect oben)
+                });
             }
 
-            // Check Loss (Global für UI Reset)
-            if (!arucoFound && (!mindarAnchor || !mindarAnchor.group.visible)) {
+            // Check Loss (wenn weder ArUco noch MindAR etwas sieht)
+            const mindActive = mindarAnchor && mindarAnchor.group.visible;
+            if (!arucoFound && !mindActive) {
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
                     markerGroup.visible = false;
-                    // MindAR Sichtbarkeit wird automatisch geregelt
-                    
                     if (currentTrackingID !== -1) {
                          modelInfo.style.display = 'none';
                          statusText.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
@@ -589,7 +606,7 @@
             }
         }
 
-        // --- INITIALIZE MAP ---
+        // --- MAP FUNCTIONS ---
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -636,7 +653,6 @@
             }, 1500);
         }
 
-        // --- MAP HELPERS ---
         function onPos(pos) {
             lastPos = {
                 latitude: pos.coords.latitude,
@@ -678,7 +694,7 @@
             L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
         }
 
-        // --- AR LOGIC & VISUALIZATION ---
+        // --- VISUALIZATION HELPERS ---
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
@@ -711,15 +727,43 @@
             const pt = corners[0];
             context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
             context2D.lineWidth = 4; context2D.strokeStyle = "black";
-            context2D.strokeText(`ID: ${id} (${source})`, pt.x, pt.y - 10);
-            context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id} (${source})`, pt.x, pt.y - 10);
+            context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
+            context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
         }
 
         function updatePoseUI(r, t, id, source = "ArUco") {
-            // Vereinfachtes UI Update
+            const m = new THREE.Matrix4();
+            m.set(
+                r[0][0], r[0][1], r[0][2], t[0],
+               -r[1][0], -r[1][1], -r[1][2], -t[1],
+               -r[2][0], -r[2][1], -r[2][2], -t[2],
+                0,       0,       0,       1
+            );
+            
+            const inv = m.clone().invert();
+            const pos = new THREE.Vector3();
+            const quat = new THREE.Quaternion();
+            const sc = new THREE.Vector3();
+            inv.decompose(pos, quat, sc);
+            const euler = new THREE.Euler().setFromQuaternion(quat);
+            
+            const x = (pos.x / 10).toFixed(0); 
+            const y = (pos.y / 10).toFixed(0);
+            const z = (pos.z / 10).toFixed(0);
+            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
             statusText.innerHTML = `
                 <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
-                <div style="margin-top:8px;">Tracking aktiv</div>
+                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
+                    <span style="color:#aaa;">Position:</span><br>
+                    X: ${x} cm | Y: ${y} cm | Z: ${z} cm
+                </div>
+                <div style="margin-top:8px;">
+                    <span style="color:#aaa;">Rotation:</span><br>
+                    Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
+                </div>
             `;
         }
 
@@ -731,7 +775,6 @@
             }, 10000);
         }
 
-        // Hilfsfunktion für UI Update (genutzt von MindAR und ArUco)
         function updateUIForModel(id, sourceName) {
             if (currentTrackingID !== id) {
                 currentTrackingID = id;
@@ -740,9 +783,6 @@
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
                 triggerHint();
-                statusText.innerHTML = `
-                    <span style="color:yellow;">Gefunden: ID ${id} (${sourceName})</span>
-                `;
             }
         }
 
@@ -750,10 +790,7 @@
             if (AR_MODELS[id]) {
                 // Schalte Sichtbarkeit in markerGroup
                 Object.keys(loadedMeshes).forEach(key => {
-                    // Wir schalten hier nur Modelle an, die NICHT MindAR nutzen (ID 1 ist separat)
-                    if (parseInt(key) !== 1) {
-                         loadedMeshes[key].visible = (parseInt(key) === id);
-                    }
+                     loadedMeshes[key].visible = (parseInt(key) === id);
                 });
                 
                 updateUIForModel(id, "ArUco");
@@ -805,16 +842,12 @@
         // Wir erstellen posit objekt initial
         posit = new POS.Posit(markerSize, window.innerWidth);
 
-        // Map Init
         initMap();
-
-        // Start MindAR (dieses übernimmt Camera & Loop)
         startAR();
 
-        
         document.addEventListener('visibilitychange', () => {
             if (document.visibilityState === 'visible') {
-               // MindAR kümmert sich um Video resume
+               // MindAR resume wird hier meist automatisch gehandhabt
             }
         });
 
@@ -836,8 +869,19 @@
             }
         });
 
-        rotLeftBtn.addEventListener('click', () => { if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z -= 0.2; });
-        rotRightBtn.addEventListener('click', () => { if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z += 0.2; });
+        rotLeftBtn.addEventListener('click', () => { 
+            // Rotation für ArUco und MindAR Meshes anwenden
+            if (currentTrackingID !== -1) {
+                if(loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z -= 0.2;
+                if(mindARMeshes[currentTrackingID]) mindARMeshes[currentTrackingID].rotation.z -= 0.2;
+            }
+        });
+        rotRightBtn.addEventListener('click', () => { 
+            if (currentTrackingID !== -1) {
+                if(loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z += 0.2;
+                if(mindARMeshes[currentTrackingID]) mindARMeshes[currentTrackingID].rotation.z += 0.2;
+            }
+        });
 
         modelInfo.addEventListener('click', () => { if (activeLink) window.open(activeLink, '_blank'); });
         
@@ -845,12 +889,17 @@
         document.body.addEventListener('click', (event) => {
             if (currentTrackingID === -1 || !activeLink || !camera) return;
             const mouse = new THREE.Vector2();
-            // Event target ist body/container, calculation normalisieren
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
             const raycaster = new THREE.Raycaster();
             raycaster.setFromCamera(mouse, camera);
-            const intersects = raycaster.intersectObjects([loadedMeshes[currentTrackingID]], true);
+            
+            // Objekte sammeln (sowohl ArUco als auch MindAR instanzen)
+            const objectsToCheck = [];
+            if(loadedMeshes[currentTrackingID]) objectsToCheck.push(loadedMeshes[currentTrackingID]);
+            if(mindARMeshes[currentTrackingID]) objectsToCheck.push(mindARMeshes[currentTrackingID]);
+            
+            const intersects = raycaster.intersectObjects(objectsToCheck, true);
             if (intersects.length > 0) window.open(activeLink, '_blank');
         });
 
