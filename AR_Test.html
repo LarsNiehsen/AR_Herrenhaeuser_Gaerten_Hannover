@@ -308,7 +308,7 @@
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', 
-                scale: 200.0, 
+                scale: 150.0, 
                 title: 'König Georg I.', 
                 info: 'Referenzmodell (ID 0)', 
                 link: null,
@@ -455,8 +455,15 @@
                 const config = AR_MODELS[id];
                 loader.load(config.url, (gltf) => {
                     // Basis-Modell erstellen
-                    const setupModel = (mdl) => {
-                        mdl.scale.set(config.scale, config.scale, config.scale);
+                    const setupModel = (mdl, isMindAR) => {
+                        // Skalierung: Wenn MindAR genutzt wird, drastisch reduzieren
+                        // ArUco (mm) vs MindAR (Units/ImageWidth). Faktor 0.015 gleicht ca. 200 -> 3 aus.
+                        let finalScale = config.scale;
+                        if (isMindAR) {
+                            finalScale = config.scale * 0.015; 
+                        }
+                        
+                        mdl.scale.set(finalScale, finalScale, finalScale);
                         mdl.rotation.x = Math.PI / 2;
                         if (id === 1 || id === 2 || id === 3) mdl.rotation.z += Math.PI;
                         if (id === 3) {
@@ -466,9 +473,9 @@
                         }
                     };
 
-                    // 1. Instanz für ArUco Tracking
+                    // 1. Instanz für ArUco Tracking (False = kein MindAR Scaling)
                     const modelAruco = gltf.scene.clone();
-                    setupModel(modelAruco);
+                    setupModel(modelAruco, false);
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
@@ -476,14 +483,15 @@
                     // 2. Instanz für MindAR (nur wenn konfiguriert, z.B. ID 1)
                     if (config.useMindAR) {
                         const modelMind = gltf.scene.clone();
-                        setupModel(modelMind);
-                        // MindAR steuert Sichtbarkeit oft selbst, wir fügen es zur Anchor Group hinzu
+                        // True = MindAR Scaling anwenden
+                        setupModel(modelMind, true);
+                        
                         mindarAnchor.group.add(modelMind);
                         mindARMeshes[id] = modelMind;
 
                         mindarAnchor.onTargetFound = () => {
                             updateUIForModel(id, "MindAR Image");
-                            // ArUco Version unsichtbar machen, um Doppelung zu vermeiden
+                            // ArUco Version unsichtbar machen
                             modelAruco.visible = false; 
                         };
                     }
@@ -508,44 +516,28 @@
                 posit = new POS.Posit(markerSize, window.innerWidth);
             }
 
-            // Zeichne Video auf 2D Canvas für Debug Overlay & CV
             const vw = video.videoWidth; const vh = video.videoHeight;
-            // Scale logic from MindAR to match overlay
             const rV = vw / vh; const rC = cw / ch;
             let sx, sy, sw, sh;
             if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
             else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
             
             context2D.clearRect(0, 0, cw, ch);
-            // ACHTUNG: Wir zeichnen das Bild NICHT mehr komplett deckend,
-            // da MindAR den WebGL Hintergrund liefert. Wir brauchen den Context
-            // aber für die Erkennung.
-            // Trick: Wir nutzen einen Offscreen-Prozess oder zeichnen einfach NICHT das Video,
-            // sondern nur die Debug-Linien. Das Video für CV holen wir direkt.
-            
-            // Um CV auszuführen, brauchen wir Pixel. 
-            // drawImage ist der performanteste Weg, um Pixeldaten zu bekommen.
-            // Wir zeichnen es, lesen es, und löschen es danach sofort wieder für die Overlays?
-            // Nein, einfacher: Wir lassen das Video weg, da es im Hintergrund läuft, 
-            // aber zeichnen es 1x, holen Daten, und übermalen dann mit 'clearRect' nur wenn nötig.
-            // Aber `detector` braucht imageData.
-            
             context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
             const imageData = context2D.getImageData(0, 0, cw, ch);
-            
-            // Jetzt Canvas leeren, damit wir das WebGL Video darunter sehen
-            context2D.clearRect(0, 0, cw, ch);
+            context2D.clearRect(0, 0, cw, ch); // Canvas wieder transparent machen für WebGL
 
             let markers = detector.detect(imageData);
+            
+            // FILTER: Marker entfernen, die zu klein sind UND ID 97 entfernen
             markers = markers.filter(m => {
                 const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
-                return d > 30;
+                return d > 30 && m.id !== 97;
             });
 
             let arucoFound = false;
 
             if (markers.length > 0) {
-                // Zeichne Rahmen für ALLE Marker
                 markers.forEach(marker => {
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
@@ -559,22 +551,13 @@
                     if (pose) {
                         const r = pose.bestRotation;
                         const t = pose.bestTranslation;
-                        
-                        // Zeichne Achsen für ALLE Marker
                         drawAxis(r, t, markerSize);
 
-                        // Wenn MindAR gerade NICHT aktiv trackt (anchor visible checken), dann ArUco nutzen
-                        // Oder wir priorisieren: ArUco steuert markerGroup.
-                        
-                        // ID Logik
                         const id = marker.id;
                         if (AR_MODELS[id]) {
-                            // Wenn dies der "Hauptmarker" im Fokus ist (z.B. der erste)
                             if (marker === markers[0]) {
                                 arucoFound = true;
                                 lossCounter = 0;
-                                
-                                // Debug Text oben links aktualisieren
                                 updatePoseUI(r, t, id, "ArUco");
 
                                 const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
@@ -582,7 +565,6 @@
                                 m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
                                 const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);
 
-                                // Update Model in ArUco Group
                                 updateActiveModelArUco(id, targetPos, targetQuat);
                             }
                         }
@@ -592,15 +574,29 @@
 
             // Check Loss (wenn weder ArUco noch MindAR etwas sieht)
             const mindActive = mindarAnchor && mindarAnchor.group.visible;
-            if (!arucoFound && !mindActive) {
-                lossCounter++;
-                if (lossCounter > maxLossFrames) {
-                    markerGroup.visible = false;
-                    if (currentTrackingID !== -1) {
-                         modelInfo.style.display = 'none';
-                         statusText.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
-                         clickHint.style.opacity = 0;
-                         currentTrackingID = -1;
+            
+            if (!arucoFound) {
+                if (mindActive) {
+                    // Falls MindAR aktiv ist, aber kein ArUco -> Debug Fenster aktualisieren
+                    lossCounter = 0;
+                    statusText.innerHTML = `
+                        <span style="color:#00ff00;">Gefunden: Image Target (MindAR)</span><br>
+                        <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
+                            <span style="color:#aaa;">Tracking:</span><br>
+                            Optische Bilderkennung aktiv
+                        </div>
+                    `;
+                } else {
+                    // Weder ArUco noch MindAR
+                    lossCounter++;
+                    if (lossCounter > maxLossFrames) {
+                        markerGroup.visible = false;
+                        if (currentTrackingID !== -1) {
+                             modelInfo.style.display = 'none';
+                             statusText.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
+                             clickHint.style.opacity = 0;
+                             currentTrackingID = -1;
+                        }
                     }
                 }
             }
