@@ -60,7 +60,7 @@
             top: 20px;
             left: 20px;
             padding: 12px;
-            min-width: 200px;
+            min-width: 220px;
             font-family: monospace;
             font-size: 13px;
             pointer-events: none;
@@ -177,7 +177,7 @@
             font-size: 24px;
             font-weight: bold;
             cursor: pointer;
-            position: relative; /* Für ui-panel Styling */
+            position: relative;
         }
 
         /* Rotation Controls (Bottom Left) */
@@ -202,8 +202,24 @@
             position: relative;
         }
 
-        .user-arrow {
-            transition: transform 0.1s linear;
+        #clickHint {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            color: yellow;
+            text-shadow: 1px 1px 2px black;
+            font-weight: bold;
+            font-family: sans-serif;
+            z-index: 90;
+            pointer-events: none;
+            opacity: 0;
+            transition: opacity 0.5s;
+            font-size: 1.2rem;
+            background: rgba(0,0,0,0.5);
+            padding: 10px;
+            border-radius: 10px;
+            text-align: center;
         }
     </style>
 </head>
@@ -229,6 +245,8 @@
         <small style="display:block; margin-top: 4px; color: #aaa;">(Tippen zum Öffnen)</small>
     </div>
 
+    <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
+
     <!-- UI: Map & Camera Controls (Bottom Right) -->
     <div id="mapControls">
         <div id="mapContainer">
@@ -239,9 +257,7 @@
             </div>
         </div>
         <div class="bottom-right-btns">
-            <!-- Karten-Toggle-Button -->
             <button id="toggleMapBtn" class="ui-panel action-btn">🗺️</button>
-            <!-- Kamera-Wechsel-Button -->
             <button id="switchCamBtn" class="ui-panel action-btn">📷</button>
         </div>
     </div>
@@ -263,7 +279,7 @@
 
     <script>
         (function() {
-            // --- KONFIGURATION (Original beibehalten) ---
+            // --- KONFIGURATION ---
             const markerSize = 100.0;
             const selectedDictionary = 'ARUCO_MIP_36h12';
             const AR_MODELS = {
@@ -291,6 +307,7 @@
             const modelInfo = document.getElementById('modelInfo');
             const objTitle = document.getElementById('objTitle');
             const objText = document.getElementById('objText');
+            const clickHint = document.getElementById('clickHint');
             const switchCamBtn = document.getElementById('switchCamBtn');
             const toggleMapBtn = document.getElementById('toggleMapBtn');
             const rotLeftBtn = document.getElementById('rotLeftBtn');
@@ -299,6 +316,8 @@
             const mapContainer = document.getElementById('mapContainer');
             const locateBtn = document.getElementById('locateBtn');
             const orientBtn = document.getElementById('orientBtn');
+
+            const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
             // --- STATE ---
             let facingMode = 'environment';
@@ -311,6 +330,7 @@
             let currentTrackingID = -1;
             let lossCounter = 0;
             const maxLossFrames = 30;
+            let hintTimeout = null;
 
             // --- INITIALIZE THREE.JS ---
             function initThree() {
@@ -415,7 +435,7 @@
                     longitude: pos.coords.longitude,
                     accuracy: pos.coords.accuracy || 5
                 };
-                drawUser(lastPos);
+                drawUserOnMap(lastPos);
                 if (!mapStations._userCentered) {
                     mapStations.setView([lastPos.latitude, lastPos.longitude], 17);
                     mapStations._userCentered = true;
@@ -426,10 +446,10 @@
                 let alpha = e.alpha;
                 if (alpha == null) return;
                 heading = (360 - alpha) % 360;
-                if (lastPos) drawUser(lastPos);
+                if (lastPos) drawUserOnMap(lastPos);
             }
 
-            function drawUser(p) {
+            function drawUserOnMap(p) {
                 if (!userLayer) return;
                 userLayer.clearLayers();
                 L.circle([p.latitude, p.longitude], {
@@ -450,7 +470,87 @@
                 L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
             }
 
-            // --- AR LOGIC ---
+            // --- AR LOGIC & VISUALIZATION ---
+            function project(point3d, rot, trans) {
+                const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
+                const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
+                const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
+                if (z <= 0) return { x: -1000, y: -1000 };
+                const f = videoCanvas.width;
+                const scale = f / z;
+                return { x: x * scale + (videoCanvas.width / 2), y: (videoCanvas.height / 2) - y * scale };
+            }
+
+            function drawAxis(rot, trans, len) {
+                const o = project([0, 0, 0], rot, trans);
+                const ax = project([len, 0, 0], rot, trans);
+                const ay = project([0, len, 0], rot, trans);
+                const az = project([0, 0, len], rot, trans);
+                context2D.lineWidth = 4;
+                context2D.strokeStyle = "red"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ax.x, ax.y); context2D.stroke();
+                context2D.strokeStyle = "lime"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ay.x, ay.y); context2D.stroke();
+                context2D.strokeStyle = "blue"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
+            }
+
+            function drawRedBox(corners) {
+                context2D.lineWidth = 4; context2D.strokeStyle = "rgba(255, 0, 0, 0.7)";
+                context2D.beginPath();
+                corners.forEach((c, i) => { if (i === 0) context2D.moveTo(c.x, c.y); else context2D.lineTo(c.x, c.y); });
+                context2D.closePath(); context2D.stroke();
+            }
+
+            function drawIdText(corners, id) {
+                const pt = corners[0];
+                context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
+                context2D.lineWidth = 4; context2D.strokeStyle = "black";
+                context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
+                context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
+            }
+
+            function updatePoseUI(r, t, id) {
+                const m = new THREE.Matrix4();
+                m.set(
+                    r[0][0], r[0][1], r[0][2], t[0],
+                   -r[1][0], -r[1][1], -r[1][2], -t[1],
+                   -r[2][0], -r[2][1], -r[2][2], -t[2],
+                    0,       0,       0,       1
+                );
+                
+                const inv = m.invert();
+                const pos = new THREE.Vector3();
+                const quat = new THREE.Quaternion();
+                const sc = new THREE.Vector3();
+                inv.decompose(pos, quat, sc);
+                const euler = new THREE.Euler().setFromQuaternion(quat);
+                
+                const x = (pos.x / 10).toFixed(0); 
+                const y = (pos.y / 10).toFixed(0);
+                const z = (pos.z / 10).toFixed(0);
+                const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+                const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+                const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
+                statusText.innerHTML = `
+                    <span style="color:yellow;">Gefunden: ID ${id}</span><br>
+                    <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
+                        <span style="color:#aaa;">Position:</span><br>
+                        X: ${x} cm | Y: ${y} cm | Z: ${z} cm
+                    </div>
+                    <div style="margin-top:8px;">
+                        <span style="color:#aaa;">Rotation:</span><br>
+                        Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
+                    </div>
+                `;
+            }
+
+            function triggerHint() {
+                clickHint.style.opacity = 1;
+                if (hintTimeout) clearTimeout(hintTimeout);
+                hintTimeout = setTimeout(() => {
+                    clickHint.style.opacity = 0;
+                }, 10000);
+            }
+
             function startCamera() {
                 if (video.srcObject) {
                     video.srcObject.getTracks().forEach(track => track.stop());
@@ -460,9 +560,7 @@
                     audio: false
                 }).then(stream => {
                     video.srcObject = stream;
-                    video.onloadedmetadata = () => {
-                        handleResize();
-                    };
+                    video.onloadedmetadata = () => { handleResize(); };
                 }).catch(err => {
                     statusText.innerHTML = `<span style="color:red;">Kamera-Fehler: ${err.message}</span>`;
                 });
@@ -475,9 +573,8 @@
                 videoCanvas.height = h;
                 renderer.setSize(w, h);
                 posit = new POS.Posit(markerSize, w);
-                
-                const focalLength = w;
-                const fovRad = 2 * Math.atan((h / 2) / focalLength);
+                const f = w;
+                const fovRad = 2 * Math.atan((h / 2) / f);
                 camera.fov = fovRad * (180 / Math.PI);
                 camera.aspect = w / h;
                 camera.updateProjectionMatrix();
@@ -493,16 +590,15 @@
 
                 let markerFound = false;
                 if (video.readyState >= video.HAVE_METADATA) {
-                    const ctx = videoCanvas.getContext('2d', { willReadFrequently: true });
                     const cw = videoCanvas.width; const ch = videoCanvas.height;
                     const vw = video.videoWidth; const vh = video.videoHeight;
                     const rV = vw / vh; const rC = cw / ch;
                     let sx, sy, sw, sh;
                     if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
                     else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
-                    ctx.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+                    context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
 
-                    const imageData = ctx.getImageData(0, 0, cw, ch);
+                    const imageData = context2D.getImageData(0, 0, cw, ch);
                     let markers = detector.detect(imageData);
                     markers = markers.filter(m => {
                         const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
@@ -515,11 +611,8 @@
                         const marker = markers[0];
                         const id = marker.id;
 
-                        // Debug Box
-                        ctx.lineWidth = 4; ctx.strokeStyle = "rgba(255, 0, 0, 0.7)";
-                        ctx.beginPath();
-                        marker.corners.forEach((c, i) => { if (i === 0) ctx.moveTo(c.x, c.y); else ctx.lineTo(c.x, c.y); });
-                        ctx.closePath(); ctx.stroke();
+                        drawRedBox(marker.corners);
+                        drawIdText(marker.corners, id);
 
                         const cornersCentered = marker.corners.map(c => ({
                             x: c.x - (cw / 2),
@@ -530,6 +623,9 @@
                         if (pose) {
                             const r = pose.bestRotation;
                             const t = pose.bestTranslation;
+                            drawAxis(r, t, markerSize);
+                            updatePoseUI(r, t, id);
+
                             const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
                             const m = new THREE.Matrix4();
                             m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
@@ -545,6 +641,7 @@
                                     objTitle.innerText = AR_MODELS[id].title;
                                     objText.innerText = AR_MODELS[id].info;
                                     activeLink = AR_MODELS[id].link;
+                                    triggerHint();
                                 }
                                 markerGroup.visible = true;
                                 markerGroup.position.lerp(targetPos, 0.2);
@@ -560,10 +657,11 @@
                         markerGroup.visible = false;
                         Object.values(loadedMeshes).forEach(m => m.visible = false);
                         modelInfo.style.display = 'none';
+                        statusText.innerHTML = `System bereit.<br><span style="color:#aaa;">Kein Marker erkannt</span>`;
+                        clickHint.style.opacity = 0;
                         currentTrackingID = -1;
                     }
                 }
-
                 renderer.render(scene, camera);
             }
 
@@ -591,9 +689,7 @@
                 const vels = points.userData.vels;
                 const grav = 0.00004;
                 for (let i=0; i < pos.length/3; i++) {
-                    pos[i*3] += vels[i*3];
-                    pos[i*3+1] += vels[i*3+1];
-                    pos[i*3+2] += vels[i*3+2];
+                    pos[i*3] += vels[i*3]; pos[i*3+1] += vels[i*3+1]; pos[i*3+2] += vels[i*3+2];
                     vels[i*3+1] -= grav;
                     if (pos[i*3+1] < 0) {
                         pos[i*3]=0; pos[i*3+1]=0; pos[i*3+2]=0;
@@ -612,16 +708,9 @@
             startCamera();
             tick();
 
-            // Event Listeners
             window.addEventListener('resize', handleResize);
-            
-            // Kamera Wechsel
-            switchCamBtn.addEventListener('click', () => {
-                facingMode = (facingMode === 'environment' ? 'user' : 'environment');
-                startCamera();
-            });
+            switchCamBtn.addEventListener('click', () => { facingMode = (facingMode === 'environment' ? 'user' : 'environment'); startCamera(); });
 
-            // Toggle Map Functionality
             toggleMapBtn.addEventListener('click', () => {
                 const isVisible = mapContainer.style.display === 'block';
                 if (isVisible) {
@@ -632,27 +721,23 @@
                     mapContainer.style.display = 'block';
                     toggleMapBtn.innerText = '✖';
                     toggleMapBtn.style.background = 'rgba(150, 0, 0, 0.85)';
-                    if (mapStations) {
-                        setTimeout(() => mapStations.invalidateSize(), 50);
-                    }
+                    if (mapStations) { setTimeout(() => mapStations.invalidateSize(), 50); }
                 }
             });
 
-            // Rotation des Objekts
-            rotLeftBtn.addEventListener('click', () => {
-                if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
-                    loadedMeshes[currentTrackingID].rotation.z -= 0.2;
-                }
-            });
-            rotRightBtn.addEventListener('click', () => {
-                if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
-                    loadedMeshes[currentTrackingID].rotation.z += 0.2;
-                }
-            });
+            rotLeftBtn.addEventListener('click', () => { if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z -= 0.2; });
+            rotRightBtn.addEventListener('click', () => { if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z += 0.2; });
 
-            // Info Link
-            modelInfo.addEventListener('click', () => {
-                if (activeLink) window.open(activeLink, '_blank');
+            modelInfo.addEventListener('click', () => { if (activeLink) window.open(activeLink, '_blank'); });
+            threeCanvas.addEventListener('click', (event) => {
+                if (currentTrackingID === -1 || !activeLink) return;
+                const mouse = new THREE.Vector2();
+                mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+                mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+                const raycaster = new THREE.Raycaster();
+                raycaster.setFromCamera(mouse, camera);
+                const intersects = raycaster.intersectObjects([loadedMeshes[currentTrackingID]], true);
+                if (intersects.length > 0) window.open(activeLink, '_blank');
             });
 
         })();
