@@ -18,11 +18,29 @@
         object-fit: cover; z-index: 0;
     }
 
-    /* 3D Canvas */
+    /* 3D Canvas - liegt auf Z-Index 10 */
     canvas {
         display: block; position: absolute; top: 0; left: 0; z-index: 10;
         width: 100%; height: 100%;
     }
+
+    /* START OVERLAY - WICHTIGSTER FIX 
+       Dies liegt ÜBER allem anderen (Z-Index 5000) und fängt den ersten Klick ab.
+    */
+    #start-overlay {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        z-index: 5000;
+        background: rgba(0,0,0,0.4); /* Leicht abgedunkelt damit Text lesbar ist */
+        display: flex; justify-content: center; align-items: center;
+        cursor: pointer;
+    }
+    #start-text {
+        font-size: 24px; font-weight: bold; text-align: center;
+        background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
+        border: 2px solid white; box-shadow: 0 0 20px rgba(255,255,255,0.3);
+        animation: pulse 2s infinite;
+    }
+    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
     /* UI Layer */
     #ar-overlay-container {
@@ -76,7 +94,7 @@
       backdrop-filter: blur(10px);
     }
 
-    /* Kompass Pfeil Overlay */
+    /* Kompass Pfeil */
     #direction-indicator {
         position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
         background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
@@ -107,6 +125,14 @@
   <!-- Hintergrundvideo -->
   <video id="bg-video" autoplay muted playsinline loop></video>
 
+  <!-- START SCREEN OVERLAY (Fängt den Klick ab) -->
+  <div id="start-overlay">
+      <div id="start-text">
+          Bitte Bildschirm antippen<br>
+          <span style="font-size:14px; font-weight:normal;">um AR & Kamera zu starten</span>
+      </div>
+  </div>
+
   <!-- UI -->
   <div id="ar-overlay-container">
       <div id="direction-indicator"><div id="arrow"></div></div>
@@ -129,7 +155,7 @@
           <p>Nächstes Ziel: <span id="targetName">Suche...</span></p>
           <p>Entfernung: <span id="dist">-</span> Meter</p>
           <p>Ausrichtung: <span id="rotationDisplay">-</span>°</p>
-          <p>Status: <span id="status">Bitte Bildschirm antippen...</span></p>
+          <p>Status: <span id="status">Warte auf Interaktion...</span></p>
           <div id="debug-console">Lade System...</div>
         </div>
       </div>
@@ -178,53 +204,71 @@
     const VISIBILITY_DISTANCE = 75.0; 
     const TARGET_HEIGHT = 3.0; 
 
-    // --- AUTOMATISCHER START ---
+    // --- INITIALISIERUNG ---
     try {
         initThreeJS();
         initLeaflet();
-        start2DCamera();
-        startGNSS();
+        startGNSS(); // GPS braucht keine Klick-Interaktion, nur Permission
         animate();
         
-        // Versuche Android Controls direkt
-        if (window.DeviceOrientationEvent && typeof DeviceOrientationEvent.requestPermission !== 'function') {
-             initControls();
-        }
-
-        // iOS TRICK: Warte auf den ersten Touch irgendwo auf dem Bildschirm
-        // um die Sensoren freizuschalten.
-        document.body.addEventListener('click', unlockSensors, { once: true });
-        document.body.addEventListener('touchstart', unlockSensors, { once: true });
+        // Kamera schon mal anfragen (kann ohne Interaktion fehlschlagen, wird beim Klick gefixt)
+        initCamera();
 
     } catch (e) {
-        alert("Startfehler: " + e.message);
+        alert("Fehler: " + e.message);
     }
 
-    // --- SENSOREN FREISCHALTEN ---
-    async function unlockSensors() {
+    // --- DER GROSSE CLICK HANDLER ---
+    document.getElementById('start-overlay').addEventListener('click', async function() {
+        const overlay = this;
         document.getElementById('status').innerText = "Aktiviere Sensoren...";
-        
-        // Kamera sicherstellen (falls Autoplay blockiert war)
-        const video = document.getElementById('bg-video');
-        if (video.paused) video.play().catch(e => console.log("Video Play Error", e));
 
-        // Device Orientation Permission (iOS)
+        // 1. Video "entfrieren" (Explizit abspielen)
+        const video = document.getElementById('bg-video');
+        if(video) {
+            video.play().then(() => {
+                logToDebug("Video läuft.");
+            }).catch(e => {
+                logToDebug("Video Fehler: " + e.message);
+                initCamera(); // Nochmal versuchen neu zu laden
+            });
+        }
+
+        // 2. Sensoren (iOS) anfragen
         if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
             try {
                 const response = await DeviceOrientationEvent.requestPermission();
                 if (response === 'granted') {
                     initControls();
-                    document.getElementById('status').innerText = "Sensoren Aktiv";
                 } else {
-                    document.getElementById('status').innerText = "Sensoren abgelehnt";
+                    alert("Sensoren abgelehnt. Drehung manuell nutzen.");
                 }
             } catch (e) {
                 console.error(e);
             }
         } else {
-            // Android / Desktop
-            initControls();
-            document.getElementById('status').innerText = "Sensoren Aktiv";
+            initControls(); // Android/Desktop
+        }
+
+        // 3. Overlay entfernen
+        overlay.style.opacity = '0';
+        setTimeout(() => {
+            overlay.style.display = 'none';
+        }, 500);
+    });
+
+    function initCamera() {
+        const video = document.getElementById('bg-video');
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(function(stream) {
+                video.srcObject = stream;
+                // Wichtig: muted muss true sein für Autoplay
+                video.muted = true; 
+            })
+            .catch(function(err) {
+                logToDebug("Kamera Init Fehler: " + err.message);
+            });
         }
     }
 
@@ -233,27 +277,11 @@
         try {
             controls = new DeviceOrientationControls(camera);
             controls.connect();
-            // Event für Minimap-Rotation
             window.addEventListener('deviceorientation', (e) => {
                 if(e.alpha !== null) mapHeading = (360 - e.alpha) % 360;
             });
-        } catch(e) { console.warn("Controls init error", e); }
-    }
-
-    // --- KAMERA ---
-    function start2DCamera() {
-        const video = document.getElementById('bg-video');
-        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
-            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-            .then(function(stream) {
-                video.srcObject = stream;
-                // Versuche Autoplay, ansonsten erledigt 'unlockSensors' das beim Touch
-                video.play().catch(() => console.log("Warte auf Interaktion für Video..."));
-            })
-            .catch(function(err) {
-                document.getElementById('debug-console').innerText = "Kamera Fehler: " + err.message;
-            });
-        }
+            document.getElementById('status').innerText = "Rundgang aktiv";
+        } catch(e) { console.warn(e); }
     }
 
     // --- THREE.JS ---
@@ -318,14 +346,17 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         container.appendChild(renderer.domElement);
 
-        // Interaction
+        // UI Buttons
+        document.getElementById('closeBtn').addEventListener('click', () => location.reload());
+        document.getElementById('resetBtn').addEventListener('click', () => location.reload());
         document.getElementById('rotateLeft').addEventListener('pointerdown', (e) => { e.stopPropagation(); changeRotation(-5); });
         document.getElementById('rotateRight').addEventListener('pointerdown', (e) => { e.stopPropagation(); changeRotation(5); });
-        
-        // Raycasting beim Touch
+
+        // Raycasting Logic
         const onTouch = (e) => {
-            // Wenn auf Button geklickt wird, ignorieren wir den Raycast in die Szene
-            if(e.target.closest('button') || e.target.closest('.rotate-btn')) return;
+            // Ignoriere Klicks auf UI Elemente
+            if(e.target.closest('button') || e.target.closest('.rotate-btn') || e.target.id === 'start-overlay' || e.target.closest('#start-overlay')) return;
+            
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             LOCATIONS.forEach(loc => {
                 if (loc.object3D && loc.object3D.visible) {
@@ -339,9 +370,6 @@
         window.addEventListener('touchstart', onTouch, false);
         window.addEventListener('click', onTouch, false);
 
-        // UI Buttons
-        document.getElementById('closeBtn').addEventListener('click', () => location.reload());
-        document.getElementById('resetBtn').addEventListener('click', () => location.reload());
         window.addEventListener('resize', () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
