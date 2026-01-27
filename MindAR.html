@@ -1,0 +1,80 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>MindAR Three.js Image Tracking</title>
+    <style>
+        body { margin: 0; }
+        /* Der Container muss den ganzen Screen füllen */
+        #container { width: 100vw; height: 100vh; position: relative; overflow: hidden; }
+    </style>
+    
+    <!-- Importiere Three.js und MindAR -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+      }
+    }
+    </script>
+</head>
+<body>
+    <div id="container"></div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { MindARThree } from 'mindar-image-three';
+
+        const start = async () => {
+            // 1. Initialisierung von MindAR mit Three.js Adapter
+            const mindarThree = new MindARThree({
+                container: document.querySelector("#container"),
+                imageTargetSrc: 'ImageMatching/NiederdeutscherBlumengarten_targets.mind',
+            });
+
+            // 2. Grundlegende Three.js Objekte extrahieren
+            // MindAR erstellt automatisch Renderer, Scene und Camera für dich
+            const { renderer, scene, camera } = mindarThree;
+
+            // 3. Einen Anker erstellen
+            // anchorIndex 0 bedeutet: Verknüpfe dies mit dem 1. Bild in der .mind Datei
+            const anchor = mindarThree.addAnchor(0);
+
+            // ---------------------------------------------------------
+            // HIER BEGINNT DEINE THREE.JS SZENE (Inhalt)
+            // Alles was du zu anchor.group hinzufügst, "klebt" am Bild
+            // ---------------------------------------------------------
+
+            // Beispiel: Ein blauer Würfel
+            const geometry = new THREE.BoxGeometry(1, 1, 1);
+            const material = new THREE.MeshBasicMaterial({ color: 0x0000ff, transparent: true, opacity: 0.8 });
+            const cube = new THREE.Mesh(geometry, material);
+            
+            // WICHTIG: Füge Objekte zur anchor.group hinzu, NICHT direkt zur scene!
+            anchor.group.add(cube);
+
+            // Optional: Ein Licht hinzufügen (falls du StandardMaterial nutzt)
+            const light = new THREE.HemisphereLight(0xffffff, 0xbbbbff, 1);
+            scene.add(light);
+
+            // ---------------------------------------------------------
+
+            // 4. Starten der Engine
+            await mindarThree.start();
+
+            // 5. Der Render-Loop (ersetzt requestAnimationFrame)
+            renderer.setAnimationLoop(() => {
+                // Animationen hier (z.B. Würfel rotieren lassen)
+                cube.rotation.x += 0.01;
+                cube.rotation.y += 0.01;
+
+                renderer.render(scene, camera);
+            });
+        }
+
+        start();
+    </script>
+</body>
+</html>
