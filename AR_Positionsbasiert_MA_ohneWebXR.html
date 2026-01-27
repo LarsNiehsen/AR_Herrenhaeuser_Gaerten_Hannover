@@ -16,31 +16,14 @@
     #bg-video {
         position: fixed; top: 0; left: 0; width: 100%; height: 100%;
         object-fit: cover; z-index: 0;
+        background: #111; /* Fallback Farbe falls Video lädt */
     }
 
-    /* 3D Canvas - liegt auf Z-Index 10 */
+    /* 3D Canvas */
     canvas {
         display: block; position: absolute; top: 0; left: 0; z-index: 10;
         width: 100%; height: 100%;
     }
-
-    /* START OVERLAY - WICHTIGSTER FIX 
-       Dies liegt ÜBER allem anderen (Z-Index 5000) und fängt den ersten Klick ab.
-    */
-    #start-overlay {
-        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
-        z-index: 5000;
-        background: rgba(0,0,0,0.4); /* Leicht abgedunkelt damit Text lesbar ist */
-        display: flex; justify-content: center; align-items: center;
-        cursor: pointer;
-    }
-    #start-text {
-        font-size: 24px; font-weight: bold; text-align: center;
-        background: rgba(0,0,0,0.7); padding: 20px; border-radius: 10px;
-        border: 2px solid white; box-shadow: 0 0 20px rgba(255,255,255,0.3);
-        animation: pulse 2s infinite;
-    }
-    @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
 
     /* UI Layer */
     #ar-overlay-container {
@@ -68,7 +51,6 @@
         max-height: 80px; overflow: hidden; border-radius: 4px;
     }
 
-    /* Button Wrapper */
     .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
     .ar-btn {
         position: absolute; z-index: 200; color: white; padding: 12px 20px;
@@ -80,7 +62,6 @@
     #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
     #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
 
-    /* Controls */
     .controls-wrapper {
       position: absolute; bottom: 100px; left: 0; width: 100%;
       display: flex; justify-content: center; gap: 40px; pointer-events: none;
@@ -94,7 +75,6 @@
       backdrop-filter: blur(10px);
     }
 
-    /* Kompass Pfeil */
     #direction-indicator {
         position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
         background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
@@ -107,7 +87,6 @@
         border-bottom: 30px solid white; transform-origin: center center;
     }
 
-    /* MINIMAP */
     #minimap-container {
         position: absolute; bottom: 90px; right: 20px;
         width: 140px; height: 140px; z-index: 400;
@@ -125,15 +104,6 @@
   <!-- Hintergrundvideo -->
   <video id="bg-video" autoplay muted playsinline loop></video>
 
-  <!-- START SCREEN OVERLAY (Fängt den Klick ab) -->
-  <div id="start-overlay">
-      <div id="start-text">
-          Bitte Bildschirm antippen<br>
-          <span style="font-size:14px; font-weight:normal;">um AR & Kamera zu starten</span>
-      </div>
-  </div>
-
-  <!-- UI -->
   <div id="ar-overlay-container">
       <div id="direction-indicator"><div id="arrow"></div></div>
       <div id="minimap-container"><div id="mapStations"></div></div>
@@ -152,11 +122,11 @@
         <div class="info-box">
           <h1>Herrenhäuser Gärten - Virtueller Rundgang AR</h1>
           <p id="msg">Initialisiere...</p>
-          <p>Nächstes Ziel: <span id="targetName">Suche...</span></p>
+          <p>Nächstes Ziel: <span id="targetName">-</span></p>
           <p>Entfernung: <span id="dist">-</span> Meter</p>
           <p>Ausrichtung: <span id="rotationDisplay">-</span>°</p>
-          <p>Status: <span id="status">Warte auf Interaktion...</span></p>
-          <div id="debug-console">Lade System...</div>
+          <p>Status: <span id="status">Lade... (Tippe auf Screen bei Fehler)</span></p>
+          <div id="debug-console">System start...</div>
         </div>
       </div>
   </div>
@@ -184,7 +154,7 @@
     let modelsReady = false, gnssReady = false, closestLocRef = null;
     const MAX_HISTORY = 5;
 
-    // --- DATEN ---
+    // DATEN
     const mapStationsData = [
       { title: 'Große Fontaine', coords: [52.385968, 9.695931] },
       { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -204,71 +174,75 @@
     const VISIBILITY_DISTANCE = 75.0; 
     const TARGET_HEIGHT = 3.0; 
 
-    // --- INITIALISIERUNG ---
-    try {
-        initThreeJS();
-        initLeaflet();
-        startGNSS(); // GPS braucht keine Klick-Interaktion, nur Permission
-        animate();
-        
-        // Kamera schon mal anfragen (kann ohne Interaktion fehlschlagen, wird beim Klick gefixt)
-        initCamera();
+    // --- AUTO-START LOGIK ---
+    // Wir warten, bis das Fenster geladen ist
+    window.addEventListener('load', () => {
+        try {
+            logToDebug("Page Load. Init 3D & Map...");
+            initThreeJS();
+            initLeaflet();
+            
+            // Render-Loop sofort starten, damit UI nicht einfriert, auch wenn Kamera hängt
+            animate(); 
+            
+            // Versuche Autostart
+            attemptAutoStart();
 
-    } catch (e) {
-        alert("Fehler: " + e.message);
-    }
+            // FALLBACK: Unsichtbarer Listener für den ersten Touch
+            // Wenn der Autostart blockiert wurde, wird er hier beim ersten Antippen nachgeholt
+            window.addEventListener('touchstart', silentUserInteraction, { once: true });
+            window.addEventListener('click', silentUserInteraction, { once: true });
 
-    // --- DER GROSSE CLICK HANDLER ---
-    document.getElementById('start-overlay').addEventListener('click', async function() {
-        const overlay = this;
-        document.getElementById('status').innerText = "Aktiviere Sensoren...";
-
-        // 1. Video "entfrieren" (Explizit abspielen)
-        const video = document.getElementById('bg-video');
-        if(video) {
-            video.play().then(() => {
-                logToDebug("Video läuft.");
-            }).catch(e => {
-                logToDebug("Video Fehler: " + e.message);
-                initCamera(); // Nochmal versuchen neu zu laden
-            });
+        } catch (e) {
+            logToDebug("CRITICAL ERROR: " + e.message);
         }
-
-        // 2. Sensoren (iOS) anfragen
-        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-            try {
-                const response = await DeviceOrientationEvent.requestPermission();
-                if (response === 'granted') {
-                    initControls();
-                } else {
-                    alert("Sensoren abgelehnt. Drehung manuell nutzen.");
-                }
-            } catch (e) {
-                console.error(e);
-            }
-        } else {
-            initControls(); // Android/Desktop
-        }
-
-        // 3. Overlay entfernen
-        overlay.style.opacity = '0';
-        setTimeout(() => {
-            overlay.style.display = 'none';
-        }, 500);
     });
 
-    function initCamera() {
+    function attemptAutoStart() {
+        // Kamera starten
         const video = document.getElementById('bg-video');
         if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
             navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
-            .then(function(stream) {
+            .then(stream => {
                 video.srcObject = stream;
-                // Wichtig: muted muss true sein für Autoplay
-                video.muted = true; 
+                video.muted = true; // Pflicht für Autoplay
+                // Versuche Play
+                const playPromise = video.play();
+                if (playPromise !== undefined) {
+                    playPromise.catch(error => {
+                        logToDebug("Auto-Play blockiert. Warte auf Touch.");
+                    });
+                }
             })
-            .catch(function(err) {
-                logToDebug("Kamera Init Fehler: " + err.message);
-            });
+            .catch(err => logToDebug("Kamera nicht erlaubt: " + err.name));
+        }
+
+        // GPS starten
+        startGNSS();
+        
+        // Sensoren (Android mag das hier, iOS ignoriert es oft)
+        initControls();
+    }
+
+    // Diese Funktion wird beim ALLERERSTEN Tippen auf den Bildschirm ausgeführt
+    async function silentUserInteraction() {
+        logToDebug("User Interaktion erkannt.");
+        
+        // 1. Video erzwingen
+        const video = document.getElementById('bg-video');
+        if(video.paused) {
+            video.play().then(() => logToDebug("Video gestartet.")).catch(e => console.error(e));
+        }
+
+        // 2. Sensoren für iOS anfordern
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+                const response = await DeviceOrientationEvent.requestPermission();
+                if (response === 'granted') initControls();
+                else logToDebug("Sensoren abgelehnt.");
+            } catch (e) { console.error(e); }
+        } else {
+            initControls();
         }
     }
 
@@ -280,8 +254,70 @@
             window.addEventListener('deviceorientation', (e) => {
                 if(e.alpha !== null) mapHeading = (360 - e.alpha) % 360;
             });
-            document.getElementById('status').innerText = "Rundgang aktiv";
-        } catch(e) { console.warn(e); }
+            logToDebug("Sensoren OK.");
+        } catch(e) { }
+    }
+
+    // --- GPS ---
+    function startGNSS() {
+        if (!navigator.geolocation) {
+            logToDebug("Kein GPS Support.");
+            return;
+        }
+        
+        // Watch Position startet normalerweise ohne Klick, zeigt aber Prompt
+        navigator.geolocation.watchPosition((pos) => {
+            const lat = pos.coords.latitude;
+            const lon = pos.coords.longitude;
+            const acc = pos.coords.accuracy;
+
+            updateLeafletPosition(lat, lon, acc);
+
+            positionHistory.push({ lat, lon });
+            if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
+            let avgLat = 0, avgLon = 0;
+            positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
+            avgLat /= positionHistory.length;
+            avgLon /= positionHistory.length;
+
+            if (!gnssReady) {
+                gnssReady = true;
+                checkReadyStatus();
+            }
+
+            let closestDist = 99999;
+            let closestLoc = null;
+
+            LOCATIONS.forEach(loc => {
+                const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
+                const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
+                
+                if (dist < closestDist) {
+                    closestDist = dist;
+                    closestLoc = loc;
+                    closestLocRef = loc;
+                }
+
+                if (dist < VISIBILITY_DISTANCE) {
+                    loc.object3D.position.x = offset.x;
+                    loc.object3D.position.z = offset.z;
+                    loc.object3D.visible = true;
+                } else {
+                    loc.object3D.visible = false;
+                }
+            });
+
+            let debugMsg = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
+            if (closestLoc) {
+                document.getElementById('targetName').innerText = closestLoc.title;
+                document.getElementById('dist').innerText = Math.round(closestDist);
+                debugMsg += `Ziel: ${closestLoc.title} (${Math.round(closestDist)}m)`;
+            }
+            logToDebug(debugMsg);
+
+        }, (err) => {
+            logToDebug("GPS Warten/Fehler: " + err.message);
+        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 20000 });
     }
 
     // --- THREE.JS ---
@@ -346,17 +382,15 @@
         renderer.setSize(window.innerWidth, window.innerHeight);
         container.appendChild(renderer.domElement);
 
-        // UI Buttons
+        // Buttons und Events
         document.getElementById('closeBtn').addEventListener('click', () => location.reload());
         document.getElementById('resetBtn').addEventListener('click', () => location.reload());
         document.getElementById('rotateLeft').addEventListener('pointerdown', (e) => { e.stopPropagation(); changeRotation(-5); });
         document.getElementById('rotateRight').addEventListener('pointerdown', (e) => { e.stopPropagation(); changeRotation(5); });
 
-        // Raycasting Logic
+        // Touch Interaktion
         const onTouch = (e) => {
-            // Ignoriere Klicks auf UI Elemente
-            if(e.target.closest('button') || e.target.closest('.rotate-btn') || e.target.id === 'start-overlay' || e.target.closest('#start-overlay')) return;
-            
+            if(e.target.closest('button') || e.target.closest('.rotate-btn')) return;
             raycaster.setFromCamera({ x: 0, y: 0 }, camera);
             LOCATIONS.forEach(loc => {
                 if (loc.object3D && loc.object3D.visible) {
@@ -397,63 +431,6 @@
         const icon = L.icon({ iconUrl: 'data:image/svg+xml;base64,' + btoa(svg), iconSize: [48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
         L.marker([lat, lon], { icon: icon, interactive: false }).addTo(userLayer);
         mapStations.setView([lat, lon], 17);
-    }
-
-    // --- GPS ---
-    function startGNSS() {
-        if (!navigator.geolocation) return;
-        navigator.geolocation.watchPosition((pos) => {
-            const lat = pos.coords.latitude;
-            const lon = pos.coords.longitude;
-            const acc = pos.coords.accuracy;
-
-            updateLeafletPosition(lat, lon, acc);
-
-            positionHistory.push({ lat, lon });
-            if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
-            let avgLat = 0, avgLon = 0;
-            positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
-            avgLat /= positionHistory.length;
-            avgLon /= positionHistory.length;
-
-            if (!gnssReady) {
-                gnssReady = true;
-                checkReadyStatus();
-            }
-
-            let closestDist = 99999;
-            let closestLoc = null;
-
-            LOCATIONS.forEach(loc => {
-                const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
-                const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
-                
-                if (dist < closestDist) {
-                    closestDist = dist;
-                    closestLoc = loc;
-                    closestLocRef = loc;
-                }
-
-                if (dist < VISIBILITY_DISTANCE) {
-                    loc.object3D.position.x = offset.x;
-                    loc.object3D.position.z = offset.z;
-                    loc.object3D.visible = true;
-                } else {
-                    loc.object3D.visible = false;
-                }
-            });
-
-            let debugMsg = `GPS: ${avgLat.toFixed(5)}, ${avgLon.toFixed(5)} (±${Math.round(acc)}m)\n`;
-            if (closestLoc) {
-                document.getElementById('targetName').innerText = closestLoc.title;
-                document.getElementById('dist').innerText = Math.round(closestDist);
-                debugMsg += `Ziel: ${closestLoc.title} (${Math.round(closestDist)}m)`;
-            }
-            logToDebug(debugMsg);
-
-        }, (err) => {
-            logToDebug("GPS Error: " + err.message);
-        }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
     }
 
     // --- HELPER ---
