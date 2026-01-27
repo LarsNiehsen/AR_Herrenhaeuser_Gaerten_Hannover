@@ -419,13 +419,16 @@
                     }
                 });
 
-                if (navigator.geolocation) {
-                    navigator.geolocation.watchPosition(onPos, err => console.warn(err), {
-                        enableHighAccuracy: true,
-                        maximumAge: 2000,
-                        timeout: 10000
-                    });
-                }
+                // Verzögerte GPS-Aktivierung, um Kamera-Startup nicht zu stören
+                setTimeout(() => {
+                    if (navigator.geolocation) {
+                        navigator.geolocation.watchPosition(onPos, err => console.warn(err), {
+                            enableHighAccuracy: true,
+                            maximumAge: 5000,
+                            timeout: 20000
+                        });
+                    }
+                }, 1500);
             }
 
             // --- MAP HELPERS ---
@@ -436,7 +439,7 @@
                     accuracy: pos.coords.accuracy || 5
                 };
                 drawUserOnMap(lastPos);
-                if (!mapStations._userCentered) {
+                if (mapStations && !mapStations._userCentered) {
                     mapStations.setView([lastPos.latitude, lastPos.longitude], 17);
                     mapStations._userCentered = true;
                 }
@@ -560,6 +563,7 @@
                     audio: false
                 }).then(stream => {
                     video.srcObject = stream;
+                    video.play(); // Explizit starten
                     video.onloadedmetadata = () => { handleResize(); };
                 }).catch(err => {
                     statusText.innerHTML = `<span style="color:red;">Kamera-Fehler: ${err.message}</span>`;
@@ -582,6 +586,11 @@
 
             function tick() {
                 requestAnimationFrame(tick);
+
+                // Sicherstellen, dass Video läuft (verhindert Standbilder nach Permissions)
+                if (video.paused && video.readyState >= 2) {
+                    video.play().catch(() => {});
+                }
 
                 if (loadedMeshes[0]?.visible) loadedMeshes[0].rotation.z += 0.01;
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) {
@@ -703,13 +712,25 @@
 
             // --- MAIN INIT ---
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
+            
+            // Initialisierungs-Reihenfolge optimiert: Video zuerst
             initThree();
+            startCamera(); 
             initMap();
-            startCamera();
-            tick();
 
             window.addEventListener('resize', handleResize);
-            switchCamBtn.addEventListener('click', () => { facingMode = (facingMode === 'environment' ? 'user' : 'environment'); startCamera(); });
+            
+            // Auto-Resume bei Fokusverlust (nach Dialogen)
+            document.addEventListener('visibilitychange', () => {
+                if (document.visibilityState === 'visible') {
+                    if (video.paused) video.play().catch(() => {});
+                }
+            });
+
+            switchCamBtn.addEventListener('click', () => { 
+                facingMode = (facingMode === 'environment' ? 'user' : 'environment'); 
+                startCamera(); 
+            });
 
             toggleMapBtn.addEventListener('click', () => {
                 const isVisible = mapContainer.style.display === 'block';
@@ -739,6 +760,8 @@
                 const intersects = raycaster.intersectObjects([loadedMeshes[currentTrackingID]], true);
                 if (intersects.length > 0) window.open(activeLink, '_blank');
             });
+
+            tick();
 
         })();
     </script>
