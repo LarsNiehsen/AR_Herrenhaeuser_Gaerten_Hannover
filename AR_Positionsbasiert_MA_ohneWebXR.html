@@ -1,0 +1,811 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+  <meta charset="utf-8" />
+  <title>Herrenhäuser Gärten - Virtueller Rundgang AR (GNSS)</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, viewport-fit=cover" />
+  
+  <!-- Leaflet CSS -->
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+
+  <style>
+    /* --- CSS DESIGN BEREICH --- */
+    
+    /* Basis-Einstellungen für Vollbild ohne Scrollbalken */
+    body { margin: 0; background-color: #000; overflow: hidden; font-family: sans-serif; color: white; }
+    
+    /* Hintergrund-Video (Kamera-Feed permanent sichtbar) */
+    #bg-video {
+        position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+        object-fit: cover; z-index: 0;
+    }
+
+    /* Canvas (Three.js) liegt über dem Video */
+    canvas {
+        display: block; position: absolute; top: 0; left: 0; z-index: 10;
+        width: 100%; height: 100%;
+    }
+
+    /* Container für UI-Elemente über der 3D-Ansicht */
+    #ar-overlay-container {
+      position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+      z-index: 100; pointer-events: none; /* Klicks gehen durch, außer auf Buttons */
+      display: flex; flex-direction: column; justify-content: space-between;
+    }
+
+    /* Info-Box Wrapper */
+    .info-wrapper { padding: 10px; display: flex; flex-direction: column; gap: 5px; }
+
+    /* Die halb-transparente Info-Box unten */
+    .info-box {
+      background: rgba(0, 0, 0, 0.6); padding: 15px; border-radius: 12px;
+      backdrop-filter: blur(8px); border: 1px solid rgba(255,255,255,0.2);
+      pointer-events: auto; align-self: center; min-width: 280px; text-align: center;
+      box-shadow: 0 4px 15px rgba(0,0,0,0.5);
+    }
+    
+    h1 { margin: 0 0 8px 0; font-size: 1.1rem; line-height: 1.3; white-space: normal; overflow-wrap: break-word; }
+    p { margin: 0; font-size: 0.9rem; color: #ccc; padding: 2px 0; }
+    
+    /* Status-Farben */
+    #status { color: #ccc; font-weight: bold; }
+    .active-target { color: #4f4; font-weight: bold; } 
+
+    /* Debug-Konsole für GPS-Koordinaten */
+    #debug-console {
+        font-family: monospace; font-size: 10px; color: #ffff00;
+        background: rgba(0,0,0,0.8); padding: 5px; margin-top: 10px;
+        text-align: left; white-space: pre-wrap; pointer-events: none;
+        max-height: 80px; overflow: hidden; border-radius: 4px;
+    }
+
+    /* Button-Positionierung */
+    .button-wrapper { position: absolute; width: 100%; height: 100%; top: 0; left: 0; pointer-events: none; }
+
+    .ar-btn {
+        position: absolute; z-index: 200; color: white; padding: 12px 20px;
+        border-radius: 30px; font-weight: bold; cursor: pointer;
+        border: 1px solid rgba(255,255,255,0.5); background: rgba(0, 0, 0, 0.5);
+        backdrop-filter: blur(5px); pointer-events: auto; text-transform: uppercase;
+        font-size: 12px; letter-spacing: 1px;
+    }
+    #closeBtn { top: 20px; right: 20px; background: rgba(200, 40, 40, 0.85); }
+    #resetBtn { bottom: 30px; right: 20px; background: rgba(40, 40, 40, 0.8); }
+
+    /* Custom Start Button */
+    #startAppBtn {
+        position: absolute; bottom: 50%; left: 50%; transform: translate(-50%, 50%);
+        z-index: 999; padding: 15px 30px; font-size: 16px; background: white; color: black;
+        border: none; border-radius: 30px; font-weight: bold; cursor: pointer; pointer-events: auto;
+        box-shadow: 0 0 20px rgba(255,255,255,0.5);
+    }
+
+    /* Manuelle Rotations-Kontrollen */
+    .controls-wrapper {
+      position: absolute; bottom: 100px; left: 0; width: 100%;
+      display: none; 
+      justify-content: center; gap: 40px; pointer-events: none;
+      z-index: 300;
+    }
+    .rotate-btn {
+      width: 75px; height: 75px; border-radius: 50%;
+      background: rgba(255, 255, 255, 0.2); border: 2px solid rgba(255, 255, 255, 0.6);
+      color: white; font-size: 32px; display: flex; align-items: center;
+      justify-content: center; cursor: pointer; pointer-events: auto;
+      backdrop-filter: blur(10px); user-select: none;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .rotate-btn:active { background: rgba(255, 255, 255, 0.4); transform: scale(0.9); }
+
+    /* Richtungs-Pfeil UI unten links */
+    #direction-indicator {
+        position: absolute; bottom: 30px; left: 20px; width: 80px; height: 80px;
+        background: rgba(0,0,0,0.4); border-radius: 50%; border: 2px solid rgba(255,255,255,0.3);
+        display: none; justify-content: center; align-items: center; pointer-events: none;
+        backdrop-filter: blur(5px); z-index: 400;
+    }
+    #arrow {
+        width: 0; height: 0; 
+        border-left: 15px solid transparent; border-right: 15px solid transparent;
+        border-bottom: 30px solid white; transform-origin: center center;
+    }
+
+    /* --- MINIMAP STYLES --- */
+    #minimap-container {
+        position: absolute;
+        bottom: 90px; /* Über dem Reset Button */
+        right: 20px;
+        width: 140px;
+        height: 140px;
+        z-index: 400; /* Über dem Canvas */
+        border-radius: 50%; /* Rund */
+        overflow: hidden;
+        border: 2px solid rgba(255,255,255,0.8);
+        box-shadow: 0 0 10px rgba(0,0,0,0.5);
+        pointer-events: auto;
+        display: none; /* Erst nach Start anzeigen */
+    }
+    #mapStations {
+        width: 100%; height: 100%; background: #222;
+    }
+    /* SVG Pfeil Klasse für Leaflet */
+    .user-arrow { pointer-events: none; }
+    
+    /* Locate Button auf der Map (optional klein) */
+    #locateBtn {
+        position: absolute; bottom: 10px; right: 80px; /* Versteckt oder angepasst */
+        display: none; /* Wir nutzen Auto-Center */
+    }
+  </style>
+</head>
+<body>
+  
+  <!-- Hintergrundvideo (Kamera-Feed) -->
+  <video id="bg-video" autoplay muted playsinline></video>
+
+  <!-- Overlay UI Elemente -->
+  <div id="ar-overlay-container">
+      
+      <!-- Start Button -->
+      <button id="startAppBtn">RUNDGANG STARTEN</button>
+
+      <div id="direction-indicator">
+          <div id="arrow"></div>
+      </div>
+      
+      <!-- Minimap Container -->
+      <div id="minimap-container">
+          <div id="mapStations"></div>
+      </div>
+
+      <div class="button-wrapper">
+          <button id="closeBtn" class="ar-btn" style="display:none;">✕ Schließen</button>
+          <button id="resetBtn" class="ar-btn" style="display:none;">↺ Neustart</button>
+      </div>
+
+      <div class="controls-wrapper" id="rotation-controls">
+          <div class="rotate-btn" id="rotateLeft">←</div>
+          <div class="rotate-btn" id="rotateRight">→</div>
+      </div>
+
+      <div class="info-wrapper">
+        <div class="info-box">
+          <h1>Herrenhäuser Gärten - Virtueller Rundgang AR</h1>
+          <p id="msg">Bitte Start drücken...</p>
+          <p>Nächstes Ziel: <span id="targetName">Wird berechnet...</span></p>
+          <p>Entfernung: <span id="dist">-</span> Meter</p>
+          <!-- Zeigt aktuelle Ausrichtung des nahesten Objekts an -->
+          <p>Ausrichtung: <span id="rotationDisplay">-</span>°</p>
+          <p>Status: <span id="status">Warte auf Start...</span></p>
+          <div id="debug-console">System bereit.</div>
+        </div>
+      </div>
+  </div>
+
+  <!-- Leaflet JS -->
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <!-- Import Map für Three.js Module -->
+  <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+      }
+    }
+  </script>
+
+  <script type="module">
+    import * as THREE from 'three';
+    import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+    import { DeviceOrientationControls } from 'three/addons/controls/DeviceOrientationControls.js';
+
+    // --- LEAFLET VARIABLEN ---
+    let mapStations, userLayer;
+    let mapHeading = 0;
+    
+    // Stationen für die Map
+    const mapStationsData = [
+      { title: 'Große Fontaine', coords: [52.385968, 9.695931] },
+      { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
+      { title: 'Haupteingang mit Kasse', coords: [52.391185, 9.698368] },
+      { title: 'Niki de Saint Phalle - Grotte', coords: [52.390713, 9.696767] },
+      { title: 'Sommer - Statue', coords: [ 52.389583, 9.697833] },
+      { title: 'Borghesischer Fechter', coords: [52.389472, 9.699222] },
+      { title: 'Niederdeutscher Blumengarten', coords: [52.388194, 9.697861] }
+    ];
+
+    // --- KONFIGURATION DER 3D ORTE ---
+    const LOCATIONS = [
+        {
+        title: 'Niederdeutscher Blumengarten',
+        lat: 52.388194, 
+        lon: 9.697861,
+        url: '3D_models/Statue_3D.glb', 
+        infoText: 'Sandsteinstatue "Veritas" von 1730',
+        link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
+        rotation: 215,
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        isAnimated: false
+      },
+      {
+        title: 'Borghesischer Fechter',
+        lat: 52.389472, 
+        lon: 9.699222,
+        url: '3D_models/BorghesischerFechter_WebAR.glb', 
+        infoText: 'Borghesischer Fechter',
+        link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
+        rotation: 295,
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        isAnimated: false
+      },
+      {
+        title: 'Große Fontäne',
+        lat: 52.385968,
+        lon: 9.695931,
+        url: '3D_models/GrosseFontaine_WebAR.glb',
+        infoText: 'Große Fontäne',
+        link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+        rotation: 180,
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        isAnimated: true // Wasser-Partikel
+      },
+      {
+        title: 'Große Fontäne (Alt)',
+        lat: 52.388754,
+        lon: 9.817867,
+        url: '3D_models/GrosseFontaine_WebAR.glb',
+        infoText: 'Große Fontäne',
+        link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+        rotation: 180,
+        object3D: null,
+        infoSprite: null,
+        loaded: false,
+        isAnimated: true
+      }
+    ];
+
+    // --- EINSTELLUNGEN ---
+    const VISIBILITY_DISTANCE = 75.0; 
+    const TARGET_HEIGHT = 3.0; 
+    const DEFAULT_ROTATION = 180; 
+
+    // Globale Variablen für Three.js
+    let camera, scene, renderer, raycaster, controls;
+    let positionHistory = []; 
+    const MAX_HISTORY = 5; 
+    let modelsReady = false;
+    let gnssReady = false;
+    let closestLocRef = null;
+
+    // Partikel-System Variable
+    let waterParticles = null;
+
+    // Initialisierung vorbereiten
+    init();
+    initLeaflet(); // Leaflet initieren
+
+    // Funktion um auf die Handykamera zuzugreifen
+    function start2DCamera() {
+        const video = document.getElementById('bg-video');
+        if (navigator.mediaDevices && navigator.mediaDevices.getUserMedia) {
+            navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } })
+            .then(function(stream) {
+                video.srcObject = stream;
+                video.play();
+            })
+            .catch(function(err) {
+                console.error("Kamera-Zugriff verweigert:", err);
+                logToDebug("Kamerafehler: " + err.message);
+            });
+        }
+    }
+
+    // --- PARTIKEL EFFEKTE (Wasser) ---
+    function createWaterEffect() {
+        const geometry = new THREE.BufferGeometry();
+        const count = 500;
+        const positions = new Float32Array(count * 3);
+        const velocities = new Float32Array(count * 3);
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] = 0;
+            positions[i * 3 + 1] = 0;
+            positions[i * 3 + 2] = 0;
+            
+            velocities[i * 3] = (Math.random() - 0.5) * 0.1; 
+            velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2; 
+            velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.1; 
+        }
+
+        geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+        const material = new THREE.PointsMaterial({
+            color: 0x88ccff,
+            size: 0.1,
+            transparent: true,
+            opacity: 0.6,
+            blending: THREE.AdditiveBlending
+        });
+
+        const points = new THREE.Points(geometry, material);
+        points.userData.velocities = velocities;
+        return points;
+    }
+
+    function updateWaterEffect(points) {
+        const positions = points.geometry.attributes.position.array;
+        const velocities = points.userData.velocities;
+        const count = positions.length / 3;
+
+        for (let i = 0; i < count; i++) {
+            positions[i * 3] += velocities[i * 3];
+            positions[i * 3 + 1] += velocities[i * 3 + 1];
+            positions[i * 3 + 2] += velocities[i * 3 + 2];
+
+            // Schwerkraft
+            velocities[i * 3 + 1] -= 0.01;
+
+            // Reset wenn Boden berührt
+            if (positions[i * 3 + 1] < 0) {
+                positions[i * 3] = 0;
+                positions[i * 3 + 1] = 0;
+                positions[i * 3 + 2] = 0;
+                velocities[i * 3] = (Math.random() - 0.5) * 0.05;
+                velocities[i * 3 + 1] = Math.random() * 0.3 + 0.2;
+                velocities[i * 3 + 2] = (Math.random() - 0.5) * 0.05;
+            }
+        }
+        points.geometry.attributes.position.needsUpdate = true;
+    }
+
+    // --- INFO TEXT TEXTUR ERSTELLEN ---
+    function createInfoWindow(text) {
+        const canvas = document.createElement('canvas');
+        const context = canvas.getContext('2d');
+        canvas.width = 512;
+        canvas.height = 128;
+        
+        context.fillStyle = 'rgba(0, 0, 0, 0.7)';
+        roundRect(context, 0, 0, 512, 128, 20, true, false);
+        
+        context.font = 'bold 26px sans-serif';
+        context.fillStyle = 'white';
+        context.textAlign = 'center';
+        context.fillText(text, 256, 75); 
+        
+        const texture = new THREE.CanvasTexture(canvas);
+        const spriteMaterial = new THREE.SpriteMaterial({ map: texture, transparent: true });
+        const sprite = new THREE.Sprite(spriteMaterial);
+        
+        sprite.scale.set(2.0, 0.5, 1);
+        sprite.position.y = 3.5; 
+        sprite.name = "info_sprite"; 
+        return sprite;
+    }
+
+    function roundRect(ctx, x, y, width, height, radius, fill, stroke) {
+        ctx.beginPath();
+        ctx.moveTo(x + radius, y);
+        ctx.lineTo(x + width - radius, y);
+        ctx.quadraticCurveTo(x + width, y, x + width, y + radius);
+        ctx.lineTo(x + width, y + height - radius);
+        ctx.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+        ctx.lineTo(x + radius, y + height);
+        ctx.quadraticCurveTo(x, y + height, x, y + height - radius);
+        ctx.lineTo(x, y + radius);
+        ctx.quadraticCurveTo(x, y, x + radius, y);
+        ctx.closePath();
+        if (fill) ctx.fill();
+        if (stroke) ctx.stroke();
+    }
+
+    // --- LEAFLET INITIALISIERUNG ---
+    function initLeaflet() {
+        const mapEl = document.getElementById('mapStations');
+        if (!mapEl) return;
+
+        mapStations = L.map(mapEl, {
+            zoomControl: false, // Cleaner look
+            attributionControl: false
+        }).setView([52.3895, 9.6975], 16);
+
+        L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+            maxZoom: 19,
+        }).addTo(mapStations);
+
+        // Stationen hinzufügen
+        mapStationsData.forEach(s => {
+            L.circleMarker(s.coords, {
+                radius: 4,
+                color: '#fff',
+                fillColor: '#555',
+                fillOpacity: 1
+            }).addTo(mapStations); 
+        });
+
+        // User Layer
+        userLayer = L.layerGroup().addTo(mapStations);
+    }
+
+    // Zeichnet den User auf die Karte
+    function updateLeafletPosition(lat, lon, acc) {
+        if(!mapStations || !userLayer) return;
+        
+        userLayer.clearLayers();
+
+        // Accuracy Circle (unscheinbar)
+        L.circle([lat, lon], {
+            radius: Math.max(acc, 4),
+            color: 'rgba(50, 150, 255, 0.4)',
+            fillColor: 'rgba(50, 150, 255, 0.1)',
+            weight: 1
+        }).addTo(userLayer);
+
+        // Roter Pfeil SVG
+        const svg = `
+            <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
+            <g transform="translate(24,24) rotate(${mapHeading})">
+                <path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/>
+                <circle cx="0" cy="10" r="3" fill="red"/>
+            </g>
+            </svg>
+        `;
+        const url = 'data:image/svg+xml;base64,' + btoa(svg);
+
+        const icon = L.icon({
+            iconUrl: url,
+            iconSize: [48, 48],
+            iconAnchor: [24, 24],
+            className: 'user-arrow'
+        });
+
+        L.marker([lat, lon], { icon: icon, interactive: false }).addTo(userLayer);
+        
+        // Karte zentrieren
+        mapStations.setView([lat, lon], 17);
+    }
+
+    // --- THREE.JS INITIALISIERUNG ---
+    function init() {
+      const container = document.createElement('div');
+      document.body.appendChild(container);
+
+      // Scene Setup
+      scene = new THREE.Scene();
+      scene.background = null; 
+      
+      camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.01, 2000);
+      scene.add(camera);
+
+      raycaster = new THREE.Raycaster();
+
+      // Beleuchtung
+      const ambientLight = new THREE.HemisphereLight(0xffffff, 0x444444, 4);
+      scene.add(ambientLight);
+      const dirLight = new THREE.DirectionalLight(0xffffff, 3);
+      dirLight.position.set(0, 20, 10);
+      scene.add(dirLight);
+
+      // Modelle laden
+      const loader = new GLTFLoader();
+      let loadedCount = 0;
+      
+      LOCATIONS.forEach((loc) => {
+        const group = new THREE.Group();
+        group.visible = false; 
+        scene.add(group);
+        loc.object3D = group; 
+
+        loader.load(loc.url, (gltf) => {
+          const model = gltf.scene;
+          
+          const box = new THREE.Box3().setFromObject(model);
+          const size = box.getSize(new THREE.Vector3());
+          let scaleFactor = size.y > 0 ? TARGET_HEIGHT / size.y : 1.0;
+          model.scale.set(scaleFactor, scaleFactor, scaleFactor);
+          
+          const scaledBox = new THREE.Box3().setFromObject(model);
+          const minY = scaledBox.min.y;
+          model.position.y -= minY; 
+          
+          // Bodenhöhe in Non-XR Modus (geschätzt auf -1.6m unter Kamerahöhe)
+          model.position.y -= 1.6;
+
+          const rotationToUse = loc.rotation !== undefined ? loc.rotation : DEFAULT_ROTATION;
+          model.rotation.y = THREE.MathUtils.degToRad(rotationToUse);
+          
+          group.add(model);
+          
+          if (loc.isAnimated) {
+              waterParticles = createWaterEffect();
+              waterParticles.position.y -= 1.6; // Auch Partikel absenken
+              group.add(waterParticles);
+          }
+
+          const info = createInfoWindow(loc.infoText);
+          info.position.y -= 1.6; 
+          info.position.y += 3.5; 
+          group.add(info);
+          loc.infoSprite = info;
+          
+          loc.loaded = true;
+          loadedCount++;
+          if (loadedCount === LOCATIONS.length) {
+              modelsReady = true;
+              checkReadyStatus();
+          }
+        }, undefined, (err) => {
+            logToDebug(`Ladefehler bei ${loc.title}`);
+        });
+      });
+
+      // Renderer Setup - Wichtig: alpha: true für Transparenz
+      renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(window.devicePixelRatio);
+      renderer.setSize(window.innerWidth, window.innerHeight);
+      container.appendChild(renderer.domElement);
+
+      // Klick Event auf den Start Button
+      document.getElementById('startAppBtn').addEventListener('click', startExperience);
+
+      // Interaktion (Touch)
+      document.addEventListener('touchstart', onTouchSelect, false);
+      document.addEventListener('click', onTouchSelect, false);
+
+      // UI Buttons
+      document.getElementById('rotateLeft').addEventListener('pointerdown', () => changeRotation(-5));
+      document.getElementById('rotateRight').addEventListener('pointerdown', () => changeRotation(5));
+      
+      document.getElementById('closeBtn').addEventListener('click', () => {
+         window.location.reload(); 
+      });
+      
+      document.getElementById('resetBtn').addEventListener('click', () => location.reload());
+
+      window.addEventListener('resize', onWindowResize);
+    }
+
+    // --- START LOGIK (Permission Request) ---
+    async function startExperience() {
+        // UI aufräumen
+        document.getElementById('startAppBtn').style.display = 'none';
+        document.getElementById('minimap-container').style.display = 'block'; // Map anzeigen
+        
+        document.getElementById('msg').innerText = "Initialisiere Sensoren...";
+        document.getElementById('closeBtn').style.display = 'block';
+        document.getElementById('resetBtn').style.display = 'block';
+        document.getElementById('rotation-controls').style.display = 'flex';
+        document.getElementById('direction-indicator').style.display = 'flex';
+
+        // Kamera starten
+        start2DCamera();
+
+        // Device Orientation Setup (Sensoren)
+        if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+            try {
+                const permissionState = await DeviceOrientationEvent.requestPermission();
+                if (permissionState === 'granted') {
+                    initControls();
+                } else {
+                    updateUI("Sensor-Zugriff verweigert", "error");
+                }
+            } catch (error) {
+                console.error(error);
+                initControls();
+            }
+        } else {
+            initControls();
+        }
+
+        // GPS Starten
+        startGNSS();
+        
+        // Start Render Loop
+        animate();
+    }
+
+    function initControls() {
+        controls = new DeviceOrientationControls(camera);
+        controls.connect();
+        
+        // Listener für reine Kompassdaten für die Minimap
+        window.addEventListener('deviceorientation', (e) => {
+            if(e.alpha !== null) {
+                // Konvertierung alpha zu heading (approx)
+                mapHeading = (360 - e.alpha) % 360;
+            }
+        });
+        
+        updateUI("Sensoren aktiv");
+    }
+
+    function checkReadyStatus() {
+        if (modelsReady && gnssReady) {
+            updateUI("GNSS ist aktiv");
+            document.getElementById('debug-console').innerText = "System bereit. Objekte sichtbar ab " + VISIBILITY_DISTANCE + "m.";
+        }
+    }
+
+    // --- KLICK LOGIK (Simulierter Hit-Test via Raycaster) ---
+    function onTouchSelect(event) {
+        // Hit-Test ohne WebXR funktioniert über Raycasting auf die virtuellen Objekte
+        raycaster.setFromCamera({ x: 0, y: 0 }, camera);
+        
+        LOCATIONS.forEach(loc => {
+            if (loc.object3D && loc.object3D.visible) {
+                const intersects = raycaster.intersectObjects(loc.object3D.children, true);
+                
+                if (intersects.length > 0) {
+                    console.log("Objekt getroffen: " + loc.title);
+                    if(loc.link) {
+                        window.open(loc.link, '_blank');
+                    }
+                }
+            }
+        });
+    }
+
+    function changeRotation(delta) {
+        if(!closestLocRef || !closestLocRef.object3D) return;
+        
+        const model = closestLocRef.object3D.children.find(child => child.type === 'Group' || child.type === 'Scene'); 
+        if(model) {
+            model.rotation.y += THREE.MathUtils.degToRad(delta);
+            const deg = Math.round(THREE.MathUtils.radToDeg(model.rotation.y) % 360);
+            document.getElementById('rotationDisplay').innerText = deg;
+        }
+    }
+
+    // --- GNSS / GPS LOGIK ---
+    function startGNSS() {
+      if (!navigator.geolocation) {
+          updateUI("GNSS nicht unterstützt", "error");
+          return;
+      }
+      navigator.geolocation.watchPosition((pos) => {
+        const lat = pos.coords.latitude;
+        const lon = pos.coords.longitude;
+        const acc = pos.coords.accuracy;
+
+        // Minimap aktualisieren
+        updateLeafletPosition(lat, lon, acc);
+
+        // Position glätten
+        positionHistory.push({ lat, lon });
+        if (positionHistory.length > MAX_HISTORY) positionHistory.shift();
+        let avgLat = 0, avgLon = 0;
+        positionHistory.forEach(p => { avgLat += p.lat; avgLon += p.lon; });
+        avgLat /= positionHistory.length;
+        avgLon /= positionHistory.length;
+
+        if (!gnssReady) {
+            gnssReady = true;
+            document.getElementById('status').innerText = "GNSS aktiv"; 
+            checkReadyStatus();
+        }
+
+        let closestDist = 99999;
+        let closestLoc = null;
+
+        LOCATIONS.forEach(loc => {
+            const dist = haversineDist(avgLat, avgLon, loc.lat, loc.lon);
+            const offset = calcOffset(avgLat, avgLon, loc.lat, loc.lon);
+            
+            if (dist < closestDist) {
+                closestDist = dist;
+                closestLoc = loc;
+                closestLocRef = loc;
+            }
+
+            if (dist < VISIBILITY_DISTANCE) {
+                loc.object3D.position.x = offset.x;
+                loc.object3D.position.z = offset.z;
+                loc.object3D.visible = true;
+            } else {
+                loc.object3D.visible = false;
+            }
+        });
+
+        let debugMsg = `GNSS: ${avgLat.toFixed(6)}, ${avgLon.toFixed(6)} (±${Math.round(acc)}m)\n`;
+        if (closestLoc) {
+            document.getElementById('targetName').innerText = closestLoc.title;
+            document.getElementById('dist').innerText = Math.round(closestDist);
+            
+            if(closestLoc.object3D && closestLoc.object3D.children[0]) {
+                 const model = closestLoc.object3D.children.find(c => c.type === 'Group' || c.type === 'Scene');
+                 if(model) {
+                    const deg = Math.round(THREE.MathUtils.radToDeg(model.rotation.y) % 360);
+                    document.getElementById('rotationDisplay').innerText = deg;
+                 }
+            }
+            debugMsg += `Nächstes Ziel: ${closestLoc.title} (${Math.round(closestDist)}m)`;
+        }
+        document.getElementById('debug-console').innerText = debugMsg;
+
+      }, (err) => {
+          logToDebug("GNSS-Signal verloren.");
+      }, { enableHighAccuracy: true, maximumAge: 0, timeout: 5000 });
+    }
+
+    // --- RENDER LOOP ---
+    function animate() {
+      requestAnimationFrame(animate);
+
+      // Controls Update (Kamera-Drehung durch Handy-Bewegung)
+      if (controls) {
+          controls.update();
+      }
+
+      // Animation der Wasserpartikel
+      if (waterParticles && waterParticles.parent && waterParticles.parent.visible) {
+          updateWaterEffect(waterParticles);
+      }
+
+      // Richtungs-Pfeil Update (für das linke UI Overlay, nicht Leaflet)
+      if (closestLocRef && closestLocRef.object3D) {
+          const camPos = new THREE.Vector3();
+          camera.getWorldPosition(camPos);
+          const targetPos = new THREE.Vector3();
+          closestLocRef.object3D.getWorldPosition(targetPos);
+          
+          const dx = targetPos.x - camPos.x;
+          const dz = targetPos.z - camPos.z;
+          const bearingToTarget = Math.atan2(dx, dz);
+          
+          // Blickrichtung der Kamera
+          const forward = new THREE.Vector3(0, 0, -1).applyQuaternion(camera.quaternion);
+          const camBearing = Math.atan2(forward.x, forward.z);
+          
+          const arrowRotation = bearingToTarget - camBearing;
+          document.getElementById('arrow').style.transform = `rotate(${arrowRotation}rad)`;
+      }
+
+      renderer.render(scene, camera);
+    }
+
+    function logToDebug(text) {
+        const el = document.getElementById('debug-console');
+        if (el) el.innerText = text + "\n" + el.innerText.substring(0, 200);
+    }
+
+    function calcOffset(lat1, lon1, lat2, lon2) {
+      const R = 6378137; 
+      const dLat = (lat2 - lat1) * Math.PI / 180;
+      const dLon = (lon2 - lon1) * Math.PI / 180;
+      const lat1Rad = lat1 * Math.PI / 180;
+      const dx = dLon * Math.cos(lat1Rad) * R;
+      const dz = -dLat * R; 
+      return { x: dx, z: dz };
+    }
+
+    function haversineDist(lat1, lon1, lat2, lon2) {
+      const R = 6371e3; 
+      const rad = Math.PI/180;
+      const dLat = (lat2-lat1)*rad;
+      const dLon = (lon2-lon1)*rad;
+      const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
+      return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+    }
+
+    function updateUI(txt, type="normal") {
+      const el = document.getElementById('msg');
+      if(el) {
+          el.innerText = txt;
+          el.style.color = type === "error" ? "red" : "#ccc";
+      }
+    }
+
+    function onWindowResize() {
+      camera.aspect = window.innerWidth / window.innerHeight;
+      camera.updateProjectionMatrix();
+      renderer.setSize(window.innerWidth, window.innerHeight);
+    }
+  </script>
+</body>
+</html>
