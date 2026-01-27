@@ -118,7 +118,7 @@
             position: absolute;
             bottom: 20px;
             right: 20px;
-            z-index: 100;
+            z-index: 150;
             display: flex;
             flex-direction: column;
             align-items: flex-end;
@@ -127,12 +127,14 @@
 
         #mapContainer {
             position: relative;
-            width: 220px;
-            height: 160px;
+            width: 240px;
+            height: 180px;
             border-radius: 8px;
             border: 2px solid rgba(255,255,255,0.5);
             overflow: hidden;
             box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            display: none; /* Initial versteckt */
+            pointer-events: auto;
         }
 
         #mapStations {
@@ -161,14 +163,24 @@
             font-size: 14px;
         }
 
-        #switchCamBtn {
-            padding: 12px 20px;
-            font-size: 20px;
-            font-weight: bold;
-            cursor: pointer;
+        .bottom-right-btns {
+            display: flex;
+            gap: 12px;
         }
 
-        /* Rotation Controls */
+        .action-btn {
+            width: 52px;
+            height: 52px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            font-weight: bold;
+            cursor: pointer;
+            position: relative; /* Für ui-panel Styling */
+        }
+
+        /* Rotation Controls (Bottom Left) */
         #rotationControls {
             position: absolute;
             bottom: 20px;
@@ -179,14 +191,15 @@
         }
 
         .rotate-btn {
-            width: 48px;
-            height: 48px;
+            width: 52px;
+            height: 52px;
             display: flex;
             align-items: center;
             justify-content: center;
             font-weight: bold;
-            font-size: 24px;
+            font-size: 26px;
             cursor: pointer;
+            position: relative;
         }
 
         .user-arrow {
@@ -216,7 +229,7 @@
         <small style="display:block; margin-top: 4px; color: #aaa;">(Tippen zum Öffnen)</small>
     </div>
 
-    <!-- UI: Map & Camera Controls -->
+    <!-- UI: Map & Camera Controls (Bottom Right) -->
     <div id="mapControls">
         <div id="mapContainer">
             <div id="mapStations"></div>
@@ -225,16 +238,21 @@
                 <button id="orientBtn" class="icon-btn" title="Ausrichtung">🧭</button>
             </div>
         </div>
-        <button id="switchCamBtn" class="ui-panel">📷</button>
+        <div class="bottom-right-btns">
+            <!-- Karten-Toggle-Button -->
+            <button id="toggleMapBtn" class="ui-panel action-btn">🗺️</button>
+            <!-- Kamera-Wechsel-Button -->
+            <button id="switchCamBtn" class="ui-panel action-btn">📷</button>
+        </div>
     </div>
 
-    <!-- UI: Rotation Controls -->
+    <!-- UI: Rotation Controls (Bottom Left) -->
     <div id="rotationControls">
         <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
-    <!-- External Libraries -->
+    <!-- Externe Bibliotheken -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
@@ -245,7 +263,7 @@
 
     <script>
         (function() {
-            // --- KONFIGURATION ---
+            // --- KONFIGURATION (Original beibehalten) ---
             const markerSize = 100.0;
             const selectedDictionary = 'ARUCO_MIP_36h12';
             const AR_MODELS = {
@@ -274,9 +292,11 @@
             const objTitle = document.getElementById('objTitle');
             const objText = document.getElementById('objText');
             const switchCamBtn = document.getElementById('switchCamBtn');
+            const toggleMapBtn = document.getElementById('toggleMapBtn');
             const rotLeftBtn = document.getElementById('rotLeftBtn');
             const rotRightBtn = document.getElementById('rotRightBtn');
             const mapEl = document.getElementById('mapStations');
+            const mapContainer = document.getElementById('mapContainer');
             const locateBtn = document.getElementById('locateBtn');
             const orientBtn = document.getElementById('orientBtn');
 
@@ -357,12 +377,14 @@
 
                 userLayer = L.layerGroup().addTo(mapStations);
 
-                locateBtn.addEventListener('click', () => {
+                locateBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
                     if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17);
                     else mapStations.locate({ setView: true, maxZoom: 17 });
                 });
 
-                orientBtn.addEventListener('click', async () => {
+                orientBtn.addEventListener('click', async (e) => {
+                    e.stopPropagation();
                     if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                         try {
                             const res = await DeviceOrientationEvent.requestPermission();
@@ -370,7 +392,7 @@
                                 window.addEventListener('deviceorientation', onDeviceOrientation, true);
                                 orientBtn.style.background = '#4f4';
                             }
-                        } catch (e) { console.warn(e); }
+                        } catch (err) { console.warn(err); }
                     } else {
                         window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true);
                         orientBtn.style.background = '#4f4';
@@ -408,6 +430,7 @@
             }
 
             function drawUser(p) {
+                if (!userLayer) return;
                 userLayer.clearLayers();
                 L.circle([p.latitude, p.longitude], {
                     radius: Math.max(p.accuracy, 4),
@@ -591,16 +614,43 @@
 
             // Event Listeners
             window.addEventListener('resize', handleResize);
+            
+            // Kamera Wechsel
             switchCamBtn.addEventListener('click', () => {
                 facingMode = (facingMode === 'environment' ? 'user' : 'environment');
                 startCamera();
             });
+
+            // Toggle Map Functionality
+            toggleMapBtn.addEventListener('click', () => {
+                const isVisible = mapContainer.style.display === 'block';
+                if (isVisible) {
+                    mapContainer.style.display = 'none';
+                    toggleMapBtn.innerText = '🗺️';
+                    toggleMapBtn.style.background = 'rgba(30, 30, 30, 0.85)';
+                } else {
+                    mapContainer.style.display = 'block';
+                    toggleMapBtn.innerText = '✖';
+                    toggleMapBtn.style.background = 'rgba(150, 0, 0, 0.85)';
+                    if (mapStations) {
+                        setTimeout(() => mapStations.invalidateSize(), 50);
+                    }
+                }
+            });
+
+            // Rotation des Objekts
             rotLeftBtn.addEventListener('click', () => {
-                if (loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z -= 0.2;
+                if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
+                    loadedMeshes[currentTrackingID].rotation.z -= 0.2;
+                }
             });
             rotRightBtn.addEventListener('click', () => {
-                if (loadedMeshes[currentTrackingID]) loadedMeshes[currentTrackingID].rotation.z += 0.2;
+                if (currentTrackingID !== -1 && loadedMeshes[currentTrackingID]) {
+                    loadedMeshes[currentTrackingID].rotation.z += 0.2;
+                }
             });
+
+            // Info Link
             modelInfo.addEventListener('click', () => {
                 if (activeLink) window.open(activeLink, '_blank');
             });
