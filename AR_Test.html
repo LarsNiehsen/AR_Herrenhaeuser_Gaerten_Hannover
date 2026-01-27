@@ -276,17 +276,50 @@
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/three@0.128.0/examples/js/loaders/GLTFLoader.js"></script>
+    <!-- MindAR Image Tracking Library -->
+    <script src="https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"></script>
 
     <script>
         (function() {
-            // --- KONFIGURATION ---
+            // --- KONFIGURATION MIT WELTKOORDINATEN ---
             const markerSize = 100.0;
             const selectedDictionary = 'ARUCO_MIP_36h12';
+            
             const AR_MODELS = {
-                0: { url: '3D_models/Koenig.glb', scale: 500.0, title: 'König Georg I.', info: 'Referenzmodell (ID 0)', link: null },
-                1: { url: '3D_models/Statue_3D.glb', scale: 110.0, title: 'Niederdeutscher Blumengarten', info: 'Sandsteinstatue "Veritas" von 1730', link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten' },
-                2: { url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 25000.0, title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen' },
-                3: { url: '3D_models/GrosseFontaine_WebAR.glb', scale: 10000.0, title: 'Große Fontäne', info: 'Große Fontäne - Wahrzeichen des Großen Gartens', link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst' }
+                0: { 
+                    url: '3D_models/Koenig.glb', 
+                    scale: 500.0, 
+                    title: 'König Georg I.', 
+                    info: 'Referenzmodell (ID 0)', 
+                    link: null,
+                    lat: 0, lon: 0, rotation: 0
+                },
+                1: { 
+                    url: '3D_models/Statue_3D.glb', 
+                    scale: 110.0, 
+                    title: 'Niederdeutscher Blumengarten', 
+                    info: 'Sandsteinstatue "Veritas" von 1730', 
+                    link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
+                    lat: 52.388194, lon: 9.697861, rotation: 215,
+                    useMindAR: true // Dieses Modell unterstützt zusätzlich Image Tracking
+                },
+                2: { 
+                    url: '3D_models/BorghesischerFechter_WebAR.glb', 
+                    scale: 25000.0, 
+                    title: 'Borghesischer Fechter', 
+                    info: 'Borghesischer Fechter am Gartentheater', 
+                    link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
+                    lat: 52.389472, lon: 9.699222, rotation: 295
+                },
+                3: { 
+                    url: '3D_models/GrosseFontaine_WebAR.glb', 
+                    scale: 10000.0, 
+                    title: 'Große Fontäne', 
+                    info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
+                    link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+                    lat: 52.385968, lon: 9.695931, rotation: 180,
+                    isAnimated: true
+                }
             };
 
             const stations = [
@@ -324,6 +357,7 @@
             let activeLink = null;
             let loadedMeshes = {};
             let detector, posit, renderer, scene, camera, markerGroup;
+            let mindarThree = null;
             let lastPos = null;
             let heading = 0;
             let mapStations, userLayer;
@@ -383,6 +417,23 @@
                 });
             }
 
+            // --- INITIALIZE MINDAR ---
+            async function initMindAR() {
+                try {
+                    mindarThree = new window.MINDAR.IMAGE.MindARThree({
+                        container: document.body,
+                        imageTargetSrc: '/ImageTracking/NiederdeutscherBlumengarten_targets.mind',
+                        filterMinCF: 0.0001,
+                        filterBeta: 0.001,
+                        missTolerance: 5
+                    });
+                    // Wir nutzen nur den Controller, um kein zweites Video zu erzeugen
+                    await mindarThree.controller.addImageTargets('/ImageTracking/NiederdeutscherBlumengarten_targets.mind');
+                } catch (e) {
+                    console.error("MindAR Init Error", e);
+                }
+            }
+
             // --- INITIALIZE MAP ---
             function initMap() {
                 mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
@@ -419,7 +470,6 @@
                     }
                 });
 
-                // Verzögerte GPS-Aktivierung, um Kamera-Startup nicht zu stören
                 setTimeout(() => {
                     if (navigator.geolocation) {
                         navigator.geolocation.watchPosition(onPos, err => console.warn(err), {
@@ -502,24 +552,28 @@
                 context2D.closePath(); context2D.stroke();
             }
 
-            function drawIdText(corners, id) {
+            function drawIdText(corners, id, source = "ArUco") {
                 const pt = corners[0];
                 context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
                 context2D.lineWidth = 4; context2D.strokeStyle = "black";
-                context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
-                context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
+                context2D.strokeText(`ID: ${id} (${source})`, pt.x, pt.y - 10);
+                context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id} (${source})`, pt.x, pt.y - 10);
             }
 
-            function updatePoseUI(r, t, id) {
+            function updatePoseUI(r, t, id, source = "ArUco") {
                 const m = new THREE.Matrix4();
-                m.set(
-                    r[0][0], r[0][1], r[0][2], t[0],
-                   -r[1][0], -r[1][1], -r[1][2], -t[1],
-                   -r[2][0], -r[2][1], -r[2][2], -t[2],
-                    0,       0,       0,       1
-                );
+                if (r.elements) { // MindAR Matrix
+                    m.copy(r);
+                } else { // ArUco Matrix
+                    m.set(
+                        r[0][0], r[0][1], r[0][2], t[0],
+                       -r[1][0], -r[1][1], -r[1][2], -t[1],
+                       -r[2][0], -r[2][1], -r[2][2], -t[2],
+                        0,       0,       0,       1
+                    );
+                }
                 
-                const inv = m.invert();
+                const inv = m.clone().invert();
                 const pos = new THREE.Vector3();
                 const quat = new THREE.Quaternion();
                 const sc = new THREE.Vector3();
@@ -534,7 +588,7 @@
                 const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
                 statusText.innerHTML = `
-                    <span style="color:yellow;">Gefunden: ID ${id}</span><br>
+                    <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
                     <div style="margin-top:8px; padding-top:5px; border-top:1px solid #555;">
                         <span style="color:#aaa;">Position:</span><br>
                         X: ${x} cm | Y: ${y} cm | Z: ${z} cm
@@ -563,7 +617,7 @@
                     audio: false
                 }).then(stream => {
                     video.srcObject = stream;
-                    video.play(); // Explizit starten
+                    video.play();
                     video.onloadedmetadata = () => { handleResize(); };
                 }).catch(err => {
                     statusText.innerHTML = `<span style="color:red;">Kamera-Fehler: ${err.message}</span>`;
@@ -584,10 +638,9 @@
                 camera.updateProjectionMatrix();
             }
 
-            function tick() {
+            async function tick() {
                 requestAnimationFrame(tick);
 
-                // Sicherstellen, dass Video läuft (verhindert Standbilder nach Permissions)
                 if (video.paused && video.readyState >= 2) {
                     video.play().catch(() => {});
                 }
@@ -607,6 +660,7 @@
                     else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
                     context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
 
+                    // --- ARUCO DETECTION ---
                     const imageData = context2D.getImageData(0, 0, cw, ch);
                     let markers = detector.detect(imageData);
                     markers = markers.filter(m => {
@@ -640,22 +694,31 @@
                             m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
                             const targetQuat = new THREE.Quaternion().setFromRotationMatrix(m);
 
-                            if (AR_MODELS[id]) {
-                                Object.keys(loadedMeshes).forEach(key => {
-                                    loadedMeshes[key].visible = (parseInt(key) === id);
-                                });
-                                if (currentTrackingID !== id) {
-                                    currentTrackingID = id;
-                                    modelInfo.style.display = (id === 0 ? 'none' : 'block');
-                                    objTitle.innerText = AR_MODELS[id].title;
-                                    objText.innerText = AR_MODELS[id].info;
-                                    activeLink = AR_MODELS[id].link;
-                                    triggerHint();
-                                }
-                                markerGroup.visible = true;
-                                markerGroup.position.lerp(targetPos, 0.2);
-                                markerGroup.quaternion.slerp(targetQuat, 0.2);
-                            }
+                            updateActiveModel(id, targetPos, targetQuat);
+                        }
+                    }
+
+                    // --- MINDAR IMAGE TRACKING (Falls ArUco nichts fand oder für ID 1) ---
+                    if (!markerFound && mindarThree && mindarThree.controller) {
+                        const {results} = await mindarThree.controller.detect(video);
+                        const {prediction, estimate} = mindarThree.controller.update(results);
+                        
+                        if (estimate && results[0]) {
+                            markerFound = true;
+                            lossCounter = 0;
+                            const id = 1; // "Niederdeutscher Blumengarten"
+                            
+                            const worldMatrix = new THREE.Matrix4().fromArray(estimate);
+                            const targetPos = new THREE.Vector3();
+                            const targetQuat = new THREE.Quaternion();
+                            const targetScale = new THREE.Vector3();
+                            worldMatrix.decompose(targetPos, targetQuat, targetScale);
+
+                            // Da MindAR ein anderes Koordinatensystem nutzt als unsere ArUco Posit:
+                            // Wir müssen die Y/Z Achsen eventuell anpassen, falls das Modell falsch steht.
+                            
+                            updatePoseUI(worldMatrix, [0,0,0], id, "ImageTracking");
+                            updateActiveModel(id, targetPos, targetQuat);
                         }
                     }
                 }
@@ -672,6 +735,25 @@
                     }
                 }
                 renderer.render(scene, camera);
+            }
+
+            function updateActiveModel(id, pos, quat) {
+                if (AR_MODELS[id]) {
+                    Object.keys(loadedMeshes).forEach(key => {
+                        loadedMeshes[key].visible = (parseInt(key) === id);
+                    });
+                    if (currentTrackingID !== id) {
+                        currentTrackingID = id;
+                        modelInfo.style.display = (id === 0 ? 'none' : 'block');
+                        objTitle.innerText = AR_MODELS[id].title;
+                        objText.innerText = AR_MODELS[id].info;
+                        activeLink = AR_MODELS[id].link;
+                        triggerHint();
+                    }
+                    markerGroup.visible = true;
+                    markerGroup.position.lerp(pos, 0.2);
+                    markerGroup.quaternion.slerp(quat, 0.2);
+                }
             }
 
             // --- PARTICLES ---
@@ -712,15 +794,13 @@
 
             // --- MAIN INIT ---
             detector = new AR.Detector({ dictionaryName: selectedDictionary });
-            
-            // Initialisierungs-Reihenfolge optimiert: Video zuerst
             initThree();
             startCamera(); 
+            initMindAR(); // Startet Image Tracking Controller
             initMap();
 
             window.addEventListener('resize', handleResize);
             
-            // Auto-Resume bei Fokusverlust (nach Dialogen)
             document.addEventListener('visibilitychange', () => {
                 if (document.visibilityState === 'visible') {
                     if (video.paused) video.play().catch(() => {});
