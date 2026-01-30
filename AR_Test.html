@@ -407,6 +407,7 @@
         const FOUNTAIN_PERSISTENCE = 15000; // 15 Sekunden
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
+        const COORD_SCALE = 0.2; // Skalierung der Entfernung (0.2 = 5x näher), damit es sichtbar ist
 
         // --- PARTIKELSYSTEM FÜR WASSEREFFEKT ---
         // Erstellt die Wasser-Partikel für die Fontäne
@@ -500,6 +501,10 @@
             renderer = mindarThree.renderer;
             scene = mindarThree.scene;
             camera = mindarThree.camera;
+            
+            // WICHTIG: Sichtweite der Kamera erhöhen, sonst wird die Fontäne abgeschnitten
+            camera.far = 10000; 
+            camera.updateProjectionMatrix();
 
             // Hintergrund transparent machen (für Kamera-Feed)
             renderer.setClearColor(0x000000, 0);
@@ -610,19 +615,14 @@
                         detachedFountainMesh.scale.copy(anchor0.group.scale);
 
                         // Wende relativen Offset an (Target 0 -> Fontäne)
-                        // Da das Mesh nun im World-Space ist, aber sich wie im Anchor verhalten soll, 
-                        // transformieren wir den lokalen Offset in den World-Space.
                         const fGeo = AR_MODELS[3];
                         const offset = calcOffset(target0Lat, target0Lon, fGeo.lat, fGeo.lon);
                         
-                        // Vektor im lokalen Raum des Markers (X=Rechts, Y=Oben, Z=Aus Bild)
-                        // Mapping: Geo Ost(x) -> AR X, Geo Nord(z) -> AR -Z (Tiefenversatz in Ebene)
-                        // Anmerkung: MindAR "Y" ist bildaufwärts. Für Boden-Layout wäre Z=Boden. 
-                        // Wenn Target vertikal steht, ist -Z "hinter" dem Bild (also Norden?).
-                        // Wir platzieren es relativ zum Marker.
-                        
                         // Lokaler Offset Vektor
                         const localOffset = new THREE.Vector3(offset.x, 0, -offset.z); 
+                        
+                        // SKALIERUNG ANPASSEN: Damit das Modell sichtbar ist, Koordinaten-Distanz skalieren
+                        localOffset.multiplyScalar(COORD_SCALE); 
                         
                         // Transformiere lokalen Vektor in World Space basierend auf Marker-Rotation
                         localOffset.applyQuaternion(anchor0.group.quaternion);
@@ -722,13 +722,17 @@
                             // SPEZIALFALL: Target Index 0 (Große Fontäne, ID 3) - Nicht an Anchor hängen, sondern Szene
                             if (targetIndex === 0 && (id === 3)) {
                                 const modelDetached = gltf.scene.clone();
-                                const mindScale = config.scale * 0.015;
+                                // Skalierung für diesen Modus leicht erhöht für bessere Sichtbarkeit
+                                const mindScale = config.scale * 0.02; 
                                 modelDetached.scale.set(mindScale, mindScale, mindScale);
                                 modelDetached.rotation.y = Math.PI;
                                 
                                 const pD = createWaterEffect();
                                 modelDetached.add(pD);
                                 modelDetached.userData.particles = pD;
+                                
+                                // Wichtig: Nicht Frustum Culling, damit es sichtbar bleibt
+                                modelDetached.traverse((child) => { if(child.isMesh) child.frustumCulled = false; });
                                 
                                 modelDetached.visible = false;
                                 scene.add(modelDetached); // Zur Szene, nicht zum Anchor!
