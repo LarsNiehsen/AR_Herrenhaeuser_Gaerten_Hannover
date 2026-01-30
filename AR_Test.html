@@ -61,7 +61,6 @@
             pointer-events: none;
         }
 
-        /* Schriftgröße Überschrift verkleinert */
         #debugInfo strong {
             display: block;
             margin-bottom: 8px;
@@ -369,7 +368,7 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
-        // --- PARTIKELSYSTEM FIXED ---
+        // --- PARTIKELSYSTEM UPDATED (180° gedreht + Dickerer Strahl) ---
         function createWaterEffect() {
             const particleCount = 4000;
             const geometry = new THREE.BufferGeometry();
@@ -377,24 +376,23 @@
             const velocities = new Float32Array(particleCount * 3);
 
             for (let i = 0; i < particleCount; i++) {
-                // Start bei 0,0,0
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
                 
-                // Physik für Fontäne entlang der Z-Achse (da Parent rotiert ist)
-                // Minimale Streuung X/Y
-                velocities[i*3] = (Math.random() - 0.5) * 0.00015;
-                velocities[i*3+1] = (Math.random() - 0.5) * 0.00015;
-                // Schub nach Oben (Z) - sehr klein wegen Skalierung 8000
-                velocities[i*3+2] = Math.random() * 0.0025 + 0.002;
+                // --- ÄNDERUNG: Gebündelter Strahl (wenig Streuung X/Y) ---
+                velocities[i*3] = (Math.random() - 0.5) * 0.00005; 
+                velocities[i*3+1] = (Math.random() - 0.5) * 0.00005;
+                
+                // --- ÄNDERUNG: NEGATIVE Z-Richtung (180 Grad Drehung) & Höherer Speed ---
+                // Minus-Zeichen sorgt für die 180 Grad Drehung
+                velocities[i*3+2] = -(Math.random() * 0.005 + 0.008); 
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
-            // WICHTIG: Size extrem klein wegen Parent Scale 8000
-            // 0.0004 * 8000 = 3.2 Einheiten (Meter) in Weltgröße
+            // --- ÄNDERUNG: Dickerer Strahl (Size vergrößert) ---
             const material = new THREE.PointsMaterial({
-                color: 0xaaddff, // Leichtes Blau für Wasser
-                size: 0.0004,    
+                color: 0xaaddff, 
+                size: 0.0015,     // Deutlich dicker (0.0015 * 8000 = 12m, überlappend für "Strahl"-Effekt)
                 transparent: true,
                 opacity: 0.6,
                 blending: THREE.AdditiveBlending,
@@ -403,8 +401,6 @@
 
             const points = new THREE.Points(geometry, material);
             points.userData.vels = velocities;
-            
-            // Verhindert, dass die Partikel ausgeblendet werden
             points.frustumCulled = false;
 
             return points;
@@ -413,25 +409,26 @@
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            const gravity = 0.00004;
+            const gravity = 0.0002; // Stärkere Schwerkraft passend zum höheren Speed
 
             for (let i = 0; i < pos.length / 3; i++) {
                 // Update Position
-                pos[i*3] += vels[i*3];     // X
-                pos[i*3+1] += vels[i*3+1]; // Y
-                pos[i*3+2] += vels[i*3+2]; // Z (Oben)
+                pos[i*3] += vels[i*3];     
+                pos[i*3+1] += vels[i*3+1]; 
+                pos[i*3+2] += vels[i*3+2]; 
 
-                // Schwerkraft wirkt gegen Z
-                vels[i*3+2] -= gravity;
+                // --- ÄNDERUNG: Schwerkraft wirkt in POSITIVE Z-Richtung (da wir nach -Z schießen) ---
+                vels[i*3+2] += gravity; 
 
-                // Reset wenn Partikel unter den Boden fällt (Z < 0)
-                if (pos[i*3+2] < 0) {
+                // Reset wenn Partikel wieder den Boden erreicht (Z > 0)
+                // Da wir ins Negative schießen, ist >0 der "Boden"
+                if (pos[i*3+2] > 0) {
                     pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
                     
-                    // Reset Geschwindigkeit mit Variation
-                    vels[i*3] = (Math.random() - 0.5) * 0.00015;
-                    vels[i*3+1] = (Math.random() - 0.5) * 0.00015;
-                    vels[i*3+2] = Math.random() * 0.0025 + 0.002;
+                    // Reset Geschwindigkeit (Negativ)
+                    vels[i*3] = (Math.random() - 0.5) * 0.00005;
+                    vels[i*3+1] = (Math.random() - 0.5) * 0.00005;
+                    vels[i*3+2] = -(Math.random() * 0.005 + 0.008);
                 }
             }
             points.geometry.attributes.position.needsUpdate = true;
