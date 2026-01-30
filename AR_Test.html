@@ -68,7 +68,7 @@
             margin-bottom: 8px;
             color: #ffffff;
             font-weight: bold;
-            font-size: 1.0em;
+            font-size: 1.0em; /* Etwas kleiner damit der lange Titel passt */
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 5px;
             line-height: 1.3;
@@ -87,13 +87,10 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
-        /* Objekt Info Popup (Kompakter & Positioniert) */
+        /* Objekt Info Popup (Kompakter) */
         #modelInfo {
-            bottom: 95px; /* Knapp über den Buttons */
-            left: 50%;
             transform: translateX(-50%);
             width: 85%; max-width: 400px;
-            padding: 10px 15px; /* Kompakter */
             text-align: center;
             display: none; cursor: pointer;
         }
@@ -213,7 +210,7 @@
         <div id="arrow"></div>
     </div>
 
-    <!-- UI: Objekt Info -->
+    <!-- UI: Objekt Info (Verkleinert) -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
@@ -375,27 +372,23 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // Tracking
+                if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
+                if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) updateWaterEffect(gpsMeshes[3].userData.particles);
+
                 const arucoFound = processArucoFrame(video);
                 const mindActive = mindarAnchor && mindarAnchor.group.visible;
+
                 isMarkerTracking = arucoFound || mindActive;
 
                 if (isMarkerTracking) {
                     gpsGroup.visible = false; 
                     arrowContainer.style.opacity = 0;
+                    // Hinweis: Wir ändern den Titel NICHT mehr, nur den Inhalt
                 } else {
                     gpsGroup.visible = true;
                     updateGPSUI();
                     updateGPSObjects();
                     updateArrow();
-                }
-
-                // Animation der Partikel
-                if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) {
-                    updateWaterEffect(loadedMeshes[3].userData.particles);
-                }
-                if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) {
-                    updateWaterEffect(gpsMeshes[3].userData.particles);
                 }
 
                 renderer.render(scene, camera);
@@ -407,19 +400,11 @@
             const ids = Object.keys(AR_MODELS);
             let loadedCount = 0;
 
-            const checkLoadStatus = () => {
-                loadedCount++;
-                if (loadedCount === ids.length) {
-                    statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
-                }
-            };
-
             ids.forEach(idStr => {
                 const id = parseInt(idStr);
                 const config = AR_MODELS[id];
                 loader.load(config.url, (gltf) => {
                     
-                    // --- ArUco Modell ---
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2;
@@ -427,32 +412,26 @@
 
                     if (id === 3) {
                         const p = createWaterEffect();
-                        modelAruco.add(p); 
-                        modelAruco.userData.particles = p;
+                        modelAruco.add(p); modelAruco.userData.particles = p;
                     }
 
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
-                    // --- GPS Modell ---
                     if (config.lat && config.lon) {
                         const modelGPS = gltf.scene.clone();
                         const gpsScale = config.scale * 0.05; 
                         modelGPS.scale.set(gpsScale, gpsScale, gpsScale);
-                        
                         if (id === 3) {
                              const pG = createWaterEffect();
-                             modelGPS.add(pG); 
-                             modelGPS.userData.particles = pG;
+                             modelGPS.add(pG); modelGPS.userData.particles = pG;
                         }
-
                         modelGPS.visible = false;
                         gpsGroup.add(modelGPS);
                         gpsMeshes[id] = modelGPS;
                     }
 
-                    // --- MindAR Modell ---
                     if (config.useMindAR) {
                         const modelMind = gltf.scene.clone();
                         const mindScale = config.scale * 0.015;
@@ -466,10 +445,10 @@
                         };
                     }
                     
-                    checkLoadStatus();
-                }, undefined, (err) => {
-                    console.error("Fehler beim Laden von Modell " + id, err);
-                    checkLoadStatus(); // Fortfahren trotz Fehler
+                    loadedCount++;
+                    if (loadedCount === ids.length) {
+                        statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
+                    }
                 });
             });
         }
@@ -504,13 +483,11 @@
                 const compassStr = Math.round(heading) + "°";
 
                 statusText.innerHTML = `
-                    <span class="label-small">Modus: GNSS</span><br>
-                    <div style="margin: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
-                    <span class="label-small">Position</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
+                    <span class="label-small">GNSS</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
                     <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
-                    <span class="label-small">POI</span> <span class="val-green">${closestObj.title}</span><br>
+                    <span class="label-small">Ziel</span> <span class="val-green">${closestObj.title}</span><br>
                     <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
                 `;
             }
@@ -640,9 +617,9 @@
                 if (mindActive) {
                     lossCounter = 0;
                     statusText.innerHTML = `
-                        <span class="val-green">Modus: MindAR Tracking</span><br>
+                        <span class="val-green">Gefunden: Image Target (MindAR)</span><br>
                         <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
-                            <span class="label-small">Status</span><br>
+                            <span class="label-small">Tracking</span><br>
                             Optische Bilderkennung aktiv
                         </div>
                     `;
@@ -661,29 +638,45 @@
             return found;
         }
 
-        function createWaterEffect() {
-            const geometry = new THREE.BufferGeometry(); const count = 2000;
-            const positions = new Float32Array(count * 3); const vels = new Float32Array(count * 3);
-            for (let i = 0; i < count; i++) {
-                positions[i*3]=0; positions[i*3+1]=0; positions[i*3+2]=0;
-                vels[i*3] = (Math.random()-0.5)*0.0003; vels[i*3+1] = Math.random()*0.0015 + 0.0015; vels[i*3+2] = (Math.random()-0.5)*0.0003;
-            }
-            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            const mat = new THREE.PointsMaterial({ color: 0xaaddff, size: 2.0, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending });
-            const points = new THREE.Points(geometry, mat); points.userData.vels = vels; return points;
+        // --- MAP FUNCTIONS ---
+        function initMap() {
+            mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
+            stations.forEach(s => { L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`); });
+            userLayer = L.layerGroup().addTo(mapStations);
+
+            locateBtn.addEventListener('click', (e) => { e.stopPropagation(); if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17); else mapStations.locate({ setView: true, maxZoom: 17 }); });
+            
+            orientBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try { const res = await DeviceOrientationEvent.requestPermission(); if (res === 'granted') { window.addEventListener('deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; } } catch (err) { console.warn(err); }
+                } else { window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; }
+            });
+            setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        function updateWaterEffect(points) {
-            const pos = points.geometry.attributes.position.array; const vels = points.userData.vels; const grav = 0.00004;
-            for (let i=0; i < pos.length/3; i++) {
-                pos[i*3] += vels[i*3]; pos[i*3+1] += vels[i*3+1]; pos[i*3+2] += vels[i*3+2];
-                vels[i*3+1] -= grav;
-                if (pos[i*3+1] < 0) {
-                    pos[i*3]=0; pos[i*3+1]=0; pos[i*3+2]=0;
-                    vels[i*3] = (Math.random()-0.5)*0.0003; vels[i*3+1] = Math.random()*0.0015 + 0.0015; vels[i*3+2] = (Math.random()-0.5)*0.0003;
-                }
-            }
-            points.geometry.attributes.position.needsUpdate = true;
+        function onPos(pos) {
+            lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
+            drawUserOnMap(lastPos);
+            if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
+        }
+
+        function onDeviceOrientation(e) {
+            let alpha = e.alpha; 
+            if (e.webkitCompassHeading) alpha = e.webkitCompassHeading; 
+            if (alpha == null) return;
+            heading = (360 - alpha) % 360; 
+            if (lastPos) drawUserOnMap(lastPos);
+        }
+
+        function drawUserOnMap(p) {
+            if (!userLayer) return; userLayer.clearLayers();
+            L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
+            const url = 'data:image/svg+xml;base64,' + btoa(svg);
+            const icon = L.icon({ iconUrl: url, iconSize: [48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
+            L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
         }
 
         // --- VISUALIZATION HELPERS ---
@@ -735,9 +728,9 @@
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
             statusText.innerHTML = `
-                <span class="val-green">Modus: Marker (ID ${id})</span><br>
+                <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
                 <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
-                    <span class="label-small">Position (relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
+                    <span class="label-small">Position (Relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
                 </div>
                 <div style="margin-top:8px;">
                     <span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
@@ -830,6 +823,7 @@
                 if (currentTrackingID !== -1 && activeLink) window.open(activeLink, '_blank');
             }
         });
+
     </script>
 </body>
 </html>
