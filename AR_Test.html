@@ -483,11 +483,11 @@
                 const compassStr = Math.round(heading) + "°";
 
                 statusText.innerHTML = `
-                    <span class="label-small">GNSS</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
+                    <span class="label-small">Position (GNSS)</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
                     <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
-                    <span class="label-small">Ziel</span> <span class="val-green">${closestObj.title}</span><br>
+                    <span class="label-small">POI</span> <span class="val-green">${closestObj.title}</span><br>
                     <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
                 `;
             }
