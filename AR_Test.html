@@ -350,13 +350,13 @@
 
         // Stationen für die Kartenansicht
         const stations = [
-            { title: 'Große Fontaine', coords: [52.385968, 9.695931] },
+            { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
             { title: 'Haupteingang mit Kasse', coords: [52.391185, 9.698368] },
             { title: 'Niki de Saint Phalle - Grotte', coords: [52.390713, 9.696767] },
             { title: 'Sommer - Statue', coords: [ 52.389583, 9.697833] },
-            { title: 'Borghesischer Fechter', coords: [52.389472, 9.699222] },
-            { title: 'Niederdeutscher Blumengarten', coords: [52.388194, 9.697861] }
+            { title: 'Borghesischer Fechter', coords: [52.389463, 9.699207] },
+            { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
         // --- ZUGRIFF AUF HTML ELEMENTE ---
@@ -743,7 +743,16 @@
                                 const modelMind = gltf.scene.clone();
                                 const mindScale = config.scale * 0.015;
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
-                                modelMind.rotation.y = Math.PI; // Zum Nutzer drehen
+                                
+                                // Standard: Zum Nutzer drehen (180 Grad)
+                                let rotationY = Math.PI;
+                                
+                                // SPEZIALANPASSUNG: MindAR Target Index 1 auf 215 Grad
+                                if (targetIndex === 1) {
+                                    rotationY = THREE.MathUtils.degToRad(215);
+                                }
+                                
+                                modelMind.rotation.y = rotationY; 
                                 
                                 // Partikel auch für MindAR Fontäne
                                 if (id === 3 || id === 33) {
