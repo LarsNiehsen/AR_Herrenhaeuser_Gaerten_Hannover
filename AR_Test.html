@@ -54,23 +54,23 @@
             transition: all 0.3s ease;
         }
 
-        /* Debug Info Oben Links - LIMITIERTE BREITE */
+        /* Debug Info Oben Links */
         #debugInfo {
             top: 20px; left: 20px;
             padding: 15px;
             min-width: 200px;
-            /* Damit es nicht mit dem X Button rechts kollidiert: */
             max-width: calc(100% - 100px); 
             font-size: 13px;
             pointer-events: none;
         }
 
+        /* ÄNDERUNG 1: Schriftgröße Überschrift kleiner */
         #debugInfo strong {
             display: block;
             margin-bottom: 8px;
             color: #ffffff;
             font-weight: bold;
-            font-size: 13px; /* ANPASSUNG: Schriftgröße fixiert */
+            font-size: 11px; /* Verkleinert */
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 5px;
             line-height: 1.3;
@@ -104,16 +104,17 @@
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
         /* --- Historisches Bild Panel --- */
+        /* ÄNDERUNG 2: Rechts mittig einblenden */
         #historicalInfo {
             display: none; 
-            /* ANPASSUNG: Positionierung Links unter dem Titel und Z-Index erhöht */
-            top: 105px; 
-            left: 20px;
-            right: auto;
+            top: 50%; 
+            right: 20px;
+            left: auto; /* Reset falls vorher gesetzt */
+            transform: translateY(-50%); /* Exakte vertikale Mitte */
             width: 180px; 
             padding: 10px;
             text-align: center;
-            z-index: 250; /* ANPASSUNG: Höherer Z-Index */
+            z-index: 250;
         }
         #historicalInfo h4 {
             margin: 0 0 8px 0;
@@ -326,6 +327,16 @@
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true,
                 lat: 52.385968, lon: 9.695931 
+            },
+            // ÄNDERUNG 4: Duplikat der Fontäne für zweiten GPS-Standort (ID 33)
+            33: {
+                url: '3D_models/GrosseFontaine_WebAR.glb',
+                scale: 8000.0,
+                title: 'Große Fontäne',
+                info: 'Große Fontäne (Standort 2)',
+                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+                isAnimated: true,
+                lat: 52.388778, lon: 9.817775
             }
         };
 
@@ -381,9 +392,9 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
-        // --- OPTIMIERTES PARTIKELSYSTEM (GEBÜNDELTER STRAHL) ---
+        // --- ÄNDERUNG 3: FUNKTIONIERENDES PARTIKELSYSTEM ---
         function createWaterEffect() {
-            const particleCount = 2500;
+            const particleCount = 3000;
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const velocities = new Float32Array(particleCount * 3);
@@ -391,49 +402,60 @@
             for (let i = 0; i < particleCount; i++) {
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
                 
-                // Gebündelter Strahl: X/Z minimal, Y hoch (starker Schub nach oben)
-                velocities[i*3] = (Math.random() - 0.5) * 0.0001;
+                // Geschwindigkeit angepasst für Scale 8000
+                // Y muss positiv sein.
+                velocities[i*3] = (Math.random() - 0.5) * 0.00015;
                 velocities[i*3+1] = Math.random() * 0.002 + 0.003; 
-                velocities[i*3+2] = (Math.random() - 0.5) * 0.0001;
+                velocities[i*3+2] = (Math.random() - 0.5) * 0.00015;
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             const material = new THREE.PointsMaterial({
-                color: 0xccffff, // Helles Wasserblau
-                size: 0.06, 
+                color: 0x00ffff, 
+                size: 0.1, // Größer, damit sichtbar bei Scale 8000
                 transparent: true,
-                opacity: 0.6,
+                opacity: 0.8,
                 blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
 
             const points = new THREE.Points(geometry, material);
             points.userData.vels = velocities;
-            points.rotation.x = -Math.PI / 2; // Y-Up Korrektur für das Modell
+            points.rotation.x = -Math.PI / 2;
+            
+            // WICHTIG: Damit Partikel nicht ausgeblendet werden, wenn BoundingBox falsch
+            points.frustumCulled = false; 
+            
             return points;
         }
 
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            const gravity = 0.00006;
+            // Schwerkraft
+            const gravity = 0.00005;
 
             for (let i = 0; i < pos.length / 3; i++) {
-                // Bewegung anwenden
-                pos[i*3] += vels[i*3];
-                pos[i*3+1] += vels[i*3+1];
-                pos[i*3+2] += vels[i*3+2];
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
 
-                // Schwerkraft auf Y-Achse
-                vels[i*3+1] -= gravity;
+                // Position update
+                pos[ix] += vels[ix];
+                pos[iy] += vels[iy];
+                pos[iz] += vels[iz];
 
-                // Reset wenn Partikel unter die "Erde" fallen
-                if (pos[i*3+1] < -0.01) {
-                    pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
-                    // Leichte Streuung beim Reset für natürlichen Look
-                    vels[i*3] = (Math.random() - 0.5) * 0.00015; 
-                    vels[i*3+1] = Math.random() * 0.002 + 0.003;
-                    vels[i*3+2] = (Math.random() - 0.5) * 0.00015;
+                // Velocity update (Gravity wirkt auf Y -> in local space ist das +Y, da rotiert?)
+                // Durch rotation.x = -PI/2 ist local Y "oben" im Fontänen-Space (raus aus der Düse).
+                vels[iy] -= gravity;
+
+                // Reset wenn unter "Boden"
+                if (pos[iy] < -0.01) {
+                    pos[ix] = 0; pos[iy] = 0; pos[iz] = 0;
+                    // Reset Speed
+                    vels[ix] = (Math.random() - 0.5) * 0.00015;
+                    vels[iy] = Math.random() * 0.002 + 0.003;
+                    vels[iz] = (Math.random() - 0.5) * 0.00015;
                 }
             }
             points.geometry.attributes.position.needsUpdate = true;
@@ -468,8 +490,10 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
+                // Animationen für Marker & GPS (Original & Kopie ID 33)
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
                 if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) updateWaterEffect(gpsMeshes[3].userData.particles);
+                if (gpsMeshes[33]?.visible && gpsMeshes[33].userData.particles) updateWaterEffect(gpsMeshes[33].userData.particles);
 
                 const arucoFound = processArucoFrame(video);
                 const mindActive = mindarAnchor && mindarAnchor.group.visible;
@@ -503,9 +527,9 @@
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2;
-                    if (id === 1 || id === 2 || id === 3) modelAruco.rotation.z += Math.PI;
+                    if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
 
-                    if (id === 3) {
+                    if (id === 3 || id === 33) {
                         const p = createWaterEffect();
                         modelAruco.add(p); modelAruco.userData.particles = p;
                     }
@@ -518,7 +542,7 @@
                         const modelGPS = gltf.scene.clone();
                         const gpsScale = config.scale * 0.05; 
                         modelGPS.scale.set(gpsScale, gpsScale, gpsScale);
-                        if (id === 3) {
+                        if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
                              modelGPS.add(pG); modelGPS.userData.particles = pG;
                         }
@@ -613,9 +637,10 @@
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         
-                        if (id === 3) {
+                        // Bildanzeige für ID 3 oder 33
+                        if (id === 3 || id === 33) {
                              historicalInfo.style.display = 'block';
-                        } else if (currentTrackingID === 3 && id !== 3) {
+                        } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
                              historicalInfo.style.display = 'none';
                         }
 
@@ -624,7 +649,7 @@
                         mesh.lookAt(0, mesh.position.y, 0);
                     } else {
                         mesh.visible = false;
-                        if (id === 3) historicalInfo.style.display = 'none';
+                        if (id === 3 || id === 33) historicalInfo.style.display = 'none';
                     }
                 }
             });
@@ -853,8 +878,8 @@
                 currentTrackingID = id;
                 modelInfo.style.display = (id === 0 ? 'none' : 'block');
                 
-                // Bild nur bei ID 3 (Fontäne) anzeigen
-                if (id === 3) {
+                // Bild nur bei ID 3 oder 33 (Fontäne) anzeigen
+                if (id === 3 || id === 33) {
                     historicalInfo.style.display = 'block';
                 } else {
                     historicalInfo.style.display = 'none';
