@@ -51,6 +51,7 @@
             transition: all 0.3s ease;
         }
 
+        /* Titel Fenster oben links */
         #debugInfo {
             top: 20px; left: 20px;
             padding: 15px;
@@ -60,12 +61,13 @@
             pointer-events: none;
         }
 
+        /* Schriftgröße Überschrift verkleinert */
         #debugInfo strong {
             display: block;
             margin-bottom: 8px;
             color: #ffffff;
             font-weight: bold;
-            font-size: 11px;
+            font-size: 11px; 
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 5px;
             line-height: 1.3;
@@ -96,12 +98,12 @@
         #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
-        /* Kupferstich mittig rechts */
+        /* Bild rechts mittig */
         #historicalInfo {
             display: none; 
             top: 50%; 
             right: 20px;
-            left: auto; 
+            left: auto;
             transform: translateY(-50%);
             width: 180px; 
             padding: 10px;
@@ -266,10 +268,8 @@
         import { MindARThree } from 'mindar-image-three';
 
         // --- KONFIGURATION ---
-        const markerSize = 100.0; // mm
+        const markerSize = 100.0; 
         const selectedDictionary = 'ARUCO_MIP_36h12';
-        
-        // 1) SICHTBARKEITSDISTANZ
         const VISIBILITY_DISTANCE = 75.0; // Meter
         
         const AR_MODELS = {
@@ -298,7 +298,6 @@
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
                 lat: 52.389472, lon: 9.699222 
             },
-            // Originale Fontäne
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', 
                 scale: 8000.0, 
@@ -308,7 +307,6 @@
                 isAnimated: true,
                 lat: 52.385968, lon: 9.695931 
             },
-            // Zweite Fontäne am neuen Standort
             33: {
                 url: '3D_models/GrosseFontaine_WebAR.glb',
                 scale: 8000.0,
@@ -371,82 +369,69 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
-        // --- 2) PARTIKELSYSTEM ENTLANG Z-ACHSE ---
+        // --- PARTIKELSYSTEM FIXED ---
         function createWaterEffect() {
-            const particleCount = 3500;
+            const particleCount = 4000;
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const velocities = new Float32Array(particleCount * 3);
 
             for (let i = 0; i < particleCount; i++) {
                 // Start bei 0,0,0
-                positions[i*3] = 0; 
-                positions[i*3+1] = 0; 
-                positions[i*3+2] = 0;
+                positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
                 
-                // Geschwindigkeit für Scale 8000 extrem klein halten!
-                // Z-Achse ist oben (wenn Modell korrekt rotiert)
-                // Schub auf Z (i*3+2)
-                
-                // Spread X/Y winzig: 0.0001
-                velocities[i*3] = (Math.random() - 0.5) * 0.0001; 
-                velocities[i*3+1] = (Math.random() - 0.5) * 0.0001;
-                
-                // Schub Z: 0.002 bis 0.005 (ergibt bei 8000x ca. 16m bis 40m Höhe)
-                velocities[i*3+2] = Math.random() * 0.003 + 0.002;
+                // Physik für Fontäne entlang der Z-Achse (da Parent rotiert ist)
+                // Minimale Streuung X/Y
+                velocities[i*3] = (Math.random() - 0.5) * 0.00015;
+                velocities[i*3+1] = (Math.random() - 0.5) * 0.00015;
+                // Schub nach Oben (Z) - sehr klein wegen Skalierung 8000
+                velocities[i*3+2] = Math.random() * 0.0025 + 0.002;
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
-            // Material angepasst für Sichtbarkeit bei riesigem Scale
+            // WICHTIG: Size extrem klein wegen Parent Scale 8000
+            // 0.0004 * 8000 = 3.2 Einheiten (Meter) in Weltgröße
             const material = new THREE.PointsMaterial({
-                color: 0xffffff, // Reinweiß für besten Kontrast
-                size: 0.0005,    // 0.0005 * 8000 = 4 Meter breite Wolken (Nebel)
+                color: 0xaaddff, // Leichtes Blau für Wasser
+                size: 0.0004,    
                 transparent: true,
-                opacity: 0.5,
+                opacity: 0.6,
                 blending: THREE.AdditiveBlending,
-                depthWrite: false,
-                sizeAttenuation: true
+                depthWrite: false
             });
 
             const points = new THREE.Points(geometry, material);
             points.userData.vels = velocities;
             
-            // WICHTIG: Keine Rotation hier anwenden, damit Z lokal Z bleibt.
-            // Der übergeordnete Container ist bereits rotiert.
-            // points.rotation.x = ... (entfernt)
+            // Verhindert, dass die Partikel ausgeblendet werden
+            points.frustumCulled = false;
 
-            points.frustumCulled = false; // Verhindert Flackern
             return points;
         }
 
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            
-            // Gravity winzig, da Skala 8000x
-            const gravity = 0.00004; 
+            const gravity = 0.00004;
 
             for (let i = 0; i < pos.length / 3; i++) {
-                const ix = i * 3;
-                const iy = i * 3 + 1;
-                const iz = i * 3 + 2;
+                // Update Position
+                pos[i*3] += vels[i*3];     // X
+                pos[i*3+1] += vels[i*3+1]; // Y
+                pos[i*3+2] += vels[i*3+2]; // Z (Oben)
 
-                // Position update
-                pos[ix] += vels[ix];
-                pos[iy] += vels[iy];
-                pos[iz] += vels[iz];
+                // Schwerkraft wirkt gegen Z
+                vels[i*3+2] -= gravity;
 
-                // Gravity auf Z-Achse (da wir entlang Z schießen)
-                vels[iz] -= gravity;
-
-                // Reset wenn unter "Boden" (Z < 0)
-                if (pos[iz] < 0) {
-                    pos[ix] = 0; pos[iy] = 0; pos[iz] = 0;
-                    // Reset Speed
-                    vels[ix] = (Math.random() - 0.5) * 0.0001;
-                    vels[iy] = (Math.random() - 0.5) * 0.0001;
-                    vels[iz] = Math.random() * 0.003 + 0.002;
+                // Reset wenn Partikel unter den Boden fällt (Z < 0)
+                if (pos[i*3+2] < 0) {
+                    pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
+                    
+                    // Reset Geschwindigkeit mit Variation
+                    vels[i*3] = (Math.random() - 0.5) * 0.00015;
+                    vels[i*3+1] = (Math.random() - 0.5) * 0.00015;
+                    vels[i*3+2] = Math.random() * 0.0025 + 0.002;
                 }
             }
             points.geometry.attributes.position.needsUpdate = true;
@@ -627,7 +612,7 @@
                 if (config.lat && config.lon) {
                     const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                     
-                    // 1) HIER IST DIE 75 METER LOGIK
+                    // Sichtbarkeitsprüfung
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         
