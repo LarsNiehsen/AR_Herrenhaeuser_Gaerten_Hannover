@@ -29,23 +29,20 @@
 
         #videoElement { display: none; }
 
-        /* Video Canvas für Debug-Zeichnungen */
         #videoCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 30; pointer-events: none;
         }
 
-        /* Der Container für MindAR ThreeJS */
         #container {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 20; pointer-events: auto; overflow: hidden;
         }
 
-        /* --- UI DESIGN --- */
         .ui-panel {
             position: absolute;
             z-index: 100;
-            background: rgba(0, 0, 0, 0.6); /* Transparent Schwarz */
+            background: rgba(0, 0, 0, 0.6);
             border: 1px solid rgba(255, 255, 255, 0.2);
             color: white;
             border-radius: 12px;
@@ -54,7 +51,6 @@
             transition: all 0.3s ease;
         }
 
-        /* Debug Info Oben Links */
         #debugInfo {
             top: 20px; left: 20px;
             padding: 15px;
@@ -64,19 +60,17 @@
             pointer-events: none;
         }
 
-        /* ÄNDERUNG 1: Schriftgröße Überschrift kleiner */
         #debugInfo strong {
             display: block;
             margin-bottom: 8px;
             color: #ffffff;
             font-weight: bold;
-            font-size: 11px; /* Verkleinert */
+            font-size: 11px;
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 5px;
             line-height: 1.3;
         }
 
-        /* Schließen Button (Rot) */
         #closeBtn {
             top: 20px; right: 20px;
             width: 44px; height: 44px;
@@ -89,7 +83,6 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
-        /* Objekt Info Popup (Kompakter) - Unten Mittig */
         #modelInfo {
             position: absolute;
             bottom: 90px;
@@ -103,14 +96,13 @@
         #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
-        /* --- Historisches Bild Panel --- */
-        /* ÄNDERUNG 2: Rechts mittig einblenden */
+        /* Kupferstich mittig rechts */
         #historicalInfo {
             display: none; 
             top: 50%; 
             right: 20px;
-            left: auto; /* Reset falls vorher gesetzt */
-            transform: translateY(-50%); /* Exakte vertikale Mitte */
+            left: auto; 
+            transform: translateY(-50%);
             width: 180px; 
             padding: 10px;
             text-align: center;
@@ -129,7 +121,6 @@
             border: 1px solid rgba(255,255,255,0.3);
         }
 
-        /* Map and Controls */
         #mapControls {
             position: absolute; bottom: 20px; right: 20px; z-index: 150;
             display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
@@ -188,7 +179,6 @@
             text-align: center; border: 1px solid rgba(255,255,255,0.3);
         }
 
-        /* --- RICHTUNGSPFEIL --- */
         #direction-indicator {
             position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
             width: 70px; height: 70px;
@@ -203,14 +193,13 @@
             width: 0; height: 0;
             border-left: 12px solid transparent;
             border-right: 12px solid transparent;
-            border-bottom: 30px solid #00ff00; /* Grüner Pfeil */
-            transform-origin: center 20px; /* Drehpunkt */
+            border-bottom: 30px solid #00ff00;
+            transform-origin: center 20px;
             filter: drop-shadow(0 0 4px #00ff00);
             transform: rotate(0deg);
             transition: transform 0.2s ease-out;
         }
 
-        /* Hilfsklassen für Textformatierung */
         .label-small { font-size: 11px; color: #bbb; margin-right: 5px; text-transform: uppercase; }
         .val-highlight { color: #fff; font-weight: bold; }
         .val-green { color: #4f4; font-weight: bold; }
@@ -219,36 +208,26 @@
 </head>
 <body>
 
-    <!-- Video Element -->
     <video id="videoElement" playsinline muted autoplay></video>
-    
-    <!-- Container für MindAR/ThreeJS Szene -->
     <div id="container"></div>
-
-    <!-- Canvas für ArUco Debugging -->
     <canvas id="videoCanvas"></canvas>
 
-    <!-- UI: Debug Info -->
     <div id="debugInfo" class="ui-panel">
         <strong id="debugTitle">Herrenhäuser Gärten - Augmented Reality (AR)</strong>
         <div id="statusText">Starte System...<br><span style='color: #aaa;'>Initialisiere...</span></div>
     </div>
 
-    <!-- UI Buttons -->
     <div id="closeBtn" class="ui-panel" title="Schließen" onclick="window.history.length > 1 ? window.history.back() : window.close()">✕</div>
 
-    <!-- UI: Historisches Bild Panel -->
     <div id="historicalInfo" class="ui-panel">
         <h4>Kupferstich Große Fontäne um 1800</h4>
         <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
     </div>
 
-    <!-- UI: Navigations-Pfeil -->
     <div id="direction-indicator">
         <div id="arrow"></div>
     </div>
 
-    <!-- UI: Objekt Info (Verkleinert) -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
@@ -275,14 +254,12 @@
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
-    <!-- Externe Bibliotheken -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     
-    <!-- Hauptlogik als Modul -->
     <script type="module">
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
@@ -291,6 +268,8 @@
         // --- KONFIGURATION ---
         const markerSize = 100.0; // mm
         const selectedDictionary = 'ARUCO_MIP_36h12';
+        
+        // 1) SICHTBARKEITSDISTANZ
         const VISIBILITY_DISTANCE = 75.0; // Meter
         
         const AR_MODELS = {
@@ -319,6 +298,7 @@
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
                 lat: 52.389472, lon: 9.699222 
             },
+            // Originale Fontäne
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', 
                 scale: 8000.0, 
@@ -328,7 +308,7 @@
                 isAnimated: true,
                 lat: 52.385968, lon: 9.695931 
             },
-            // ÄNDERUNG 4: Duplikat der Fontäne für zweiten GPS-Standort (ID 33)
+            // Zweite Fontäne am neuen Standort
             33: {
                 url: '3D_models/GrosseFontaine_WebAR.glb',
                 scale: 8000.0,
@@ -353,7 +333,6 @@
         // --- DOM ELEMENTS ---
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
-        const debugTitle = document.getElementById('debugTitle');
         const modelInfo = document.getElementById('modelInfo');
         const objTitle = document.getElementById('objTitle');
         const objText = document.getElementById('objText');
@@ -392,48 +371,61 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
-        // --- ÄNDERUNG 3: FUNKTIONIERENDES PARTIKELSYSTEM ---
+        // --- 2) PARTIKELSYSTEM ENTLANG Z-ACHSE ---
         function createWaterEffect() {
-            const particleCount = 3000;
+            const particleCount = 3500;
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3);
             const velocities = new Float32Array(particleCount * 3);
 
             for (let i = 0; i < particleCount; i++) {
-                positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
+                // Start bei 0,0,0
+                positions[i*3] = 0; 
+                positions[i*3+1] = 0; 
+                positions[i*3+2] = 0;
                 
-                // Geschwindigkeit angepasst für Scale 8000
-                // Y muss positiv sein.
-                velocities[i*3] = (Math.random() - 0.5) * 0.00015;
-                velocities[i*3+1] = Math.random() * 0.002 + 0.003; 
-                velocities[i*3+2] = (Math.random() - 0.5) * 0.00015;
+                // Geschwindigkeit für Scale 8000 extrem klein halten!
+                // Z-Achse ist oben (wenn Modell korrekt rotiert)
+                // Schub auf Z (i*3+2)
+                
+                // Spread X/Y winzig: 0.0001
+                velocities[i*3] = (Math.random() - 0.5) * 0.0001; 
+                velocities[i*3+1] = (Math.random() - 0.5) * 0.0001;
+                
+                // Schub Z: 0.002 bis 0.005 (ergibt bei 8000x ca. 16m bis 40m Höhe)
+                velocities[i*3+2] = Math.random() * 0.003 + 0.002;
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            // Material angepasst für Sichtbarkeit bei riesigem Scale
             const material = new THREE.PointsMaterial({
-                color: 0x00ffff, 
-                size: 0.1, // Größer, damit sichtbar bei Scale 8000
+                color: 0xffffff, // Reinweiß für besten Kontrast
+                size: 0.0005,    // 0.0005 * 8000 = 4 Meter breite Wolken (Nebel)
                 transparent: true,
-                opacity: 0.8,
+                opacity: 0.5,
                 blending: THREE.AdditiveBlending,
-                depthWrite: false
+                depthWrite: false,
+                sizeAttenuation: true
             });
 
             const points = new THREE.Points(geometry, material);
             points.userData.vels = velocities;
-            points.rotation.x = -Math.PI / 2;
             
-            // WICHTIG: Damit Partikel nicht ausgeblendet werden, wenn BoundingBox falsch
-            points.frustumCulled = false; 
-            
+            // WICHTIG: Keine Rotation hier anwenden, damit Z lokal Z bleibt.
+            // Der übergeordnete Container ist bereits rotiert.
+            // points.rotation.x = ... (entfernt)
+
+            points.frustumCulled = false; // Verhindert Flackern
             return points;
         }
 
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            // Schwerkraft
-            const gravity = 0.00005;
+            
+            // Gravity winzig, da Skala 8000x
+            const gravity = 0.00004; 
 
             for (let i = 0; i < pos.length / 3; i++) {
                 const ix = i * 3;
@@ -445,17 +437,16 @@
                 pos[iy] += vels[iy];
                 pos[iz] += vels[iz];
 
-                // Velocity update (Gravity wirkt auf Y -> in local space ist das +Y, da rotiert?)
-                // Durch rotation.x = -PI/2 ist local Y "oben" im Fontänen-Space (raus aus der Düse).
-                vels[iy] -= gravity;
+                // Gravity auf Z-Achse (da wir entlang Z schießen)
+                vels[iz] -= gravity;
 
-                // Reset wenn unter "Boden"
-                if (pos[iy] < -0.01) {
+                // Reset wenn unter "Boden" (Z < 0)
+                if (pos[iz] < 0) {
                     pos[ix] = 0; pos[iy] = 0; pos[iz] = 0;
                     // Reset Speed
-                    vels[ix] = (Math.random() - 0.5) * 0.00015;
-                    vels[iy] = Math.random() * 0.002 + 0.003;
-                    vels[iz] = (Math.random() - 0.5) * 0.00015;
+                    vels[ix] = (Math.random() - 0.5) * 0.0001;
+                    vels[iy] = (Math.random() - 0.5) * 0.0001;
+                    vels[iz] = Math.random() * 0.003 + 0.002;
                 }
             }
             points.geometry.attributes.position.needsUpdate = true;
@@ -490,7 +481,7 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // Animationen für Marker & GPS (Original & Kopie ID 33)
+                // Animation update für Fontänen
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
                 if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) updateWaterEffect(gpsMeshes[3].userData.particles);
                 if (gpsMeshes[33]?.visible && gpsMeshes[33].userData.particles) updateWaterEffect(gpsMeshes[33].userData.particles);
@@ -527,6 +518,7 @@
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2;
+                    // Rotation um Z für ID 3 und 33 (Fontänen)
                     if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
 
                     if (id === 3 || id === 33) {
@@ -634,10 +626,12 @@
 
                 if (config.lat && config.lon) {
                     const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    
+                    // 1) HIER IST DIE 75 METER LOGIK
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         
-                        // Bildanzeige für ID 3 oder 33
+                        // Bildanzeige
                         if (id === 3 || id === 33) {
                              historicalInfo.style.display = 'block';
                         } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
@@ -758,7 +752,7 @@
                         if (currentTrackingID !== -1) {
                              modelInfo.style.display = 'none';
                              clickHint.style.opacity = 0;
-                             historicalInfo.style.display = 'none'; // Bild ausblenden
+                             historicalInfo.style.display = 'none'; 
                              currentTrackingID = -1;
                         }
                     }
@@ -878,7 +872,6 @@
                 currentTrackingID = id;
                 modelInfo.style.display = (id === 0 ? 'none' : 'block');
                 
-                // Bild nur bei ID 3 oder 33 (Fontäne) anzeigen
                 if (id === 3 || id === 33) {
                     historicalInfo.style.display = 'block';
                 } else {
