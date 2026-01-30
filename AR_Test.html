@@ -87,16 +87,17 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
-        /* Objekt Info Popup (Kompakter) */
+        /* Objekt Info Popup (Kompakter & Positioniert) */
         #modelInfo {
-            bottom: 150px; left: 50%;
+            bottom: 95px; /* Knapp über den Buttons */
+            left: 50%;
             transform: translateX(-50%);
             width: 85%; max-width: 400px;
-            padding: 15px 20px;
+            padding: 10px 15px; /* Kompakter */
             text-align: center;
             display: none; cursor: pointer;
         }
-        #modelInfo h3 { color: #4f4; margin: 0 0 5px 0; font-size: 18px; font-weight: bold; }
+        #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
         /* Map and Controls */
@@ -212,7 +213,7 @@
         <div id="arrow"></div>
     </div>
 
-    <!-- UI: Objekt Info (Verkleinert, ohne Tippen-Hinweis) -->
+    <!-- UI: Objekt Info -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
@@ -307,6 +308,7 @@
         // --- DOM ELEMENTS ---
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
+        const debugTitle = document.getElementById('debugTitle');
         const modelInfo = document.getElementById('modelInfo');
         const objTitle = document.getElementById('objTitle');
         const objText = document.getElementById('objText');
@@ -373,7 +375,7 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // Tracking (vor Animation, damit Sichtbarkeit aktuell ist)
+                // Tracking
                 const arucoFound = processArucoFrame(video);
                 const mindActive = mindarAnchor && mindarAnchor.group.visible;
                 isMarkerTracking = arucoFound || mindActive;
@@ -404,6 +406,13 @@
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
             let loadedCount = 0;
+
+            const checkLoadStatus = () => {
+                loadedCount++;
+                if (loadedCount === ids.length) {
+                    statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
+                }
+            };
 
             ids.forEach(idStr => {
                 const id = parseInt(idStr);
@@ -457,10 +466,10 @@
                         };
                     }
                     
-                    loadedCount++;
-                    if (loadedCount === ids.length) {
-                        statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
-                    }
+                    checkLoadStatus();
+                }, undefined, (err) => {
+                    console.error("Fehler beim Laden von Modell " + id, err);
+                    checkLoadStatus(); // Fortfahren trotz Fehler
                 });
             });
         }
@@ -495,7 +504,9 @@
                 const compassStr = Math.round(heading) + "°";
 
                 statusText.innerHTML = `
-                    <span class="label-small">Position (GNSS)</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
+                    <span class="label-small">Modus: GNSS</span><br>
+                    <div style="margin: 4px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
+                    <span class="label-small">Position</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
                     <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
@@ -629,9 +640,9 @@
                 if (mindActive) {
                     lossCounter = 0;
                     statusText.innerHTML = `
-                        <span class="val-green">Gefunden: Image Target (MindAR)</span><br>
+                        <span class="val-green">Modus: MindAR Tracking</span><br>
                         <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
-                            <span class="label-small">Tracking</span><br>
+                            <span class="label-small">Status</span><br>
                             Optische Bilderkennung aktiv
                         </div>
                     `;
@@ -724,7 +735,7 @@
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
 
             statusText.innerHTML = `
-                <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
+                <span class="val-green">Modus: Marker (ID ${id})</span><br>
                 <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
                     <span class="label-small">Position (relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
                 </div>
