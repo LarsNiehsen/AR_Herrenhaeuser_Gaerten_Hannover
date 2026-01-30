@@ -87,12 +87,16 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
-        /* Objekt Info Popup (Kompakter) */
+        /* Objekt Info Popup (Kompakter) - ÜBERARBEITET: Positionierung unten mittig */
         #modelInfo {
+            position: absolute;
+            bottom: 90px; /* Genug Abstand für die unteren Buttons */
+            left: 50%;
             transform: translateX(-50%);
             width: 85%; max-width: 400px;
             text-align: center;
             display: none; cursor: pointer;
+            z-index: 200; /* Sicherstellen, dass es über Map/Buttons liegt falls nötig */
         }
         #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
@@ -343,6 +347,78 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
+        // --- PARTICLE SYSTEM FUNCTIONS (NEU HINZUGEFÜGT) ---
+        function createWaterEffect() {
+            const particleCount = 1000;
+            const geometry = new THREE.BufferGeometry();
+            const positions = [];
+            const velocities = [];
+
+            for (let i = 0; i < particleCount; i++) {
+                // Startposition (relativ zum Zentrum)
+                positions.push(0, 0, 0);
+                
+                // Geschwindigkeit: Zufall in X/Z, Stark in Y (oben)
+                // Skalierung ist wichtig, da das Parent-Objekt extrem skaliert ist (8000.0)
+                const spread = 0.05; 
+                velocities.push(
+                    (Math.random() - 0.5) * spread, // x
+                    Math.random() * 0.5 + 0.5,      // y (up)
+                    (Math.random() - 0.5) * spread  // z
+                );
+            }
+
+            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
+            geometry.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
+
+            const material = new THREE.PointsMaterial({
+                color: 0xaaddff,
+                size: 2.0, // Größe relativ zur Szene
+                transparent: true,
+                opacity: 0.6,
+                sizeAttenuation: true
+            });
+
+            const points = new THREE.Points(geometry, material);
+            // Wir rotieren das System, damit Y nach oben zeigt im Kontext des rotierten Modells
+            points.rotation.x = -Math.PI / 2; 
+            return points;
+        }
+
+        function updateWaterEffect(particles) {
+            const positions = particles.geometry.attributes.position.array;
+            const velocities = particles.geometry.attributes.velocity.array;
+            const count = positions.length / 3;
+
+            for (let i = 0; i < count; i++) {
+                const ix = i * 3;
+                const iy = i * 3 + 1;
+                const iz = i * 3 + 2;
+
+                // Position update
+                positions[ix] += velocities[ix] * 0.1;
+                positions[iy] += velocities[iy] * 0.1;
+                positions[iz] += velocities[iz] * 0.1;
+
+                // Gravity
+                velocities[iy] -= 0.015;
+
+                // Reset wenn unter Boden
+                if (positions[iy] < -0.1) {
+                    positions[ix] = 0;
+                    positions[iy] = 0;
+                    positions[iz] = 0;
+                    
+                    // Reset velocity
+                    const spread = 0.05;
+                    velocities[ix] = (Math.random() - 0.5) * spread;
+                    velocities[iy] = Math.random() * 0.5 + 0.5;
+                    velocities[iz] = (Math.random() - 0.5) * spread;
+                }
+            }
+            particles.geometry.attributes.position.needsUpdate = true;
+        }
+
         // --- INIT MINDAR & THREE ---
         const startAR = async () => {
             mindarThree = new MindARThree({
@@ -372,6 +448,7 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
+                // Aufruf der Wasser-Effekt Updates
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
                 if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) updateWaterEffect(gpsMeshes[3].userData.particles);
 
