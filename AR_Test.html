@@ -70,7 +70,7 @@
             margin-bottom: 8px;
             color: #ffffff;
             font-weight: bold;
-            font-size: 1.0em; 
+            font-size: 13px; /* ANPASSUNG: Schriftgröße fixiert */
             border-bottom: 1px solid rgba(255,255,255,0.3);
             padding-bottom: 5px;
             line-height: 1.3;
@@ -106,13 +106,14 @@
         /* --- Historisches Bild Panel --- */
         #historicalInfo {
             display: none; 
-            /* Tiefer gesetzt, damit keine Überlappung mit Titel/CloseBtn */
-            top: 110px; 
-            right: 20px;
-            width: 180px; /* Etwas kompakter */
+            /* ANPASSUNG: Positionierung Links unter dem Titel und Z-Index erhöht */
+            top: 105px; 
+            left: 20px;
+            right: auto;
+            width: 180px; 
             padding: 10px;
             text-align: center;
-            z-index: 90;
+            z-index: 250; /* ANPASSUNG: Höherer Z-Index */
         }
         #historicalInfo h4 {
             margin: 0 0 8px 0;
@@ -380,87 +381,62 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
-        // --- PARTICLE SYSTEM FUNCTIONS (FONTÄNE) ---
+        // --- OPTIMIERTES PARTIKELSYSTEM (GEBÜNDELTER STRAHL) ---
         function createWaterEffect() {
-            // Partikelanzahl
-            const particleCount = 4000;
+            const particleCount = 2500;
             const geometry = new THREE.BufferGeometry();
-            const positions = [];
-            const velocities = [];
+            const positions = new Float32Array(particleCount * 3);
+            const velocities = new Float32Array(particleCount * 3);
 
-            // Da das Eltern-Objekt (Fontäne) mit scale=8000 skaliert ist,
-            // müssen wir extrem kleine lokale Werte verwenden.
-            // 8000 * 0.001 = 8 World Units.
-            
             for (let i = 0; i < particleCount; i++) {
-                // Startpunkt (Nozzle): Leicht über 0
-                positions.push(0, 0.002, 0); 
+                positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
                 
-                // Geschwindigkeit: 
-                // Y (hoch): im Bereich 0.002 bis 0.004 (lokal) -> wird zu 16 bis 32 World Units
-                // X/Z (spread): extrem klein (0.00005)
-                const spread = 0.00005; 
-                velocities.push(
-                    (Math.random() - 0.5) * spread, 
-                    Math.random() * 0.002 + 0.002,      
-                    (Math.random() - 0.5) * spread  
-                );
+                // Gebündelter Strahl: X/Z minimal, Y hoch (starker Schub nach oben)
+                velocities[i*3] = (Math.random() - 0.5) * 0.0001;
+                velocities[i*3+1] = Math.random() * 0.002 + 0.003; 
+                velocities[i*3+2] = (Math.random() - 0.5) * 0.0001;
             }
 
-            geometry.setAttribute('position', new THREE.Float32BufferAttribute(positions, 3));
-            geometry.setAttribute('velocity', new THREE.Float32BufferAttribute(velocities, 3));
-
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             const material = new THREE.PointsMaterial({
-                color: 0x00ffff, // Cyan/Türkis für gute Sichtbarkeit
-                size: 0.05,      // Lokal 0.05 * 8000 = 400 Pixel (durch Dämpfung reduziert)
+                color: 0xccffff, // Helles Wasserblau
+                size: 0.06, 
                 transparent: true,
-                opacity: 0.8,
-                sizeAttenuation: true, // Wichtig für Tiefe
+                opacity: 0.6,
+                blending: THREE.AdditiveBlending,
                 depthWrite: false
             });
 
             const points = new THREE.Points(geometry, material);
-            // Rotation korrigieren
-            points.rotation.x = -Math.PI / 2; 
+            points.userData.vels = velocities;
+            points.rotation.x = -Math.PI / 2; // Y-Up Korrektur für das Modell
             return points;
         }
 
-        function updateWaterEffect(particles) {
-            const positions = particles.geometry.attributes.position.array;
-            const velocities = particles.geometry.attributes.velocity.array;
-            const count = positions.length / 3;
+        function updateWaterEffect(points) {
+            const pos = points.geometry.attributes.position.array;
+            const vels = points.userData.vels;
+            const gravity = 0.00006;
 
-            // Schwerkraft muss auch winzig sein relativ zur Skalierung
-            const gravity = 0.00003; 
+            for (let i = 0; i < pos.length / 3; i++) {
+                // Bewegung anwenden
+                pos[i*3] += vels[i*3];
+                pos[i*3+1] += vels[i*3+1];
+                pos[i*3+2] += vels[i*3+2];
 
-            for (let i = 0; i < count; i++) {
-                const ix = i * 3;
-                const iy = i * 3 + 1;
-                const iz = i * 3 + 2;
+                // Schwerkraft auf Y-Achse
+                vels[i*3+1] -= gravity;
 
-                // Position update
-                positions[ix] += velocities[ix];
-                positions[iy] += velocities[iy]; 
-                positions[iz] += velocities[iz];
-
-                // Velocity update
-                velocities[iy] -= gravity;
-
-                // Reset wenn Partikel unter den Boden fällt
-                // Reset etwas tiefer zulassen für schönen Fall
-                if (positions[iy] < -0.002) {
-                    positions[ix] = 0;
-                    positions[iy] = 0.002; // Reset zur Düse
-                    positions[iz] = 0;
-                    
-                    // Reset Geschwindigkeit
-                    const spread = 0.00005;
-                    velocities[ix] = (Math.random() - 0.5) * spread;
-                    velocities[iy] = Math.random() * 0.002 + 0.002;
-                    velocities[iz] = (Math.random() - 0.5) * spread;
+                // Reset wenn Partikel unter die "Erde" fallen
+                if (pos[i*3+1] < -0.01) {
+                    pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
+                    // Leichte Streuung beim Reset für natürlichen Look
+                    vels[i*3] = (Math.random() - 0.5) * 0.00015; 
+                    vels[i*3+1] = Math.random() * 0.002 + 0.003;
+                    vels[i*3+2] = (Math.random() - 0.5) * 0.00015;
                 }
             }
-            particles.geometry.attributes.position.needsUpdate = true;
+            points.geometry.attributes.position.needsUpdate = true;
         }
 
         // --- INIT MINDAR & THREE ---
