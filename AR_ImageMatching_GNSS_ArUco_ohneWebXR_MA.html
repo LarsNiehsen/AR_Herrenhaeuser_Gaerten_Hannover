@@ -315,7 +315,7 @@
                 title: 'Niederdeutscher Blumengarten', 
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
-                mindTargetIndexes: [1, 2, 3], // Verknüpfung mit Indices 1, 2 und 3
+                useMindAR: true, // Nutzt auch Bilderkennung
                 lat: 52.388194, lon: 9.697861 
             },
             2: { 
@@ -328,12 +328,11 @@
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', 
-                scale: 8000.0, 
+                scale: 8000.0, // Sehr große Skalierung für die Fontäne
                 title: 'Große Fontäne', 
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true,
-                mindTargetIndexes: [0], // Verknüpfung mit Index 0
                 lat: 52.385968, lon: 9.695931 
             },
             33: {
@@ -386,8 +385,7 @@
         let mindARMeshes = {}; 
         let gpsMeshes = {};    
         let detector, posit; // ArUco Erkennung
-        let mindarThree, renderer, scene, camera;
-        let mindarAnchors = []; // Array für mehrere MindAR Anker
+        let mindarThree, renderer, scene, camera, mindarAnchor;
         let markerGroup, gpsGroup;
         
         let lastPos = null; // Letzte bekannte GPS Position
@@ -481,13 +479,12 @@
 
         // --- STARTFUNKTION FÜR AR ---
         const startAR = async () => {
-            // Initialisierung von MindAR mit neuer Target-Datei und maxTrack
+            // Initialisierung von MindAR
             mindarThree = new MindARThree({
                 container: document.querySelector("#container"),
-                imageTargetSrc: 'ImageMatching/GrosseFontaineInfo_NiederdeutscherBlumengarten_targets.mind',
+                imageTargetSrc: 'ImageMatching/NiederdeutscherBlumengarten_targets.mind',
                 uiLoading: "no", uiScanning: "no", uiError: "no",
-                filterMinCF: 0.0001, filterBeta: 0.001,
-                maxTrack: 2 // Erlaubt gleichzeitiges Tracking von bis zu 2 Targets
+                filterMinCF: 0.0001, filterBeta: 0.001 // Filter für ruhigeres Tracking
             });
 
             renderer = mindarThree.renderer;
@@ -507,10 +504,8 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gpsGroup = new THREE.Group(); gpsGroup.visible = true; scene.add(gpsGroup);
             
-            // MindAR Anker für Target Index 0, 1, 2, 3 erstellen
-            for (let i = 0; i < 4; i++) {
-                mindarAnchors[i] = mindarThree.addAnchor(i);
-            }
+            // MindAR Anker setzen (für Bilderkennung)
+            mindarAnchor = mindarThree.addAnchor(0); 
 
             // Modelle laden
             loadModels();
@@ -522,25 +517,14 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // Animation der Fontänen aktualisieren (auch für MindAR Modelle)
+                // Animation der Fontänen aktualisieren, falls sichtbar
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
                 if (gpsMeshes[3]?.visible && gpsMeshes[3].userData.particles) updateWaterEffect(gpsMeshes[3].userData.particles);
                 if (gpsMeshes[33]?.visible && gpsMeshes[33].userData.particles) updateWaterEffect(gpsMeshes[33].userData.particles);
-                
-                // MindAR Partikel aktualisieren
-                Object.values(mindARMeshes).forEach(meshes => {
-                    if (Array.isArray(meshes)) {
-                        meshes.forEach(m => {
-                            if (m.userData.particles && m.parent.visible) updateWaterEffect(m.userData.particles);
-                        });
-                    }
-                });
 
                 // Suche nach ArUco Markern im Videobild
                 const arucoFound = processArucoFrame(video);
-                
-                // Prüfen ob irgendein MindAR Anchor sichtbar ist
-                const mindActive = mindarAnchors.some(anchor => anchor.group.visible);
+                const mindActive = mindarAnchor && mindarAnchor.group.visible;
 
                 isMarkerTracking = arucoFound || mindActive;
 
@@ -608,33 +592,19 @@
                     }
 
                     // 3. Version für MindAR (Bilderkennung)
-                    if (config.mindTargetIndexes) {
-                        mindARMeshes[id] = []; // Array für Meshes dieses IDs
+                    if (config.useMindAR) {
+                        const modelMind = gltf.scene.clone();
+                        const mindScale = config.scale * 0.015;
+                        modelMind.scale.set(mindScale, mindScale, mindScale);
+                        modelMind.rotation.y = Math.PI; // Zum Nutzer drehen
+                        mindarAnchor.group.add(modelMind);
+                        mindARMeshes[id] = modelMind;
                         
-                        config.mindTargetIndexes.forEach(targetIndex => {
-                            if (mindarAnchors[targetIndex]) {
-                                const modelMind = gltf.scene.clone();
-                                const mindScale = config.scale * 0.015;
-                                modelMind.scale.set(mindScale, mindScale, mindScale);
-                                modelMind.rotation.y = Math.PI; // Zum Nutzer drehen
-                                
-                                // Partikel auch für MindAR Fontäne
-                                if (id === 3 || id === 33) {
-                                     const pM = createWaterEffect();
-                                     modelMind.add(pM); 
-                                     modelMind.userData.particles = pM;
-                                }
-
-                                mindarAnchors[targetIndex].group.add(modelMind);
-                                mindARMeshes[id].push(modelMind);
-                                
-                                // Event wenn Bild erkannt wird
-                                mindarAnchors[targetIndex].onTargetFound = () => {
-                                    updateUIForModel(id, "MindAR Image (Idx " + targetIndex + ")");
-                                    modelAruco.visible = false; 
-                                };
-                            }
-                        });
+                        // Event wenn Bild erkannt wird
+                        mindarAnchor.onTargetFound = () => {
+                            updateUIForModel(id, "MindAR Image");
+                            modelAruco.visible = false; 
+                        };
                     }
                     
                     loadedCount++;
@@ -839,7 +809,7 @@
                 });
             }
 
-            const mindActive = mindarAnchors.some(a => a.group.visible);
+            const mindActive = mindarAnchor && mindarAnchor.group.visible;
             if (!found) {
                 if (mindActive) {
                     lossCounter = 0;
@@ -1032,22 +1002,16 @@
             const ids = Object.keys(AR_MODELS);
             ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
+                if(mindARMeshes[id] && mindARMeshes[id].parent.visible) mindARMeshes[id].rotation.y -= 0.2;
                 if(gpsMeshes[id] && gpsMeshes[id].visible) gpsMeshes[id].rotation.y -= 0.2;
-                // Array von MindAR Meshes rotieren
-                if(mindARMeshes[id] && Array.isArray(mindARMeshes[id])) {
-                    mindARMeshes[id].forEach(m => { if(m.parent.visible) m.rotation.y -= 0.2; });
-                }
             });
         });
         rotRightBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
              ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
+                if(mindARMeshes[id] && mindARMeshes[id].parent.visible) mindARMeshes[id].rotation.y += 0.2;
                 if(gpsMeshes[id] && gpsMeshes[id].visible) gpsMeshes[id].rotation.y += 0.2;
-                // Array von MindAR Meshes rotieren
-                if(mindARMeshes[id] && Array.isArray(mindARMeshes[id])) {
-                    mindARMeshes[id].forEach(m => { if(m.parent.visible) m.rotation.y += 0.2; });
-                }
             });
         });
 
@@ -1061,19 +1025,13 @@
             const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(mouse, camera);
             let objectsToCheck = [];
             Object.values(loadedMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
-            // Alle MindAR Meshes aus den Arrays sammeln
-            Object.values(mindARMeshes).forEach(meshArray => {
-                if (Array.isArray(meshArray)) {
-                    meshArray.forEach(m => { if(m.parent && m.parent.visible) objectsToCheck.push(m); });
-                }
-            });
+            Object.values(mindARMeshes).forEach(m => { if(m.parent && m.parent.visible) objectsToCheck.push(m); });
             Object.values(gpsMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
             if(objectsToCheck.length === 0) return;
             const intersects = raycaster.intersectObjects(objectsToCheck, true);
             if (intersects.length > 0) {
                 let clickedObj = intersects[0].object;
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     // Check GPS
                      for(let [key, val] of Object.entries(gpsMeshes)) {
                          if(val === clickedObj) {
                              activeLink = AR_MODELS[key].link;
