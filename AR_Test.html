@@ -2,11 +2,14 @@
 <html lang="de">
 <head>
     <meta charset="UTF-8">
+    <!-- Stellt sicher, dass die Seite auf mobilen Geräten korrekt skaliert wird und verhindert Zoomen -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Herrenhäuser Gärten Hannover - Augmented Reality (AR)</title>
     
+    <!-- Einbindung des Stylesheets für die Kartenansicht (Leaflet) -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
+    <!-- Definition der Import-Map: Sagt dem Browser, wo externe Module (Three.js, MindAR) zu finden sind -->
     <script type="importmap">
     {
       "imports": {
@@ -18,24 +21,31 @@
     </script>
 
     <style>
+        /* CSS Styles: Bestimmen das Aussehen der Anwendung */
+
+        /* Grundeinstellungen für den Body: Vollbild, schwarz, kein Scrollen */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; background-color: #000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
+        /* Das Standard-Videoelement wird ausgeblendet, da wir den Canvas nutzen */
         #videoElement { display: none; }
 
+        /* Canvas-Ebene für ArUco-Debugging (Linien, Rahmen) */
         #videoCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            z-index: 30; pointer-events: none; 
+            z-index: 30; pointer-events: none; /* Lässt Klicks durch zum Container */
         }
 
+        /* Hauptcontainer für die 3D-Darstellung */
         #container {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 20; pointer-events: auto; overflow: hidden;
         }
 
+        /* Standard-Design für alle halbtransparenten Infoboxen */
         .ui-panel {
             position: absolute;
             z-index: 100;
@@ -48,6 +58,7 @@
             transition: all 0.3s ease;
         }
 
+        /* Info-Box oben links für Statusmeldungen */
         #debugInfo {
             top: 20px; left: 20px;
             padding: 15px;
@@ -68,6 +79,7 @@
             line-height: 1.3;
         }
 
+        /* Schließen-Button oben rechts */
         #closeBtn {
             top: 20px; right: 20px;
             width: 44px; height: 44px;
@@ -81,6 +93,7 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
+        /* Informations-Popup unten Mitte für das erkannte Objekt */
         #modelInfo {
             position: absolute;
             bottom: 90px;
@@ -94,6 +107,7 @@
         #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
+        /* Anzeige für das historische Bild (Kupferstich) */
         #historicalInfo {
             display: none; 
             top: 50%; 
@@ -118,11 +132,13 @@
             border: 1px solid rgba(255,255,255,0.3);
         }
 
+        /* Container für die Karten-Steuerelemente unten rechts */
         #mapControls {
             position: absolute; bottom: 20px; right: 20px; z-index: 150;
             display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
         }
 
+        /* Die eigentliche Karte (wird ein-/ausgeblendet) */
         #mapContainer {
             position: relative; width: 240px; height: 180px;
             border-radius: 12px;
@@ -156,6 +172,7 @@
             padding: 0; line-height: 1;
         }
 
+        /* Steuerung für die Rotation der Modelle unten links */
         #rotationControls {
             position: absolute; bottom: 20px; left: 20px; z-index: 100;
             display: flex; gap: 12px;
@@ -168,6 +185,7 @@
             padding: 0; line-height: 1;
         }
 
+        /* Hinweis-Text "Tippe auf das Modell" */
         #clickHint {
             position: absolute; top: 50%; left: 50%;
             transform: translate(-50%, -50%);
@@ -179,6 +197,7 @@
             text-align: center; border: 1px solid rgba(255,255,255,0.3);
         }
 
+        /* Der grüne Richtungspfeil */
         #direction-indicator {
             position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
             width: 70px; height: 70px;
@@ -200,6 +219,7 @@
             transition: transform 0.2s ease-out;
         }
 
+        /* Hilfsklassen für Textfarben und Labels */
         .label-small { font-size: 11px; color: #bbb; margin-right: 5px; text-transform: uppercase; }
         .val-highlight { color: #fff; font-weight: bold; }
         .val-green { color: #4f4; font-weight: bold; }
@@ -208,33 +228,43 @@
 </head>
 <body>
 
+    <!-- Video Element für den Kamerastream -->
     <video id="videoElement" playsinline muted autoplay></video>
+    <!-- Container für Three.js / MindAR Szene -->
     <div id="container"></div>
+    <!-- Canvas für ArUco Zeichnungen -->
     <canvas id="videoCanvas"></canvas>
 
+    <!-- Info Panel oben links mit Start-Status -->
     <div id="debugInfo" class="ui-panel">
         <strong id="debugTitle">Herrenhäuser Gärten - Augmented Reality (AR)</strong>
         <div id="statusText">Starte System...<br><span style='color: #aaa;'>Initialisiere...</span></div>
     </div>
 
+    <!-- Schließen Button -->
     <div id="closeBtn" class="ui-panel" title="Schließen" onclick="window.history.length > 1 ? window.history.back() : window.close()">✕</div>
 
+    <!-- Bildcontainer für historische Info -->
     <div id="historicalInfo" class="ui-panel">
         <h4>Kupferstich Große Fontäne um 1800</h4>
         <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
     </div>
 
+    <!-- Pfeilanzeige -->
     <div id="direction-indicator">
         <div id="arrow"></div>
     </div>
 
+    <!-- Info-Fenster unten -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
     </div>
 
+    <!-- Klick-Hinweis -->
     <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
 
+    <!-- Karten-UI -->
     <div id="mapControls">
         <div id="mapContainer">
             <div id="mapStations"></div>
@@ -249,32 +279,37 @@
         </div>
     </div>
 
+    <!-- Rotations-Buttons -->
     <div id="rotationControls">
         <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
+    <!-- Externe Skripte laden -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     
+    <!-- Hauptlogik der Anwendung -->
     <script type="module">
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // --- KONFIGURATIONSEINSTELLUNGEN ---
-        const markerSize = 100.0;
+        // --- KONFIGURATION ---
+        const markerSize = 100.0; // Markergröße in mm für ArUco
         const selectedDictionary = 'ARUCO_MIP_36h12';
-        const VISIBILITY_DISTANCE = 75.0;
+        const VISIBILITY_DISTANCE = 75.0; // Sichtweite in Metern für GNSS
         
-        // Marker Position für Target 0 (Große Fontäne Referenz)
+        // Referenzkoordinaten für Target 0 (Große Fontäne)
+        // Dies dient als Ankerpunkt für die relative Positionierung
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
-        const COORD_SCALE = 0.2; 
+        const COORD_SCALE = 0.2; // Skalierung der Distanz für AR-Darstellung
 
+        // Definition der Modelle und ihrer Daten
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', 
@@ -290,7 +325,7 @@
                 title: 'Niederdeutscher Blumengarten', 
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
-                mindTargetIndexes: [1, 2, 3],
+                mindTargetIndexes: [1, 2, 3], // Verknüpft mit MindAR Targets
                 lat: 52.388196, lon: 9.697853
             },
             2: { 
@@ -322,6 +357,7 @@
             }
         };
 
+        // Koordinaten für Marker auf der Karte
         const stations = [
             { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -332,6 +368,7 @@
             { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
+        // Referenzen auf HTML Elemente
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -353,10 +390,11 @@
 
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
+        // Globale Variablen für den Zustand
         let activeLink = null;
-        let loadedMeshes = {}; 
-        let mindARMeshes = {}; // Für normale MindAR Targets (Array structure)
-        let gnssMeshes = {};    
+        let loadedMeshes = {}; // ArUco Meshes
+        let mindARMeshes = {}; // MindAR Standard Meshes
+        let gnssMeshes = {};   // GNSS Meshes
         let detector, posit; 
         let mindarThree, renderer, scene, camera;
         let mindarAnchors = []; 
@@ -372,10 +410,13 @@
         let isMarkerTracking = false;
         let closestObjForArrow = null;
 
+        // Spezialvariablen für ID 3 / Target 0 Logik
         let detachedFountainMesh = null; 
         let fountainLastVisibleTime = 0;
-        const FOUNTAIN_PERSISTENCE = 20000; // 20 Sek
+        const FOUNTAIN_PERSISTENCE = 20000; // 20 Sekunden Nachlaufzeit
 
+        // --- PARTIKELSYSTEM ---
+        // Erzeugt Wassertropfen für die Fontäne
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -406,6 +447,7 @@
             return points;
         }
 
+        // Aktualisiert die Tropfenbewegung (Physik)
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
@@ -428,7 +470,9 @@
             points.geometry.attributes.position.needsUpdate = true;
         }
 
+        // --- AR STARTROUTINE ---
         const startAR = async () => {
+            // Initialisierung von MindAR
             mindarThree = new MindARThree({
                 container: document.querySelector("#container"),
                 imageTargetSrc: 'ImageMatching/GrosseFontaineInfo_NiederdeutscherBlumengarten_targets.mind',
@@ -441,30 +485,38 @@
             scene = mindarThree.scene;
             camera = mindarThree.camera;
             
+            // Sichtweite erhöhen für weit entfernte Objekte
             camera.far = 50000; 
             camera.updateProjectionMatrix();
 
             renderer.setClearColor(0x000000, 0);
             
+            // Beleuchtung setzen
             scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
             const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
+            // Gruppen initialisieren
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
+            // MindAR Anker erstellen
             for (let i = 0; i < 4; i++) {
                 mindarAnchors[i] = mindarThree.addAnchor(i);
             }
 
+            // Modelle laden
             loadModels();
             
+            // Starten
             await mindarThree.start();
 
+            // --- RENDER LOOP (Läuft ~60 FPS) ---
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
+                // Rotationsanzeige für Debugging
                 let currentRotZ = 0;
                 
                 if (isMarkerTracking) {
@@ -496,6 +548,7 @@
                 const deg = Math.round(THREE.MathUtils.radToDeg(currentRotZ) % 360);
                 const displayDeg = deg < 0 ? deg + 360 : deg;
                 
+                // Aktualisiere Winkelanzeige im Debug-Panel
                 let angleSpan = document.getElementById('debugAngle');
                 if(!angleSpan) {
                     const d = document.createElement('div');
@@ -508,6 +561,7 @@
                     angleSpan.innerText = displayDeg + "°";
                 }
 
+                // Wasseranimationen aktualisieren
                 if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
                 if (gnssMeshes[3]?.visible && gnssMeshes[3].userData.particles) updateWaterEffect(gnssMeshes[3].userData.particles);
                 if (gnssMeshes[33]?.visible && gnssMeshes[33].userData.particles) updateWaterEffect(gnssMeshes[33].userData.particles);
@@ -522,22 +576,27 @@
                 });
 
                 // --- MindAR Logik (Target 0 - Fontäne) ---
+                // Hier wird das Modell unabhängig vom Anker in der Szene positioniert
                 if (detachedFountainMesh) {
                     if (detachedFountainMesh.userData.particles) updateWaterEffect(detachedFountainMesh.userData.particles);
                     
                     const anchor0 = mindarAnchors[0];
                     if (anchor0.group.visible) {
+                        // Marker erkannt: Position synchronisieren
                         detachedFountainMesh.visible = true;
                         fountainLastVisibleTime = Date.now();
                         
+                        // Basisposition vom Marker übernehmen
                         detachedFountainMesh.position.copy(anchor0.group.position);
                         detachedFountainMesh.quaternion.copy(anchor0.group.quaternion);
                         detachedFountainMesh.scale.copy(anchor0.group.scale);
 
+                        // Relativen Versatz berechnen (Geografische Distanz zum Target)
                         const fGeo = AR_MODELS[3];
                         const offset = calcOffset(target0Lat, target0Lon, fGeo.lat, fGeo.lon);
                         const localOffset = new THREE.Vector3(offset.x, 0, -offset.z); 
                         
+                        // Versatz anwenden
                         localOffset.multiplyScalar(COORD_SCALE); 
                         localOffset.applyQuaternion(anchor0.group.quaternion);
                         detachedFountainMesh.position.add(localOffset);
@@ -549,6 +608,7 @@
                         if(loadedMeshes[3]) loadedMeshes[3].visible = false;
                         
                     } else {
+                        // Marker verloren: Prüfen ob noch innerhalb der 20 Sek. Zeitfenster
                         if (Date.now() - fountainLastVisibleTime < FOUNTAIN_PERSISTENCE) {
                              detachedFountainMesh.visible = true;
                         } else {
@@ -557,29 +617,44 @@
                     }
                 }
 
-                // Suche nach ArUco
+                // Suche nach ArUco Markern im Bild
                 const arucoFound = processArucoFrame(video);
                 
-                // MindAR aktiv?
+                // Prüfen ob MindAR aktiv ist
                 let mindAnyActive = false;
                 mindarAnchors.forEach(a => { if(a.group.visible) mindAnyActive = true; });
+                
+                // Auch aktiv, wenn die Fontäne noch im "Nachlauf" (20s) ist
                 if(detachedFountainMesh && detachedFountainMesh.visible) mindAnyActive = true;
 
                 isMarkerTracking = arucoFound || mindAnyActive;
 
                 if (isMarkerTracking) {
+                    // Marker-Modus
                     gnssGroup.visible = false; 
                     
-                    // MindAR Pfeil
+                    // Pfeil-Logik für MindAR
                     if (mindAnyActive && !arucoFound) {
-                        // Logik für MindAR Pfeil (falls gewünscht)
-                        if(detachedFountainMesh && detachedFountainMesh.visible) updateArrowMindAR(detachedFountainMesh);
-                        else arrowContainer.style.opacity = 0;
+                        // Wenn Target 0 (Fontäne) aktiv ist aber der Marker NICHT sichtbar ist (Persistence Mode)
+                        // dann nutzen wir den Kompass für den Pfeil (GNSS Logik), damit er sich mitdreht
+                        const isFountainPersistence = detachedFountainMesh && detachedFountainMesh.visible && !mindarAnchors[0].group.visible;
+                        
+                        if (isFountainPersistence) {
+                            // Modell ist da, aber Marker weg -> Pfeil per Kompass steuern
+                            // Wir nutzen das Ziel der Fontäne für den Pfeil
+                            closestObjForArrow = AR_MODELS[3]; 
+                            updateArrow(); 
+                        } else {
+                            // Marker ist sichtbar -> Pfeil per 3D-Projektion steuern
+                            if(detachedFountainMesh && detachedFountainMesh.visible) updateArrowMindAR(detachedFountainMesh);
+                            else arrowContainer.style.opacity = 0;
+                        }
                     } else {
                         arrowContainer.style.opacity = 0;
                     }
 
                 } else {
+                    // GNSS Modus (kein Marker)
                     gnssGroup.visible = true;
                     updateGNSSUI();
                     updateGNSSObjects();
@@ -590,6 +665,7 @@
             });
         }
 
+        // Lädt die GLB-Modelle
         function loadModels() {
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
@@ -600,7 +676,7 @@
                 const config = AR_MODELS[id];
                 
                 loader.load(config.url, (gltf) => {
-                    // 1. ArUco
+                    // 1. ArUco Modell erstellen
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2; 
@@ -614,7 +690,7 @@
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
-                    // 2. GNSS
+                    // 2. GNSS Modell erstellen
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
                         const gnssScale = config.scale * 0.05; 
@@ -628,13 +704,13 @@
                         gnssMeshes[id] = modelGNSS;
                     }
 
-                    // 3. MindAR
+                    // 3. MindAR Modell erstellen
                     if (config.mindTargetIndexes) {
                         // Initialisiere Array falls nötig
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
                         config.mindTargetIndexes.forEach(targetIndex => {
-                            // Spezialfall ID 3, Target 0 -> Detached
+                            // Spezialfall ID 3, Target 0 -> Detached (Losgelöstes Modell)
                             if (targetIndex === 0 && (id === 3)) {
                                 const modelDetached = gltf.scene.clone();
                                 const mindScale = config.scale * 0.02; 
@@ -659,6 +735,11 @@
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346);
                                 modelMind.rotation.y = rotationY; 
                                 
+                                // ANPASSUNG PUNKT 4: Modell für ID 1 (Blumengarten) tiefer setzen
+                                if (id === 1) {
+                                    modelMind.position.y = -1.5; // Tiefer setzen
+                                }
+
                                 if (id === 3 || id === 33) {
                                      const pM = createWaterEffect();
                                      modelMind.add(pM); modelMind.userData.particles = pM;
@@ -667,7 +748,7 @@
                                 mindarAnchors[targetIndex].group.add(modelMind);
                                 mindARMeshes[id].push(modelMind);
                                 
-                                // Event
+                                // Event Listener wenn Bild erkannt wird
                                 mindarAnchors[targetIndex].onTargetFound = () => {
                                     updateUIForModel(id, "MindAR Image (Idx " + targetIndex + ")");
                                     if(loadedMeshes[id]) loadedMeshes[id].visible = false; 
@@ -678,14 +759,17 @@
                     
                     loadedCount++;
                     if (loadedCount === ids.length) {
-                        statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
+                        // Setzt den Status auf "Bereit" (nur wenn kein anderer Text da ist)
+                        // statusText.innerHTML = `System bereit.<br><span class="val-green">Warte auf Marker oder GNSS...</span>`;
                     }
                 });
             });
         }
 
+        // UI Update Funktion für GNSS
         function updateGNSSUI() {
             if (!lastPos) {
+                 // Text zurücksetzen falls GPS verloren
                  statusText.innerHTML = "Warte auf GNSS Signal...";
                  return;
             }
@@ -702,6 +786,8 @@
                 }
             });
             closestObjForArrow = closestObj;
+            
+            // UI nur aktualisieren wenn ein Objekt gefunden wurde
             if (closestObj) {
                 const distStr = closestDist < 1000 ? Math.round(closestDist) + " m" : (closestDist/1000).toFixed(1) + " km";
                 statusText.innerHTML = `
@@ -712,6 +798,7 @@
             }
         }
         
+        // Berechnet Pfeilrichtung basierend auf GNSS/Kompass
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -723,6 +810,7 @@
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
+        // Berechnet Pfeilrichtung basierend auf 3D-Position im Kamerabild
         function updateArrowMindAR(mesh) {
             if (!mesh || !camera) {
                 arrowContainer.style.opacity = 0;
@@ -732,18 +820,23 @@
             vector.project(camera); 
             
             if (vector.z > 1) {
+                 // Objekt ist hinter der Kamera
                  arrowContainer.style.opacity = 1;
                  arrowEl.style.transform = `rotate(180deg)`;
             } else {
+                 // Objekt ist vor der Kamera -> Zeige Richtung an
                  arrowContainer.style.opacity = 1;
                  const angle = -vector.x * 90; 
                  arrowEl.style.transform = `rotate(${angle}deg)`;
             }
         }
 
+        // Steuert Sichtbarkeit der GNSS Objekte
         function updateGNSSObjects() {
             if (!lastPos || isMarkerTracking) return;
+            // Gruppe anhand Kompass drehen
             gnssGroup.rotation.y = THREE.MathUtils.degToRad(heading);
+            
             Object.keys(gnssMeshes).forEach(key => {
                 const id = parseInt(key);
                 const mesh = gnssMeshes[id];
@@ -753,14 +846,19 @@
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         updateUIForModel(id, "GNSS");
+                        
+                        // Historisches Bild Steuerung
                         if (id === 3 || id === 33) {
                              historicalInfo.style.display = 'block';
                         } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
                              historicalInfo.style.display = 'none';
                         }
+                        
+                        // Positionierung
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                         mesh.position.set(offset.x, -10, -offset.z); 
-                        // WICHTIG: lookAt entfernt für Walk-Around
+                        
+                        // ANPASSUNG: lookAt entfernt, damit man herumlaufen kann
                         // mesh.lookAt(0, mesh.position.y, 0); 
                     } else {
                         mesh.visible = false;
@@ -770,6 +868,7 @@
             });
         }
 
+        // Haversine Formel für Distanzberechnung
         function haversineDist(lat1, lon1, lat2, lon2) {
             const R = 6371e3; 
             const rad = Math.PI/180;
@@ -779,6 +878,7 @@
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
+        // Berechnet kartesischen Offset
         function calcOffset(lat1, lon1, lat2, lon2) {
             const R = 6378137; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -789,6 +889,7 @@
             return { x: dx, z: dz };
         }
         
+        // Berechnet Kompass-Winkel
         function calculateBearing(startLat, startLng, destLat, destLng) {
             const startLatRad = startLat * (Math.PI / 180);
             const startLngRad = startLng * (Math.PI / 180);
@@ -801,6 +902,7 @@
             return (brng + 360) % 360;
         }
 
+        // Verarbeitet ArUco Bildanalyse
         function processArucoFrame(video) {
             if (!video || video.readyState < video.HAVE_METADATA) return false;
 
@@ -811,6 +913,7 @@
                 posit = new POS.Posit(markerSize, window.innerWidth);
             }
 
+            // Zeichne Video auf Canvas
             const vw = video.videoWidth; const vh = video.videoHeight;
             const rV = vw / vh; const rC = cw / ch;
             let sx, sy, sw, sh;
@@ -832,7 +935,7 @@
 
             if (markers.length > 0) {
                 markers.forEach(marker => {
-                    // Zeichnet die Visualisierungen
+                    // Zeichnet die Visualisierungen (Rahmen, Text, Achsen)
                     drawRedBox(marker.corners);
                     drawIdText(marker.corners, marker.id);
                     
@@ -841,8 +944,6 @@
                     
                     if (pose) {
                         const r = pose.bestRotation; const t = pose.bestTranslation;
-                        
-                        // Zeichnet die Achsen
                         drawAxis(r, t, markerSize);
                         
                         const id = marker.id;
@@ -865,15 +966,15 @@
             }
 
             if (!found) {
-                // WICHTIG: ArUco-Modell sofort ausblenden, wenn nicht gefunden
+                // ArUco-Modell sofort ausblenden
                 markerGroup.visible = false;
                 
-                // Nur wenn MindAR läuft, Tracking-Info anzeigen
+                // Status prüfen
                 let mindActive = mindarAnchors.some(a => a.group.visible) || (detachedFountainMesh && detachedFountainMesh.visible);
                 if (mindActive) {
                     statusText.innerHTML = `<span class="val-green">Tracking: Image (MindAR)</span>`;
                 } else {
-                    // Wenn gar nichts getrackt wird -> Reset nach kurzer Zeit
+                    // Timeout Zähler
                     lossCounter++;
                     if (lossCounter > maxLossFrames) {
                         if (currentTrackingID !== -1) {
@@ -882,12 +983,17 @@
                              historicalInfo.style.display = 'none'; 
                              currentTrackingID = -1;
                         }
+                        // Wenn nichts gefunden wurde, zeige den Initialtext (Warte auf GNSS...)
+                        if(statusText.innerHTML.includes("Tracking")) {
+                             statusText.innerHTML = "Warte auf GNSS Signal...";
+                        }
                     }
                 }
             }
             return found;
         }
 
+        // Karten Initialisierung
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
@@ -903,11 +1009,13 @@
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
+        // GNSS Event Handler
         function onPos(pos) {
             lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
         }
 
+        // Kompass Event Handler
         function onDeviceOrientation(e) {
             let alpha = e.alpha; 
             if (e.webkitCompassHeading) alpha = e.webkitCompassHeading; 
@@ -915,6 +1023,7 @@
             heading = (360 - alpha) % 360; 
         }
 
+        // Zeichnet Nutzer auf Karte
         function drawUserOnMap(p) {
             if (!userLayer) return; userLayer.clearLayers();
             L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
@@ -924,6 +1033,7 @@
             L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
         }
 
+        // Helferfunktionen für ArUco Visualisierung
         function project(point3d, rot, trans) {
             const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
             const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
