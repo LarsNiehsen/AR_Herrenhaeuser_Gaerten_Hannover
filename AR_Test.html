@@ -613,7 +613,7 @@
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
 
-                // --- Rotationsanzeige Debug (Fehlerbehebung 1 & 2) ---
+                // --- Rotationsanzeige Debug (Wiederhergestellt) ---
                 let currentRotY = 0;
                 
                 // Priorität 1: GNSS Gruppe / Simulation
@@ -628,11 +628,10 @@
                 // Priorität 2: MindAR (Standard Image Tracking)
                 else if (isMarkerTracking && activeMindARId !== -1) {
                      // Lies die Rotation des aktiven Mesh aus
-                     // Mapping: activeMindARId -> AR Model ID -> Mesh
                      Object.keys(mindARMeshes).forEach(idStr => {
                          const id = parseInt(idStr);
                          if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id].length > 0) {
-                             // Das erste Mesh in der Gruppe (da sie alle gleich gedreht sind)
+                             // Das erste Mesh in der Gruppe
                              if(mindARMeshes[id][0].visible) currentRotY = mindARMeshes[id][0].rotation.y;
                          }
                      });
@@ -816,10 +815,16 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // KORREKTUR (Fehler 3): Höhe auf -1.5 setzen (Bodenhöhe relativ zur Kamera auf 0 oder 1.6)
-                        // Damit stehen Objekte fest auf dem Boden.
+                        // KORREKTUR (Fehler 3): Höhe auf 0 setzen für "Schwebe-Effekt" bei Simulation,
+                        // oder auf -1.5 für Boden bei echtem GNSS.
+                        let heightY = -2.0; // Standard Bodenverankerung für echtes GNSS
+                        if (isSimulatedPos) {
+                            heightY = -0.5; // Schwebend auf Augenhöhe für Simulation (Target 0, 4, 5, 6)
+                        }
+
+                        // Polare Positionierung: Wir nutzen die Differenz in Metern und den Winkel
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, -1.5, -offset.z); 
+                        mesh.position.set(offset.x, heightY, -offset.z); 
                     } else {
                         mesh.visible = false;
                         if (id === 3 || id === 33) historicalInfo.style.display = 'none';
