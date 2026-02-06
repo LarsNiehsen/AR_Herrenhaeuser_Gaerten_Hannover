@@ -677,6 +677,10 @@
                     
                     // --- Pfeil-Logik für MindAR ---
                     if (mindAnyActive && !arucoFound) {
+                        // KORREKTUR: Wir stellen sicher, dass das Info-Fenster oben links (Kompass/GNSS)
+                        // auch während des MindAR-Trackings aktualisiert wird.
+                        updateGNSSUI(); 
+
                         // Spezialfall Fontäne (Target 0):
                         // Wenn das Fontänen-Modell sichtbar ist (egal ob durch Marker oder 30s-Nachlauf),
                         // soll der grüne Pfeil per Kompass (GNSS-Logik) zur Fontäne zeigen.
