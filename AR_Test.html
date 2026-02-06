@@ -316,14 +316,16 @@
         const selectedDictionary = 'ARUCO_MIP_36h12'; // Das verwendete ArUco Wörterbuch
         const VISIBILITY_DISTANCE = 75.0; // Sichtweite in Metern für GNSS-Objekte
         
-        // Referenzkoordinaten für Target 0 (Große Fontäne)
-        // Dient als Ankerpunkt für die relative Positionierung bei MindAR
+        // Referenzkoordinaten für Target 0 (Der echte Standort des Markers/Schildes für die Fontäne)
+        // Dient als Basis für die relative Positionierung
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
-        const COORD_SCALE = 0.2; // Skalierung der Distanz für die AR-Darstellung
+        
+        // Skalierungsfaktor für die Distanz im AR-Raum (Feinjustierung der Entfernung)
+        const COORD_SCALE = 0.2; 
 
         // Definition der Modelle und ihrer Daten
-        // Hier werden Dateipfade, Skalierungen, Titel, Texte und GPS-Positionen festgelegt
+        // Hier werden Dateipfade, Skalierungen, Titel, Texte und GNSS-Positionen festgelegt
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', 
@@ -415,7 +417,7 @@
         let mindarAnchors = []; // MindAR Ankerpunkte
         let markerGroup, gnssGroup; // Gruppen für 3D-Objekte
         
-        let lastPos = null; // Letzte bekannte GPS-Position
+        let lastPos = null; // Letzte bekannte GNSS-Position
         let heading = 0; // Aktuelle Kompass-Ausrichtung
         let mapStations, userLayer; // Karten-Objekte
         let currentTrackingID = -1; // ID des aktuell getrackten Objekts
@@ -425,10 +427,12 @@
         let isMarkerTracking = false; // Status, ob gerade ein Marker getrackt wird
         let closestObjForArrow = null; // Das nächstgelegene Objekt für den Pfeil
 
-        // Spezialvariablen für ID 3 / Target 0 Logik (Große Fontäne)
-        let detachedFountainMesh = null; // Das Fontänen-Modell, das losgelöst vom Marker ist
-        let fountainLastVisibleTime = 0; // Zeitstempel, wann die Fontäne zuletzt gesehen wurde
-        const FOUNTAIN_PERSISTENCE = 20000; // 20 Sekunden Nachlaufzeit, in der das Modell sichtbar bleibt
+        // --- SPEZIAL-VARIABLEN FÜR DIE GROSSE FONTÄNE (Target 0) ---
+        //detachedFountainMesh: Ein separates 3D-Objekt, das nicht fest an den MindAR-Anker gebunden ist.
+        //Dies ermöglicht es, das Objekt auch dann noch anzuzeigen, wenn der Marker (Schild) nicht mehr im Bild ist.
+        let detachedFountainMesh = null; 
+        let fountainLastVisibleTime = 0; // Zeitstempel, wann die Fontäne zuletzt per Marker erkannt wurde
+        const FOUNTAIN_PERSISTENCE = 30000; // Dauer in ms (30 Sekunden), die das Modell nach Verlust des Markers sichtbar bleibt
 
         // --- PARTIKELSYSTEM ---
         // Erzeugt Wassertropfen für die Fontäne als Partikelsystem
@@ -602,42 +606,53 @@
                     }
                 });
 
-                // --- MindAR Logik (Spezialfall Target 0 - Fontäne) ---
-                // Hier wird das Modell unabhängig vom Anker in der Szene positioniert, um relative Geodaten zu nutzen
+                // --- MindAR Logik (Spezialfall Target 0 - Große Fontäne) ---
+                // Hier wird das Modell unabhängig vom Anker in der Szene positioniert, um relative Geodaten zu nutzen.
                 if (detachedFountainMesh) {
+                    // Animation aktualisieren
                     if (detachedFountainMesh.userData.particles) updateWaterEffect(detachedFountainMesh.userData.particles);
                     
                     const anchor0 = mindarAnchors[0];
                     if (anchor0.group.visible) {
-                        // Marker erkannt: Position synchronisieren
+                        // FALL 1: Marker (Schild) wird gerade von der Kamera erkannt.
                         detachedFountainMesh.visible = true;
-                        fountainLastVisibleTime = Date.now();
+                        fountainLastVisibleTime = Date.now(); // Zeitpunkt merken
                         
-                        // Basisposition vom Marker übernehmen
+                        // Die Basisposition und Rotation vom erkannten Marker übernehmen
                         detachedFountainMesh.position.copy(anchor0.group.position);
                         detachedFountainMesh.quaternion.copy(anchor0.group.quaternion);
                         detachedFountainMesh.scale.copy(anchor0.group.scale);
 
-                        // Relativen Versatz berechnen (Geografische Distanz zum Target)
+                        // Berechnung der relativen GNSS-Position:
+                        // Wir ermitteln den Abstand zwischen dem Schild (target0Lat/Lon) und der Fontäne (AR_MODELS[3].lat/lon).
+                        // Dieser Versatz wird dann auf das 3D-Modell angewendet.
                         const fGeo = AR_MODELS[3];
                         const offset = calcOffset(target0Lat, target0Lon, fGeo.lat, fGeo.lon);
+                        
+                        // Den Versatz in das lokale Koordinatensystem des Markers umrechnen
                         const localOffset = new THREE.Vector3(offset.x, 0, -offset.z); 
                         
-                        // Versatz anwenden und rotieren
+                        // Skalieren und Rotieren entsprechend der Marker-Ausrichtung
                         localOffset.multiplyScalar(COORD_SCALE); 
                         localOffset.applyQuaternion(anchor0.group.quaternion);
+                        
+                        // Neue Position setzen
                         detachedFountainMesh.position.add(localOffset);
-                        detachedFountainMesh.translateY(-0.3); // Höhe anpassen
+                        detachedFountainMesh.translateY(-0.3); // Höhe leicht korrigieren
 
+                        // UI aktualisieren
                         updateUIForModel(3, "MindAR (Fixed Pos)");
-                        // ArUco-Modell ausblenden falls aktiv, um Überlappung zu vermeiden
+                        // Falls das ArUco-Modell aktiv war, ausblenden (Konfliktvermeidung)
                         if(loadedMeshes[3]) loadedMeshes[3].visible = false;
                         
                     } else {
-                        // Marker verloren: Prüfen ob noch innerhalb der 20 Sek. Zeitfenster (Persistence)
+                        // FALL 2: Marker ist NICHT sichtbar (Tracking verloren).
+                        // Prüfen, ob wir noch innerhalb der 30 Sekunden (30000ms) Zeitfenster sind.
                         if (Date.now() - fountainLastVisibleTime < FOUNTAIN_PERSISTENCE) {
+                             // Das Modell bleibt sichtbar (an der letzten bekannten Position im Raum)
                              detachedFountainMesh.visible = true;
                         } else {
+                             // Zeit abgelaufen -> Ausblenden
                              detachedFountainMesh.visible = false;
                         }
                     }
@@ -646,14 +661,14 @@
                 // Suche nach ArUco Markern im Bild
                 const arucoFound = processArucoFrame(video);
                 
-                // Prüfen ob MindAR aktiv ist
+                // Prüfen ob irgendein MindAR Target aktiv ist
                 let mindAnyActive = false;
                 mindarAnchors.forEach(a => { if(a.group.visible) mindAnyActive = true; });
                 
-                // Auch aktiv, wenn die Fontäne noch im "Nachlauf" (20s) ist
+                // Auch als "aktiv" werten, wenn die Fontäne noch im "Nachlauf" (30s) ist
                 if(detachedFountainMesh && detachedFountainMesh.visible) mindAnyActive = true;
 
-                // Marker-Tracking ist aktiv, wenn ArUco oder MindAR etwas gefunden haben
+                // Marker-Tracking ist aktiv, wenn ArUco oder MindAR etwas anzeigen
                 isMarkerTracking = arucoFound || mindAnyActive;
 
                 if (isMarkerTracking) {
@@ -662,19 +677,19 @@
                     
                     // --- Pfeil-Logik für MindAR ---
                     if (mindAnyActive && !arucoFound) {
-                        // Spezialfall: Wenn Target 0 (Fontäne) aktiv ist aber der Marker NICHT sichtbar ist (Persistence Mode)
-                        // dann nutzen wir den Kompass für den Pfeil (GNSS Logik), damit er sich mitdreht.
-                        const isFountainPersistence = detachedFountainMesh && detachedFountainMesh.visible && !mindarAnchors[0].group.visible;
+                        // Spezialfall Fontäne (Target 0):
+                        // Wenn das Fontänen-Modell sichtbar ist (egal ob durch Marker oder 30s-Nachlauf),
+                        // soll der grüne Pfeil per Kompass (GNSS-Logik) zur Fontäne zeigen.
+                        const isFountainVisible = detachedFountainMesh && detachedFountainMesh.visible;
                         
-                        if (isFountainPersistence) {
-                            // Modell ist da, aber Marker weg -> Pfeil per Kompass steuern
-                            // Wir nutzen das Ziel der Fontäne für den Pfeil
+                        if (isFountainVisible) {
+                            // Wir nutzen das geografische Ziel der Fontäne für den Pfeil
                             closestObjForArrow = AR_MODELS[3]; 
-                            updateArrow(); 
+                            updateArrow(); // Nutzt die GNSS/Kompass Logik
                         } else {
-                            // Marker ist sichtbar -> Pfeil per 3D-Projektion auf dem Bildschirm steuern
-                            if(detachedFountainMesh && detachedFountainMesh.visible) updateArrowMindAR(detachedFountainMesh);
-                            else arrowContainer.style.opacity = 0;
+                            // Standard MindAR Verhalten: Pfeil zeigt auf das Objekt im Bildschirm
+                            // (Hier nur relevant, falls andere MindAR Targets ohne GNSS-Bezug genutzt würden)
+                            arrowContainer.style.opacity = 0;
                         }
                     } else {
                         arrowContainer.style.opacity = 0;
@@ -739,6 +754,7 @@
 
                         config.mindTargetIndexes.forEach(targetIndex => {
                             // Spezialfall ID 3, Target 0 -> Detached (Losgelöstes Modell)
+                            // Dieses Modell wird direkt in die Szene eingefügt, nicht in den MindAR Anchor.
                             if (targetIndex === 0 && (id === 3)) {
                                 const modelDetached = gltf.scene.clone();
                                 const mindScale = config.scale * 0.02; 
@@ -755,7 +771,7 @@
                                 detachedFountainMesh = modelDetached;
 
                             } else if (mindarAnchors[targetIndex]) {
-                                // Standard MindAR Targets
+                                // Standard MindAR Targets (fest verbunden)
                                 const modelMind = gltf.scene.clone();
                                 const mindScale = config.scale * 0.015;
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
@@ -832,6 +848,9 @@
         }
         
         // Berechnet Pfeilrichtung basierend auf GNSS/Kompass
+        // Diese Funktion wird genutzt für:
+        // 1. Reinen GNSS-Modus
+        // 2. Den speziellen Fontänen-Modus (MindAR Persistence), um den Weg zum Modell zu zeigen.
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -843,7 +862,7 @@
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
-        // Berechnet Pfeilrichtung basierend auf 3D-Position im Kamerabild (für MindAR)
+        // Berechnet Pfeilrichtung basierend auf 3D-Position im Kamerabild (für Standard MindAR)
         function updateArrowMindAR(mesh) {
             if (!mesh || !camera) {
                 arrowContainer.style.opacity = 0;
@@ -879,9 +898,6 @@
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         
-                        // Wenn Info noch nicht gesetzt, jetzt tun (aber nur Basis-Info im UI, nicht volles Popup)
-                        // updateUIForModel ist hier optional, wird aber für Klick-Logik gebraucht
-                        
                         // Historisches Bild Steuerung
                         if (id === 3 || id === 33) {
                              historicalInfo.style.display = 'block';
@@ -902,7 +918,7 @@
             });
         }
 
-        // Haversine Formel für Distanzberechnung zwischen zwei GPS-Punkten
+        // Haversine Formel für Distanzberechnung zwischen zwei GNSS-Punkten
         function haversineDist(lat1, lon1, lat2, lon2) {
             const R = 6371e3; // Erdradius in Metern
             const rad = Math.PI/180;
@@ -912,7 +928,8 @@
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Berechnet kartesischen Offset (X, Z) für Three.js aus GPS-Koordinaten
+        // Berechnet kartesischen Offset (X, Z) für Three.js aus GNSS-Koordinaten
+        // Wird verwendet um die Meter-Distanz zwischen Nutzer und Objekt oder Marker und Objekt zu bestimmen.
         function calcOffset(lat1, lon1, lat2, lon2) {
             const R = 6378137; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1019,7 +1036,7 @@
                              currentTrackingID = -1;
                         }
                         // Wenn nichts mehr getrackt wird, zeige den Initialtext (Warte auf GNSS...)
-                        // Das hilft dem Nutzer zu verstehen, dass er wieder im GPS-Modus ist
+                        // Das hilft dem Nutzer zu verstehen, dass er wieder im GNSS-Modus ist
                         if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
                              statusText.innerHTML = "Warte auf GNSS Signal...";
                         }
@@ -1046,11 +1063,15 @@
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        // Event Handler für neue GPS Position
+        // Event Handler für neue GNSS Position
         function onPos(pos) {
             lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
+            
             // Karte zentrieren, wenn es das erste Mal ist
             if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
+            
+            // KORREKTUR: Den Nutzer-Marker auf der Minimap aktualisieren
+            drawUserOnMap(lastPos);
         }
 
         // Event Handler für Kompassänderung
@@ -1059,15 +1080,24 @@
             if (e.webkitCompassHeading) alpha = e.webkitCompassHeading; 
             if (alpha == null) return;
             heading = (360 - alpha) % 360; 
+            
+            // Bei Drehung auch den Pfeil auf der Karte aktualisieren
+            if (lastPos) drawUserOnMap(lastPos);
         }
 
-        // Zeichnet den Nutzer als Pfeil auf der Karte
+        // Zeichnet den Nutzer als Pfeil auf der Karte (Minimap)
         function drawUserOnMap(p) {
-            if (!userLayer) return; userLayer.clearLayers();
+            if (!userLayer) return; 
+            userLayer.clearLayers(); // Alten Marker entfernen
+            
+            // Genauigkeitskreis (blau/rot)
             L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
+            
+            // Roter Pfeil, der sich mit dem Kompass (heading) dreht
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
             const url = 'data:image/svg+xml;base64,' + btoa(svg);
             const icon = L.icon({ iconUrl: url, iconSize: [48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
+            
             L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
         }
 
