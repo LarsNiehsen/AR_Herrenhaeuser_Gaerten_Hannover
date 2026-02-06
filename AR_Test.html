@@ -316,20 +316,16 @@
         const selectedDictionary = 'ARUCO_MIP_36h12'; // Das verwendete ArUco Wörterbuch
         const VISIBILITY_DISTANCE = 75.0; // Sichtweite in Metern für GNSS-Objekte
         
-        // Referenzkoordinaten für Target 0 (Der echte Standort des Markers/Schildes für die Fontäne)
-        // Dient als Basis für die relative Positionierung (Target 0 -> Große Fontäne)
+        // Referenzkoordinaten für Target 0 (Schild Große Fontäne)
+        // Dient als Positions-Override, wenn Target 0 erkannt wird
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
 
-        // Referenzkoordinaten für Target 4, 5, 6 (Der Standort des Markers für den Blumengarten)
-        // Dient als Basis für die relative Positionierung (Target 4,5,6 -> Niederdeutscher Blumengarten)
-        // Smartphone steht hier: 52.388029, 9.697794
+        // Referenzkoordinaten für Target 4, 5, 6 (Schild Niederdeutscher Blumengarten)
+        // Dient als Positions-Override, wenn Targets 4, 5 oder 6 erkannt werden
         const targetBlumengartenLat = 52.388029;
         const targetBlumengartenLon = 9.697794;
         
-        // Skalierungsfaktor für die Distanz im AR-Raum (Feinjustierung der Entfernung)
-        const COORD_SCALE = 0.2; 
-
         // Definition der Modelle und ihrer Daten
         // Hier werden Dateipfade, Skalierungen, Titel, Texte und GNSS-Positionen festgelegt
         const AR_MODELS = {
@@ -347,8 +343,8 @@
                 title: 'Niederdeutscher Blumengarten', 
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
-                // Targets 1, 2, 3: Direkte Positionierung auf dem Marker
-                // Targets 4, 5, 6: Relative Positionierung über GNSS-Differenz
+                // Targets 1, 2, 3: Standard Bild-Tracking (5s Persistenz)
+                // Targets 4, 5, 6: Lösen GNSS-Simulation aus (30s Persistenz)
                 mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853
             },
@@ -367,7 +363,7 @@
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true, // Markiert das Modell für Animationen
-                mindTargetIndexes: [0], // Verknüpft mit MindAR Target 0 (Relative Positionierung)
+                mindTargetIndexes: [0], // Target 0 löst GNSS-Simulation aus
                 lat: 52.386018, lon: 9.695975 
             },
             33: { // Alternativer Standort für die Fontäne
@@ -425,7 +421,8 @@
         let mindarAnchors = []; // MindAR Ankerpunkte
         let markerGroup, gnssGroup; // Gruppen für 3D-Objekte
         
-        let lastPos = null; // Letzte bekannte GNSS-Position
+        let lastPos = null; // Aktive GNSS-Position (echt oder simuliert)
+        let realPos = null; // Speichert das echte GNSS-Signal im Hintergrund
         let heading = 0; // Aktuelle Kompass-Ausrichtung
         let mapStations, userLayer; // Karten-Objekte
         let currentTrackingID = -1; // ID des aktuell getrackten Objekts
@@ -435,16 +432,15 @@
         let isMarkerTracking = false; // Status, ob gerade ein Marker getrackt wird
         let closestObjForArrow = null; // Das nächstgelegene Objekt für den Pfeil
 
-        // --- SPEZIAL-VARIABLEN FÜR RELATIVE POSITIONIERUNG ---
-        //detachedFountainMesh: Ein separates 3D-Objekt (Fontäne), das nicht fest an den MindAR-Anker gebunden ist.
-        let detachedFountainMesh = null; 
-        let fountainLastVisibleTime = 0; // Zeitstempel für Fontänen-Marker
-        
-        // detachedBlumengartenMesh: Separates 3D-Objekt (Blumengarten), relativ positioniert für Targets 4, 5, 6
-        let detachedBlumengartenMesh = null;
-        let blumengartenLastVisibleTime = 0; // Zeitstempel für Blumengarten-Marker (4,5,6)
+        // --- VARIABLEN FÜR POSITIONS-SIMULATION ---
+        let isSimulatedPos = false; // Ist die Position aktuell simuliert?
+        let simulationEndTime = 0;  // Wann endet die Simulation (Timestamp)?
+        let simulatedCoords = null; // Welche Koordinaten werden simuliert?
+        const SIMULATION_PERSISTENCE = 30000; // 30 Sekunden Nachlaufzeit für Simulation
 
-        const FOUNTAIN_PERSISTENCE = 30000; // Dauer in ms (30 Sekunden), die das Modell nach Verlust des Markers sichtbar bleibt
+        // --- VARIABLEN FÜR STANDARD MINDAR PERSISTENZ (Targets 1,2,3) ---
+        let standardMindARTimers = {}; // Speichert den Zeitpunkt des letzten Kontakts pro ID
+        const STANDARD_PERSISTENCE = 5000; // 5 Sekunden Nachlaufzeit für normale Bildmarker
 
         // --- PARTIKELSYSTEM ---
         // Erzeugt Wassertropfen für die Fontäne als Partikelsystem
@@ -541,7 +537,7 @@
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
             // MindAR Anker erstellen (für Bilderkennung)
-            // Erhöhe Schleife auf 7 (Index 0 bis 6) um neue Targets abzudecken
+            // Erhöhe Schleife auf 7 (Index 0 bis 6) um alle Targets abzudecken
             for (let i = 0; i < 7; i++) {
                 mindarAnchors[i] = mindarThree.addAnchor(i);
             }
@@ -557,227 +553,164 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // --- Rotationsanzeige für Debugging ---
-                let currentRotZ = 0;
+                // 1. Suche nach ArUco Markern
+                const arucoFound = processArucoFrame(video);
                 
-                // Prüft, welcher Modus aktiv ist, um den richtigen Rotationswinkel auszulesen
-                if (isMarkerTracking) {
-                    if (currentTrackingID !== -1) {
-                        // ArUco Rotation
-                        if (loadedMeshes[currentTrackingID] && loadedMeshes[currentTrackingID].visible) {
-                             currentRotZ = loadedMeshes[currentTrackingID].rotation.z;
-                        } 
-                        // MindAR Rotation (Standard Targets)
-                        else if (mindARMeshes[currentTrackingID]) {
-                             mindARMeshes[currentTrackingID].forEach(m => {
-                                 if (m.parent && m.parent.visible) currentRotZ = m.rotation.y;
-                             });
-                        }
-                    }
-                    // Spezialfall Fontäne (MindAR detached)
-                    if (detachedFountainMesh && detachedFountainMesh.visible) {
-                        currentRotZ = detachedFountainMesh.rotation.y;
-                    }
-                    // Spezialfall Blumengarten (MindAR detached)
-                    if (detachedBlumengartenMesh && detachedBlumengartenMesh.visible) {
-                        currentRotZ = detachedBlumengartenMesh.rotation.y;
-                    }
+                // 2. MindAR und Simulations-Logik
+                let simulationTriggered = false;
+                let standardMindARActive = false;
 
-                } else {
-                    // GNSS Rotation (Summe aus Gruppen-Rotation und Objekt-Rotation)
-                    Object.keys(gnssMeshes).forEach(key => {
-                        if (gnssMeshes[key].visible) {
-                            currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y;
-                        }
-                    });
-                }
-                
-                // Winkel umrechnen in Grad
-                const deg = Math.round(THREE.MathUtils.radToDeg(currentRotZ) % 360);
-                const displayDeg = deg < 0 ? deg + 360 : deg;
-                
-                // Aktualisiere Winkelanzeige im Debug-Panel (fügt Element hinzu falls nicht vorhanden)
-                let angleSpan = document.getElementById('debugAngle');
-                if(!angleSpan) {
-                    const d = document.createElement('div');
-                    d.style.marginTop = "8px";
-                    d.style.borderTop = "1px solid rgba(255,255,255,0.3)";
-                    d.style.paddingTop = "5px";
-                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Z-Achse)</span><br><span id="debugAngle" class="val-highlight">${displayDeg}°</span>`;
-                    document.getElementById('debugInfo').appendChild(d);
-                } else {
-                    angleSpan.innerText = displayDeg + "°";
+                // --- POSITIONS-SIMULATION (Target 0, 4, 5, 6) ---
+                // Überprüfe Anker für Fontäne (0) und Blumengarten (4,5,6)
+                if (mindarAnchors[0] && mindarAnchors[0].group.visible) {
+                    // Target 0 erkannt -> Simuliere Position bei Fontäne
+                    activateSimulation(target0Lat, target0Lon);
+                    simulationTriggered = true;
+                } 
+                else if ((mindarAnchors[4] && mindarAnchors[4].group.visible) || 
+                         (mindarAnchors[5] && mindarAnchors[5].group.visible) || 
+                         (mindarAnchors[6] && mindarAnchors[6].group.visible)) {
+                    // Target 4,5,6 erkannt -> Simuliere Position bei Blumengarten
+                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
+                    simulationTriggered = true;
                 }
 
-                // --- Animationen ---
-                // Wasseranimationen für Fontänen aktualisieren, falls sichtbar
-                if (loadedMeshes[3]?.visible && loadedMeshes[3].userData.particles) updateWaterEffect(loadedMeshes[3].userData.particles);
-                if (gnssMeshes[3]?.visible && gnssMeshes[3].userData.particles) updateWaterEffect(gnssMeshes[3].userData.particles);
-                if (gnssMeshes[33]?.visible && gnssMeshes[33].userData.particles) updateWaterEffect(gnssMeshes[33].userData.particles);
-                
-                // MindAR Standard Partikel
-                Object.values(mindARMeshes).forEach(meshes => {
-                    if (Array.isArray(meshes)) {
-                        meshes.forEach(m => {
-                            if (m.userData.particles && m.parent.visible) updateWaterEffect(m.userData.particles);
-                        });
+                // Prüfen, ob Simulation noch aktiv bleiben soll (30s Persistenz)
+                if (!simulationTriggered && isSimulatedPos) {
+                    if (Date.now() < simulationEndTime) {
+                        // Persistenz aktiv: Behalte fake Koordinaten
+                    } else {
+                        // Zeit abgelaufen: Simulation beenden, zurück zu echtem GNSS
+                        isSimulatedPos = false;
+                        if (realPos) lastPos = realPos; // Sofort auf echte Position zurücksetzen
+                    }
+                }
+
+                // --- STANDARD MINDAR TRACKING (Target 1, 2, 3) ---
+                // Überprüfe Anker für Standard-Tracking
+                // Hier wird nur die Sichtbarkeit/Timer aktualisiert, die Position der Meshes hängt am Marker
+                [1, 2, 3].forEach(idx => {
+                    if (mindarAnchors[idx] && mindarAnchors[idx].group.visible) {
+                        standardMindARTimers[idx] = Date.now(); // Zeitpunkt merken
+                        // Alle verknüpften Modelle für diesen Index sichtbar machen
+                        // (Hinweis: Die Modelle wurden in loadModels in mindARMeshes gespeichert)
+                        // Da ID 1 auch Simulation nutzt, müssen wir hier aufpassen:
+                        // Wenn Target 1,2,3 aktiv ist -> ImageTracking Mesh anzeigen
                     }
                 });
 
-                // --- MindAR Logik (Spezialfall Target 0 - Große Fontäne) ---
-                if (detachedFountainMesh) {
-                    if (detachedFountainMesh.userData.particles) updateWaterEffect(detachedFountainMesh.userData.particles);
-                    const anchor0 = mindarAnchors[0];
-                    if (anchor0.group.visible) {
-                        // Marker erkannt
-                        detachedFountainMesh.visible = true;
-                        fountainLastVisibleTime = Date.now();
-                        
-                        detachedFountainMesh.position.copy(anchor0.group.position);
-                        detachedFountainMesh.quaternion.copy(anchor0.group.quaternion);
-                        detachedFountainMesh.scale.copy(anchor0.group.scale);
-
-                        // Offset berechnen (Target 0 -> Modell ID 3)
-                        const fGeo = AR_MODELS[3];
-                        const offset = calcOffset(target0Lat, target0Lon, fGeo.lat, fGeo.lon);
-                        const localOffset = new THREE.Vector3(offset.x, 0, -offset.z); 
-                        localOffset.multiplyScalar(COORD_SCALE); 
-                        localOffset.applyQuaternion(anchor0.group.quaternion);
-                        detachedFountainMesh.position.add(localOffset);
-                        detachedFountainMesh.translateY(-0.3); 
-
-                        updateUIForModel(3, "MindAR (Relative)");
-                        if(loadedMeshes[3]) loadedMeshes[3].visible = false;
-                        
-                    } else {
-                        // Nachlauf (Persistence)
-                        if (Date.now() - fountainLastVisibleTime < FOUNTAIN_PERSISTENCE) {
-                             detachedFountainMesh.visible = true;
-                        } else {
-                             detachedFountainMesh.visible = false;
-                        }
-                    }
-                }
-
-                // --- MindAR Logik (Spezialfall Target 4, 5, 6 - Niederdeutscher Blumengarten Relative) ---
-                if (detachedBlumengartenMesh) {
-                    // Prüfen ob einer der Anker 4, 5, 6 sichtbar ist
-                    let activeAnchor = null;
-                    if (mindarAnchors[4] && mindarAnchors[4].group.visible) activeAnchor = mindarAnchors[4];
-                    else if (mindarAnchors[5] && mindarAnchors[5].group.visible) activeAnchor = mindarAnchors[5];
-                    else if (mindarAnchors[6] && mindarAnchors[6].group.visible) activeAnchor = mindarAnchors[6];
-
-                    if (activeAnchor) {
-                        // Marker erkannt (4, 5 oder 6)
-                        detachedBlumengartenMesh.visible = true;
-                        blumengartenLastVisibleTime = Date.now();
-
-                        // Basisposition vom Anker
-                        detachedBlumengartenMesh.position.copy(activeAnchor.group.position);
-                        detachedBlumengartenMesh.quaternion.copy(activeAnchor.group.quaternion);
-                        detachedBlumengartenMesh.scale.copy(activeAnchor.group.scale);
-
-                        // Offset berechnen (Scanner-Pos -> Modell ID 1)
-                        // Scanner steht bei targetBlumengartenLat/Lon
-                        // Modell steht bei AR_MODELS[1].lat/lon
-                        const bgGeo = AR_MODELS[1];
-                        const offset = calcOffset(targetBlumengartenLat, targetBlumengartenLon, bgGeo.lat, bgGeo.lon);
-                        const localOffset = new THREE.Vector3(offset.x, 0, -offset.z);
-                        localOffset.multiplyScalar(COORD_SCALE);
-                        localOffset.applyQuaternion(activeAnchor.group.quaternion);
-                        
-                        detachedBlumengartenMesh.position.add(localOffset);
-                        detachedBlumengartenMesh.translateY(-1.5); // Höhe anpassen
-
-                        updateUIForModel(1, "MindAR (Relative)");
-                        
-                        // Andere Repräsentationen ausblenden
-                        if(loadedMeshes[1]) loadedMeshes[1].visible = false; // ArUco
-                        if(mindARMeshes[1]) mindARMeshes[1].forEach(m => m.visible = false); // Attached MindAR Modelle temporär unsichtbar machen wenn Detached aktiv ist (optional, verhindert Überlappung)
-
-                    } else {
-                         // Nachlauf (Persistence)
-                        if (Date.now() - blumengartenLastVisibleTime < FOUNTAIN_PERSISTENCE) {
-                             detachedBlumengartenMesh.visible = true;
-                        } else {
-                             detachedBlumengartenMesh.visible = false;
-                        }
-                    }
-                }
-
-                // Suche nach ArUco Markern im Bild
-                const arucoFound = processArucoFrame(video);
-                
-                // Prüfen ob irgendein MindAR Target aktiv ist
-                let mindAnyActive = false;
-                mindarAnchors.forEach(a => { if(a.group.visible) mindAnyActive = true; });
-                
-                // Auch als "aktiv" werten, wenn ein Modell im "Nachlauf" ist (30s sichtbar ohne Marker)
-                if(detachedFountainMesh && detachedFountainMesh.visible) mindAnyActive = true;
-                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) mindAnyActive = true;
-
-                // Marker-Tracking ist aktiv, wenn ArUco oder MindAR etwas anzeigen
-                isMarkerTracking = arucoFound || mindAnyActive;
-
-                if (isMarkerTracking) {
-                    // Marker-Modus: GNSS Objekte ausblenden
-                    gnssGroup.visible = false; 
+                // Prüfen welche Standard-Modelle angezeigt werden sollen (5s Persistenz)
+                let anyStandardVisible = false;
+                Object.keys(mindARMeshes).forEach(idStr => {
+                    const id = parseInt(idStr);
+                    // Standard-Timer prüfen (gilt für ID 1, 2, 3 wenn über Marker 1,2,3 getrackt)
+                    const lastSeen = standardMindARTimers[id] || 0;
                     
-                    // --- Pfeil-Logik für MindAR ---
-                    if (mindAnyActive && !arucoFound) {
-                        // KORREKTUR: Info-Fenster oben links (Kompass/GNSS) aktualisieren
-                        updateGNSSUI(); 
-
-                        // Überprüfen, ob eines der relativ positionierten Modelle sichtbar ist (aktiv oder persistent)
-                        const isFountainVisible = detachedFountainMesh && detachedFountainMesh.visible;
-                        const isBlumengartenRelVisible = detachedBlumengartenMesh && detachedBlumengartenMesh.visible;
-                        
-                        if (isFountainVisible) {
-                            // Pfeil zeigt zur Großen Fontäne
-                            closestObjForArrow = AR_MODELS[3]; 
-                            updateArrow(); 
-                        } else if (isBlumengartenRelVisible) {
-                            // Pfeil zeigt zum Niederdeutschen Blumengarten
-                            closestObjForArrow = AR_MODELS[1];
-                            updateArrow();
-                        } else {
-                            // Standard MindAR (direkt auf Marker) - Pfeil zeigt aufs Display
-                            arrowContainer.style.opacity = 0;
-                        }
-                    } else {
-                        arrowContainer.style.opacity = 0;
+                    // Standard-Meshes anzeigen, wenn innerhalb der 5 Sekunden
+                    const showStandard = (Date.now() - lastSeen < STANDARD_PERSISTENCE);
+                    
+                    if (mindARMeshes[id]) {
+                        mindARMeshes[id].forEach(mesh => {
+                            if (showStandard) {
+                                mesh.visible = true;
+                                anyStandardVisible = true;
+                                updateUIForModel(id, "MindAR (Image)");
+                            } else {
+                                mesh.visible = false;
+                            }
+                            // Animationen
+                            if(mesh.userData.particles && mesh.visible) updateWaterEffect(mesh.userData.particles);
+                        });
                     }
+                });
+                
+                // 3. Sichtbarkeit der GNSS-Objekte steuern
+                // GNSS-Objekte sind sichtbar, wenn:
+                // A) Wir im Simulationsmodus sind (Fake Position -> Distanz zum Objekt passt -> Objekt sichtbar)
+                // B) Wir im echten GNSS-Modus sind UND kein ArUco/Standard-MindAR aktiv ist
+                
+                // Falls Simulation aktiv ist, setzen wir lastPos fest
+                if (isSimulatedPos && simulatedCoords) {
+                    lastPos = { 
+                        latitude: simulatedCoords.lat, 
+                        longitude: simulatedCoords.lon, 
+                        accuracy: 1.5 
+                    };
+                }
 
-                } else {
-                    // GNSS Modus (kein Marker): GPS basierte Objekte anzeigen
+                // Genereller Marker-Tracking Status (ArUco oder Standard-MindAR)
+                isMarkerTracking = arucoFound || anyStandardVisible;
+
+                // GNSS Gruppe steuern
+                if (isSimulatedPos) {
+                    // Im Simulationsmodus: GNSS-Objekte anzeigen (basierend auf Fake-Position)
                     gnssGroup.visible = true;
-                    updateGNSSUI(); // UI aktualisieren
-                    updateGNSSObjects(); // Objekte positionieren
-                    updateArrow(); // GNSS Pfeil (Kompass)
+                    updateGNSSObjects();
+                    updateGNSSUI(); // UI mit Fake-Koordinaten updaten
+                } else if (!isMarkerTracking) {
+                    // Kein Marker, kein Sim-Modus: Echtes GNSS verwenden
+                    gnssGroup.visible = true;
+                    updateGNSSObjects();
+                    updateGNSSUI(); // UI mit echten Koordinaten updaten
+                } else {
+                    // Marker (ArUco oder Standard-MindAR) aktiv: GNSS ausblenden um Überlappung zu meiden
+                    gnssGroup.visible = false;
+                    // Trotzdem UI aktualisieren, falls wir Simulationsmodus verlassen haben
+                    if (!arucoFound && !anyStandardVisible) updateGNSSUI(); 
+                }
+
+                // Animationen für GNSS Meshes
+                Object.values(gnssMeshes).forEach(m => {
+                    if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
+                });
+
+                // --- Rotationsanzeige & Debug ---
+                let currentRotZ = 0;
+                // ... (Code für Rotationsanzeige, analog zu vorher) ...
+                 Object.keys(gnssMeshes).forEach(key => {
+                    if (gnssMeshes[key].visible) currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y;
+                });
+                // ...
+
+                // --- Pfeil und Kompass ---
+                // Der Pfeil zeigt immer zum nächsten Objekt basierend auf lastPos (echt oder simuliert)
+                // und heading (echt).
+                if (closestObjForArrow) {
+                    updateArrow();
+                } else {
+                    arrowContainer.style.opacity = 0;
                 }
 
                 renderer.render(scene, camera);
             });
         }
 
+        // Aktiviert die GNSS Simulation an den übergebenen Koordinaten
+        function activateSimulation(lat, lon) {
+            isSimulatedPos = true;
+            simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; // Timer zurücksetzen/starten
+            simulatedCoords = { lat: lat, lon: lon };
+            
+            // Wenn wir in ID 1 (Blumengarten) via Target 4,5,6 sind, verstecken wir das Standard-Mesh von Target 1,2,3
+            // um Doppelungen zu vermeiden, falls man schnell wechselt.
+            // (Passiert implizit durch isMarkerTracking Logik, da Simulation GNSS Meshes nutzt)
+        }
+
         // Lädt die GLB-Modelle für alle Modi
         function loadModels() {
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
-            let loadedCount = 0;
 
             ids.forEach(idStr => {
                 const id = parseInt(idStr);
                 const config = AR_MODELS[id];
                 
                 loader.load(config.url, (gltf) => {
-                    // 1. ArUco Modell erstellen
+                    // 1. ArUco Modell
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
-                    modelAruco.rotation.x = Math.PI / 2; // Aufrichten
-                    // Z-Rotation bei bestimmten Modellen korrigieren
+                    modelAruco.rotation.x = Math.PI / 2; 
                     if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
-
                     if (id === 3 || id === 33) {
                         const p = createWaterEffect();
                         modelAruco.add(p); modelAruco.userData.particles = p;
@@ -786,10 +719,10 @@
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
-                    // 2. GNSS Modell erstellen
+                    // 2. GNSS Modell (Wird auch für die Simulation genutzt!)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
-                        const gnssScale = config.scale * 0.05; // Skalierung für GNSS anpassen
+                        const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
@@ -800,45 +733,14 @@
                         gnssMeshes[id] = modelGNSS;
                     }
 
-                    // 3. MindAR Modell erstellen
+                    // 3. MindAR Modelle (Nur für Standard-Tracking Target 1, 2, 3)
                     if (config.mindTargetIndexes) {
-                        // Initialisiere Array falls nötig
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
                         config.mindTargetIndexes.forEach(targetIndex => {
-                            // FALL A: ID 3 (Fontäne), Target 0 -> Detached (Relativ)
-                            if (targetIndex === 0 && (id === 3)) {
-                                const modelDetached = gltf.scene.clone();
-                                const mindScale = config.scale * 0.02; 
-                                modelDetached.scale.set(mindScale, mindScale, mindScale);
-                                modelDetached.rotation.y = Math.PI;
-                                
-                                const pD = createWaterEffect();
-                                modelDetached.add(pD); modelDetached.userData.particles = pD;
-                                
-                                modelDetached.traverse((child) => { if(child.isMesh) child.frustumCulled = false; });
-                                modelDetached.visible = false;
-                                scene.add(modelDetached); 
-                                detachedFountainMesh = modelDetached;
-                            } 
-                            // FALL B: ID 1 (Blumengarten), Targets 4, 5, 6 -> Detached (Relativ)
-                            else if ((targetIndex === 4 || targetIndex === 5 || targetIndex === 6) && (id === 1)) {
-                                // Nur einmal erstellen, auch wenn mehrere Targets existieren
-                                if (!detachedBlumengartenMesh) {
-                                    const modelDetachedBG = gltf.scene.clone();
-                                    const mindScale = config.scale * 0.015;
-                                    modelDetachedBG.scale.set(mindScale, mindScale, mindScale);
-                                    modelDetachedBG.rotation.y = THREE.MathUtils.degToRad(346); 
-                                    
-                                    modelDetachedBG.traverse((child) => { if(child.isMesh) child.frustumCulled = false; });
-                                    modelDetachedBG.visible = false;
-                                    scene.add(modelDetachedBG);
-                                    detachedBlumengartenMesh = modelDetachedBG;
-                                }
-                            }
-                            // FALL C: Standard MindAR Targets (fest verbunden)
-                            // Gilt z.B. für ID 1 bei Targets 1, 2, 3
-                            else if (mindarAnchors[targetIndex]) {
+                            // Wir erstellen MindAR Meshes nur für die "Standard" Targets 1, 2, 3
+                            // Targets 0, 4, 5, 6 nutzen die GNSS-Simulation und brauchen kein MindAR Mesh
+                            if ([1, 2, 3].includes(targetIndex) && mindarAnchors[targetIndex]) {
                                 const modelMind = gltf.scene.clone();
                                 const mindScale = config.scale * 0.015;
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
@@ -847,9 +749,7 @@
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
                                 modelMind.rotation.y = rotationY; 
                                 
-                                if (id === 1) {
-                                    modelMind.position.y = -1.5; 
-                                }
+                                if (id === 1) modelMind.position.y = -1.5; 
 
                                 if (id === 3 || id === 33) {
                                      const pM = createWaterEffect();
@@ -859,27 +759,22 @@
                                 mindarAnchors[targetIndex].group.add(modelMind);
                                 mindARMeshes[id].push(modelMind);
                                 
-                                // Event Listener wenn Bild erkannt wird
-                                mindarAnchors[targetIndex].onTargetFound = () => {
-                                    updateUIForModel(id, "MindAR Image (Idx " + targetIndex + ")");
-                                    if(loadedMeshes[id]) loadedMeshes[id].visible = false; 
-                                };
+                                // Mesh standardmäßig unsichtbar, Sichtbarkeit wird im Render-Loop gesteuert (5s Regel)
+                                modelMind.visible = false;
                             }
                         });
                     }
-                    
-                    loadedCount++;
                 });
             });
         }
 
-        // UI Update Funktion für GNSS
+        // UI Update Funktion für GNSS (Echt oder Simuliert)
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
                  return;
             }
-            // Finde das nächstgelegene Objekt
+            // Finde das nächstgelegene Objekt basierend auf lastPos (kann simuliert sein)
             let closestDist = 99999;
             let closestObj = null;
             Object.keys(AR_MODELS).forEach(key => {
@@ -894,16 +789,19 @@
             });
             closestObjForArrow = closestObj;
             
-            // UI aktualisieren mit allen Details
+            // UI aktualisieren
             if (closestObj) {
                 const distStr = closestDist < 1000 ? Math.round(closestDist) + " m" : (closestDist/1000).toFixed(1) + " km";
                 const latStr = lastPos.latitude.toFixed(5) + "°";
                 const lonStr = lastPos.longitude.toFixed(5) + "°";
                 const accStr = "± " + Math.round(lastPos.accuracy || 0) + " m";
                 const compassStr = Math.round(heading) + "°";
+                
+                // Falls Simulation aktiv ist, zeigen wir das im UI
+                let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
 
                 statusText.innerHTML = `
-                    <span class="label-small">Position (GNSS)</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
+                    <span class="label-small">${sourceLabel}</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
                     <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
@@ -913,11 +811,7 @@
             }
         }
         
-        // Berechnet Pfeilrichtung basierend auf GNSS/Kompass
-        // Diese Funktion wird genutzt für:
-        // 1. Reinen GNSS-Modus
-        // 2. Den speziellen Fontänen-Modus (MindAR Persistence)
-        // 3. Den speziellen Blumengarten-Modus (MindAR Persistence)
+        // Berechnet Pfeilrichtung (Kompass + relative Richtung zum Objekt)
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -929,31 +823,11 @@
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
-        // Berechnet Pfeilrichtung basierend auf 3D-Position im Kamerabild (für Standard MindAR)
-        function updateArrowMindAR(mesh) {
-            if (!mesh || !camera) {
-                arrowContainer.style.opacity = 0;
-                return;
-            }
-            const vector = mesh.position.clone();
-            vector.project(camera); 
-            
-            if (vector.z > 1) {
-                 // Objekt ist hinter der Kamera -> Pfeil nach unten
-                 arrowContainer.style.opacity = 1;
-                 arrowEl.style.transform = `rotate(180deg)`;
-            } else {
-                 // Objekt ist vor der Kamera -> Zeige Richtung an
-                 arrowContainer.style.opacity = 1;
-                 const angle = -vector.x * 90; 
-                 arrowEl.style.transform = `rotate(${angle}deg)`;
-            }
-        }
-
         // Steuert Sichtbarkeit der GNSS Objekte
         function updateGNSSObjects() {
-            if (!lastPos || isMarkerTracking) return;
-            // Gruppe anhand Kompass drehen
+            if (!lastPos) return;
+            
+            // Gruppe anhand Kompass drehen (damit Norden Norden ist)
             gnssGroup.rotation.y = THREE.MathUtils.degToRad(heading);
             
             Object.keys(gnssMeshes).forEach(key => {
@@ -962,6 +836,8 @@
                 const config = AR_MODELS[id];
                 if (config.lat && config.lon) {
                     const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    
+                    // Sichtbarkeitsprüfung
                     if (dist < VISIBILITY_DISTANCE) {
                         mesh.visible = true;
                         
@@ -972,11 +848,15 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // Positionierung relativ zum Nutzer
+                        // Positionierung relativ zum (fake oder echten) Nutzer
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                         mesh.position.set(offset.x, -10, -offset.z); 
                         
-                        // Kein lookAt, damit man um das Objekt herumlaufen kann
+                        // Wenn dieses Objekt das nächste ist, UI Info aktualisieren (falls nicht ArUco aktiv)
+                        if (closestObjForArrow === config && !isMarkerTracking && !isSimulatedPos) {
+                           // Nur Updaten wenn Nutzer nicht klickt, um Link nicht zu überschreiben
+                        }
+
                     } else {
                         mesh.visible = false;
                         if (id === 3 || id === 33) historicalInfo.style.display = 'none';
@@ -996,7 +876,6 @@
         }
 
         // Berechnet kartesischen Offset (X, Z) für Three.js aus GNSS-Koordinaten
-        // Wird verwendet um die Meter-Distanz zwischen Nutzer und Objekt oder Marker und Objekt zu bestimmen.
         function calcOffset(lat1, lon1, lat2, lon2) {
             const R = 6378137; 
             const dLat = (lat2 - lat1) * Math.PI / 180;
@@ -1088,25 +967,16 @@
                 // ArUco-Modell sofort ausblenden, wenn nicht gefunden
                 markerGroup.visible = false;
                 
-                // Status prüfen (MindAR oder Fontänen-Nachlauf oder Blumengarten-Nachlauf)
-                let mindActive = mindarAnchors.some(a => a.group.visible) || (detachedFountainMesh && detachedFountainMesh.visible) || (detachedBlumengartenMesh && detachedBlumengartenMesh.visible);
-                if (mindActive) {
-                    // MindAR läuft noch, keine Änderung des Status-Textes nötig
-                } else {
-                    // Timeout Zähler für Marker-Verlust
-                    lossCounter++;
-                    if (lossCounter > maxLossFrames) {
-                        if (currentTrackingID !== -1) {
-                             modelInfo.style.display = 'none';
-                             clickHint.style.opacity = 0;
-                             historicalInfo.style.display = 'none'; 
-                             currentTrackingID = -1;
-                        }
-                        // Wenn nichts mehr getrackt wird, zeige den Initialtext (Warte auf GNSS...)
-                        // Das hilft dem Nutzer zu verstehen, dass er wieder im GNSS-Modus ist
-                        if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
-                             statusText.innerHTML = "Warte auf GNSS Signal...";
-                        }
+                lossCounter++;
+                if (lossCounter > maxLossFrames) {
+                    if (currentTrackingID !== -1) {
+                            modelInfo.style.display = 'none';
+                            clickHint.style.opacity = 0;
+                            historicalInfo.style.display = 'none'; 
+                            currentTrackingID = -1;
+                    }
+                    if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
+                            statusText.innerHTML = "Warte auf GNSS Signal...";
                     }
                 }
             }
@@ -1132,13 +1002,24 @@
 
         // Event Handler für neue GNSS Position
         function onPos(pos) {
-            lastPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
+            // Speichere die echte Position immer im Hintergrund
+            realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             
-            // Karte zentrieren, wenn es das erste Mal ist
-            if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
-            
-            // KORREKTUR: Den Nutzer-Marker auf der Minimap aktualisieren
-            drawUserOnMap(lastPos);
+            // Wenn KEINE Simulation aktiv ist, übernehmen wir diese Position als lastPos
+            if (!isSimulatedPos) {
+                lastPos = realPos;
+                
+                // Karte zentrieren, wenn es das erste Mal ist
+                if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
+                
+                // Den Nutzer-Marker auf der Minimap aktualisieren
+                drawUserOnMap(lastPos);
+            } else {
+                // Wenn Simulation aktiv ist, wird lastPos NICHT hier überschrieben, 
+                // sondern im Render Loop auf den simulierten Wert gesetzt.
+                // Auf der Karte könnte man optional den simulierten Standort anzeigen:
+                if (lastPos) drawUserOnMap(lastPos);
+            }
         }
 
         // Event Handler für Kompassänderung
@@ -1288,9 +1169,7 @@
             ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
                 if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
-                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.parent && m.parent.visible) m.rotation.y -= 0.2; });
-                if(detachedFountainMesh && detachedFountainMesh.visible) detachedFountainMesh.rotation.y -= 0.2;
-                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) detachedBlumengartenMesh.rotation.y -= 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
             });
         });
         rotRightBtn.addEventListener('click', () => { 
@@ -1298,9 +1177,7 @@
              ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
                 if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
-                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.parent && m.parent.visible) m.rotation.y += 0.2; });
-                if(detachedFountainMesh && detachedFountainMesh.visible) detachedFountainMesh.rotation.y += 0.2;
-                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) detachedBlumengartenMesh.rotation.y += 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y += 0.2; });
             });
         });
 
@@ -1316,40 +1193,26 @@
             Object.values(loadedMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
             Object.values(mindARMeshes).forEach(meshArray => {
                 if (Array.isArray(meshArray)) {
-                    meshArray.forEach(m => { if(m.parent && m.parent.visible) objectsToCheck.push(m); });
+                    meshArray.forEach(m => { if(m.visible) objectsToCheck.push(m); });
                 }
             });
             Object.values(gnssMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
-            if (detachedFountainMesh && detachedFountainMesh.visible) objectsToCheck.push(detachedFountainMesh);
-            if (detachedBlumengartenMesh && detachedBlumengartenMesh.visible) objectsToCheck.push(detachedBlumengartenMesh);
             
             if(objectsToCheck.length === 0) return;
             const intersects = raycaster.intersectObjects(objectsToCheck, true);
             if (intersects.length > 0) {
                 let clickedObj = intersects[0].object;
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     // Check GNSS
+                     // Check GNSS/Simulation
                      for(let [key, val] of Object.entries(gnssMeshes)) {
                          if(val === clickedObj) {
                              activeLink = AR_MODELS[key].link;
-                             updateUIForModel(parseInt(key), "GNSS");
+                             // Unterscheiden, ob wir klicken weil GNSS oder Simulation
+                             let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
+                             updateUIForModel(parseInt(key), label);
                              window.open(activeLink, '_blank');
                              return;
                          }
-                     }
-                     // Check Detached (Fontäne)
-                     if (clickedObj === detachedFountainMesh) {
-                         activeLink = AR_MODELS[3].link;
-                         updateUIForModel(3, "MindAR Target 0");
-                         window.open(activeLink, '_blank');
-                         return;
-                     }
-                     // Check Detached (Blumengarten)
-                     if (clickedObj === detachedBlumengartenMesh) {
-                         activeLink = AR_MODELS[1].link;
-                         updateUIForModel(1, "MindAR Target 4/5/6");
-                         window.open(activeLink, '_blank');
-                         return;
                      }
                      // Check standard MindAR meshes
                      for(let id in mindARMeshes) {
