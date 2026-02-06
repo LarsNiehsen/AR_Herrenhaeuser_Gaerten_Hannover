@@ -317,9 +317,15 @@
         const VISIBILITY_DISTANCE = 75.0; // Sichtweite in Metern für GNSS-Objekte
         
         // Referenzkoordinaten für Target 0 (Der echte Standort des Markers/Schildes für die Fontäne)
-        // Dient als Basis für die relative Positionierung
+        // Dient als Basis für die relative Positionierung (Target 0 -> Große Fontäne)
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
+
+        // Referenzkoordinaten für Target 4, 5, 6 (Der Standort des Markers für den Blumengarten)
+        // Dient als Basis für die relative Positionierung (Target 4,5,6 -> Niederdeutscher Blumengarten)
+        // Smartphone steht hier: 52.388029, 9.697794
+        const targetBlumengartenLat = 52.388029;
+        const targetBlumengartenLon = 9.697794;
         
         // Skalierungsfaktor für die Distanz im AR-Raum (Feinjustierung der Entfernung)
         const COORD_SCALE = 0.2; 
@@ -341,7 +347,9 @@
                 title: 'Niederdeutscher Blumengarten', 
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
-                mindTargetIndexes: [1, 2, 3], // Verknüpft mit MindAR Targets 1, 2, 3
+                // Targets 1, 2, 3: Direkte Positionierung auf dem Marker
+                // Targets 4, 5, 6: Relative Positionierung über GNSS-Differenz
+                mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853
             },
             2: { 
@@ -359,7 +367,7 @@
                 info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true, // Markiert das Modell für Animationen
-                mindTargetIndexes: [0], // Verknüpft mit MindAR Target 0
+                mindTargetIndexes: [0], // Verknüpft mit MindAR Target 0 (Relative Positionierung)
                 lat: 52.386018, lon: 9.695975 
             },
             33: { // Alternativer Standort für die Fontäne
@@ -427,11 +435,15 @@
         let isMarkerTracking = false; // Status, ob gerade ein Marker getrackt wird
         let closestObjForArrow = null; // Das nächstgelegene Objekt für den Pfeil
 
-        // --- SPEZIAL-VARIABLEN FÜR DIE GROSSE FONTÄNE (Target 0) ---
-        //detachedFountainMesh: Ein separates 3D-Objekt, das nicht fest an den MindAR-Anker gebunden ist.
-        //Dies ermöglicht es, das Objekt auch dann noch anzuzeigen, wenn der Marker (Schild) nicht mehr im Bild ist.
+        // --- SPEZIAL-VARIABLEN FÜR RELATIVE POSITIONIERUNG ---
+        //detachedFountainMesh: Ein separates 3D-Objekt (Fontäne), das nicht fest an den MindAR-Anker gebunden ist.
         let detachedFountainMesh = null; 
-        let fountainLastVisibleTime = 0; // Zeitstempel, wann die Fontäne zuletzt per Marker erkannt wurde
+        let fountainLastVisibleTime = 0; // Zeitstempel für Fontänen-Marker
+        
+        // detachedBlumengartenMesh: Separates 3D-Objekt (Blumengarten), relativ positioniert für Targets 4, 5, 6
+        let detachedBlumengartenMesh = null;
+        let blumengartenLastVisibleTime = 0; // Zeitstempel für Blumengarten-Marker (4,5,6)
+
         const FOUNTAIN_PERSISTENCE = 30000; // Dauer in ms (30 Sekunden), die das Modell nach Verlust des Markers sichtbar bleibt
 
         // --- PARTIKELSYSTEM ---
@@ -529,7 +541,8 @@
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
             // MindAR Anker erstellen (für Bilderkennung)
-            for (let i = 0; i < 4; i++) {
+            // Erhöhe Schleife auf 7 (Index 0 bis 6) um neue Targets abzudecken
+            for (let i = 0; i < 7; i++) {
                 mindarAnchors[i] = mindarThree.addAnchor(i);
             }
 
@@ -565,6 +578,11 @@
                     if (detachedFountainMesh && detachedFountainMesh.visible) {
                         currentRotZ = detachedFountainMesh.rotation.y;
                     }
+                    // Spezialfall Blumengarten (MindAR detached)
+                    if (detachedBlumengartenMesh && detachedBlumengartenMesh.visible) {
+                        currentRotZ = detachedBlumengartenMesh.rotation.y;
+                    }
+
                 } else {
                     // GNSS Rotation (Summe aus Gruppen-Rotation und Objekt-Rotation)
                     Object.keys(gnssMeshes).forEach(key => {
@@ -607,53 +625,82 @@
                 });
 
                 // --- MindAR Logik (Spezialfall Target 0 - Große Fontäne) ---
-                // Hier wird das Modell unabhängig vom Anker in der Szene positioniert, um relative Geodaten zu nutzen.
                 if (detachedFountainMesh) {
-                    // Animation aktualisieren
                     if (detachedFountainMesh.userData.particles) updateWaterEffect(detachedFountainMesh.userData.particles);
-                    
                     const anchor0 = mindarAnchors[0];
                     if (anchor0.group.visible) {
-                        // FALL 1: Marker (Schild) wird gerade von der Kamera erkannt.
+                        // Marker erkannt
                         detachedFountainMesh.visible = true;
-                        fountainLastVisibleTime = Date.now(); // Zeitpunkt merken
+                        fountainLastVisibleTime = Date.now();
                         
-                        // Die Basisposition und Rotation vom erkannten Marker übernehmen
                         detachedFountainMesh.position.copy(anchor0.group.position);
                         detachedFountainMesh.quaternion.copy(anchor0.group.quaternion);
                         detachedFountainMesh.scale.copy(anchor0.group.scale);
 
-                        // Berechnung der relativen GNSS-Position:
-                        // Wir ermitteln den Abstand zwischen dem Schild (target0Lat/Lon) und der Fontäne (AR_MODELS[3].lat/lon).
-                        // Dieser Versatz wird dann auf das 3D-Modell angewendet.
+                        // Offset berechnen (Target 0 -> Modell ID 3)
                         const fGeo = AR_MODELS[3];
                         const offset = calcOffset(target0Lat, target0Lon, fGeo.lat, fGeo.lon);
-                        
-                        // Den Versatz in das lokale Koordinatensystem des Markers umrechnen
                         const localOffset = new THREE.Vector3(offset.x, 0, -offset.z); 
-                        
-                        // Skalieren und Rotieren entsprechend der Marker-Ausrichtung
                         localOffset.multiplyScalar(COORD_SCALE); 
                         localOffset.applyQuaternion(anchor0.group.quaternion);
-                        
-                        // Neue Position setzen
                         detachedFountainMesh.position.add(localOffset);
-                        detachedFountainMesh.translateY(-0.3); // Höhe leicht korrigieren
+                        detachedFountainMesh.translateY(-0.3); 
 
-                        // UI aktualisieren
-                        updateUIForModel(3, "MindAR (Fixed Pos)");
-                        // Falls das ArUco-Modell aktiv war, ausblenden (Konfliktvermeidung)
+                        updateUIForModel(3, "MindAR (Relative)");
                         if(loadedMeshes[3]) loadedMeshes[3].visible = false;
                         
                     } else {
-                        // FALL 2: Marker ist NICHT sichtbar (Tracking verloren).
-                        // Prüfen, ob wir noch innerhalb der 30 Sekunden (30000ms) Zeitfenster sind.
+                        // Nachlauf (Persistence)
                         if (Date.now() - fountainLastVisibleTime < FOUNTAIN_PERSISTENCE) {
-                             // Das Modell bleibt sichtbar (an der letzten bekannten Position im Raum)
                              detachedFountainMesh.visible = true;
                         } else {
-                             // Zeit abgelaufen -> Ausblenden
                              detachedFountainMesh.visible = false;
+                        }
+                    }
+                }
+
+                // --- MindAR Logik (Spezialfall Target 4, 5, 6 - Niederdeutscher Blumengarten Relative) ---
+                if (detachedBlumengartenMesh) {
+                    // Prüfen ob einer der Anker 4, 5, 6 sichtbar ist
+                    let activeAnchor = null;
+                    if (mindarAnchors[4] && mindarAnchors[4].group.visible) activeAnchor = mindarAnchors[4];
+                    else if (mindarAnchors[5] && mindarAnchors[5].group.visible) activeAnchor = mindarAnchors[5];
+                    else if (mindarAnchors[6] && mindarAnchors[6].group.visible) activeAnchor = mindarAnchors[6];
+
+                    if (activeAnchor) {
+                        // Marker erkannt (4, 5 oder 6)
+                        detachedBlumengartenMesh.visible = true;
+                        blumengartenLastVisibleTime = Date.now();
+
+                        // Basisposition vom Anker
+                        detachedBlumengartenMesh.position.copy(activeAnchor.group.position);
+                        detachedBlumengartenMesh.quaternion.copy(activeAnchor.group.quaternion);
+                        detachedBlumengartenMesh.scale.copy(activeAnchor.group.scale);
+
+                        // Offset berechnen (Scanner-Pos -> Modell ID 1)
+                        // Scanner steht bei targetBlumengartenLat/Lon
+                        // Modell steht bei AR_MODELS[1].lat/lon
+                        const bgGeo = AR_MODELS[1];
+                        const offset = calcOffset(targetBlumengartenLat, targetBlumengartenLon, bgGeo.lat, bgGeo.lon);
+                        const localOffset = new THREE.Vector3(offset.x, 0, -offset.z);
+                        localOffset.multiplyScalar(COORD_SCALE);
+                        localOffset.applyQuaternion(activeAnchor.group.quaternion);
+                        
+                        detachedBlumengartenMesh.position.add(localOffset);
+                        detachedBlumengartenMesh.translateY(-1.5); // Höhe anpassen
+
+                        updateUIForModel(1, "MindAR (Relative)");
+                        
+                        // Andere Repräsentationen ausblenden
+                        if(loadedMeshes[1]) loadedMeshes[1].visible = false; // ArUco
+                        if(mindARMeshes[1]) mindARMeshes[1].forEach(m => m.visible = false); // Attached MindAR Modelle temporär unsichtbar machen wenn Detached aktiv ist (optional, verhindert Überlappung)
+
+                    } else {
+                         // Nachlauf (Persistence)
+                        if (Date.now() - blumengartenLastVisibleTime < FOUNTAIN_PERSISTENCE) {
+                             detachedBlumengartenMesh.visible = true;
+                        } else {
+                             detachedBlumengartenMesh.visible = false;
                         }
                     }
                 }
@@ -665,8 +712,9 @@
                 let mindAnyActive = false;
                 mindarAnchors.forEach(a => { if(a.group.visible) mindAnyActive = true; });
                 
-                // Auch als "aktiv" werten, wenn die Fontäne noch im "Nachlauf" (30s) ist
+                // Auch als "aktiv" werten, wenn ein Modell im "Nachlauf" ist (30s sichtbar ohne Marker)
                 if(detachedFountainMesh && detachedFountainMesh.visible) mindAnyActive = true;
+                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) mindAnyActive = true;
 
                 // Marker-Tracking ist aktiv, wenn ArUco oder MindAR etwas anzeigen
                 isMarkerTracking = arucoFound || mindAnyActive;
@@ -677,22 +725,23 @@
                     
                     // --- Pfeil-Logik für MindAR ---
                     if (mindAnyActive && !arucoFound) {
-                        // KORREKTUR: Wir stellen sicher, dass das Info-Fenster oben links (Kompass/GNSS)
-                        // auch während des MindAR-Trackings aktualisiert wird.
+                        // KORREKTUR: Info-Fenster oben links (Kompass/GNSS) aktualisieren
                         updateGNSSUI(); 
 
-                        // Spezialfall Fontäne (Target 0):
-                        // Wenn das Fontänen-Modell sichtbar ist (egal ob durch Marker oder 30s-Nachlauf),
-                        // soll der grüne Pfeil per Kompass (GNSS-Logik) zur Fontäne zeigen.
+                        // Überprüfen, ob eines der relativ positionierten Modelle sichtbar ist (aktiv oder persistent)
                         const isFountainVisible = detachedFountainMesh && detachedFountainMesh.visible;
+                        const isBlumengartenRelVisible = detachedBlumengartenMesh && detachedBlumengartenMesh.visible;
                         
                         if (isFountainVisible) {
-                            // Wir nutzen das geografische Ziel der Fontäne für den Pfeil
+                            // Pfeil zeigt zur Großen Fontäne
                             closestObjForArrow = AR_MODELS[3]; 
-                            updateArrow(); // Nutzt die GNSS/Kompass Logik
+                            updateArrow(); 
+                        } else if (isBlumengartenRelVisible) {
+                            // Pfeil zeigt zum Niederdeutschen Blumengarten
+                            closestObjForArrow = AR_MODELS[1];
+                            updateArrow();
                         } else {
-                            // Standard MindAR Verhalten: Pfeil zeigt auf das Objekt im Bildschirm
-                            // (Hier nur relevant, falls andere MindAR Targets ohne GNSS-Bezug genutzt würden)
+                            // Standard MindAR (direkt auf Marker) - Pfeil zeigt aufs Display
                             arrowContainer.style.opacity = 0;
                         }
                     } else {
@@ -757,8 +806,7 @@
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
                         config.mindTargetIndexes.forEach(targetIndex => {
-                            // Spezialfall ID 3, Target 0 -> Detached (Losgelöstes Modell)
-                            // Dieses Modell wird direkt in die Szene eingefügt, nicht in den MindAR Anchor.
+                            // FALL A: ID 3 (Fontäne), Target 0 -> Detached (Relativ)
                             if (targetIndex === 0 && (id === 3)) {
                                 const modelDetached = gltf.scene.clone();
                                 const mindScale = config.scale * 0.02; 
@@ -768,23 +816,37 @@
                                 const pD = createWaterEffect();
                                 modelDetached.add(pD); modelDetached.userData.particles = pD;
                                 
-                                // Frustum Culling ausschalten, damit es nicht verschwindet, wenn der Ursprung außerhalb des Bildes ist
                                 modelDetached.traverse((child) => { if(child.isMesh) child.frustumCulled = false; });
                                 modelDetached.visible = false;
                                 scene.add(modelDetached); 
                                 detachedFountainMesh = modelDetached;
-
-                            } else if (mindarAnchors[targetIndex]) {
-                                // Standard MindAR Targets (fest verbunden)
+                            } 
+                            // FALL B: ID 1 (Blumengarten), Targets 4, 5, 6 -> Detached (Relativ)
+                            else if ((targetIndex === 4 || targetIndex === 5 || targetIndex === 6) && (id === 1)) {
+                                // Nur einmal erstellen, auch wenn mehrere Targets existieren
+                                if (!detachedBlumengartenMesh) {
+                                    const modelDetachedBG = gltf.scene.clone();
+                                    const mindScale = config.scale * 0.015;
+                                    modelDetachedBG.scale.set(mindScale, mindScale, mindScale);
+                                    modelDetachedBG.rotation.y = THREE.MathUtils.degToRad(346); 
+                                    
+                                    modelDetachedBG.traverse((child) => { if(child.isMesh) child.frustumCulled = false; });
+                                    modelDetachedBG.visible = false;
+                                    scene.add(modelDetachedBG);
+                                    detachedBlumengartenMesh = modelDetachedBG;
+                                }
+                            }
+                            // FALL C: Standard MindAR Targets (fest verbunden)
+                            // Gilt z.B. für ID 1 bei Targets 1, 2, 3
+                            else if (mindarAnchors[targetIndex]) {
                                 const modelMind = gltf.scene.clone();
                                 const mindScale = config.scale * 0.015;
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
                                 
                                 let rotationY = Math.PI;
-                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); // Spezifische Drehung
+                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
                                 modelMind.rotation.y = rotationY; 
                                 
-                                // ANPASSUNG: Modell für ID 1 (Blumengarten) tiefer setzen, damit es auf dem Boden steht
                                 if (id === 1) {
                                     modelMind.position.y = -1.5; 
                                 }
@@ -854,7 +916,8 @@
         // Berechnet Pfeilrichtung basierend auf GNSS/Kompass
         // Diese Funktion wird genutzt für:
         // 1. Reinen GNSS-Modus
-        // 2. Den speziellen Fontänen-Modus (MindAR Persistence), um den Weg zum Modell zu zeigen.
+        // 2. Den speziellen Fontänen-Modus (MindAR Persistence)
+        // 3. Den speziellen Blumengarten-Modus (MindAR Persistence)
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -1025,8 +1088,8 @@
                 // ArUco-Modell sofort ausblenden, wenn nicht gefunden
                 markerGroup.visible = false;
                 
-                // Status prüfen (MindAR oder Fontänen-Nachlauf)
-                let mindActive = mindarAnchors.some(a => a.group.visible) || (detachedFountainMesh && detachedFountainMesh.visible);
+                // Status prüfen (MindAR oder Fontänen-Nachlauf oder Blumengarten-Nachlauf)
+                let mindActive = mindarAnchors.some(a => a.group.visible) || (detachedFountainMesh && detachedFountainMesh.visible) || (detachedBlumengartenMesh && detachedBlumengartenMesh.visible);
                 if (mindActive) {
                     // MindAR läuft noch, keine Änderung des Status-Textes nötig
                 } else {
@@ -1227,6 +1290,7 @@
                 if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.parent && m.parent.visible) m.rotation.y -= 0.2; });
                 if(detachedFountainMesh && detachedFountainMesh.visible) detachedFountainMesh.rotation.y -= 0.2;
+                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) detachedBlumengartenMesh.rotation.y -= 0.2;
             });
         });
         rotRightBtn.addEventListener('click', () => { 
@@ -1236,6 +1300,7 @@
                 if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.parent && m.parent.visible) m.rotation.y += 0.2; });
                 if(detachedFountainMesh && detachedFountainMesh.visible) detachedFountainMesh.rotation.y += 0.2;
+                if(detachedBlumengartenMesh && detachedBlumengartenMesh.visible) detachedBlumengartenMesh.rotation.y += 0.2;
             });
         });
 
@@ -1256,6 +1321,7 @@
             });
             Object.values(gnssMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
             if (detachedFountainMesh && detachedFountainMesh.visible) objectsToCheck.push(detachedFountainMesh);
+            if (detachedBlumengartenMesh && detachedBlumengartenMesh.visible) objectsToCheck.push(detachedBlumengartenMesh);
             
             if(objectsToCheck.length === 0) return;
             const intersects = raycaster.intersectObjects(objectsToCheck, true);
@@ -1271,10 +1337,17 @@
                              return;
                          }
                      }
-                     // Check MindAR & Detached
+                     // Check Detached (Fontäne)
                      if (clickedObj === detachedFountainMesh) {
                          activeLink = AR_MODELS[3].link;
                          updateUIForModel(3, "MindAR Target 0");
+                         window.open(activeLink, '_blank');
+                         return;
+                     }
+                     // Check Detached (Blumengarten)
+                     if (clickedObj === detachedBlumengartenMesh) {
+                         activeLink = AR_MODELS[1].link;
+                         updateUIForModel(1, "MindAR Target 4/5/6");
                          window.open(activeLink, '_blank');
                          return;
                      }
