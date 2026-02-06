@@ -421,6 +421,7 @@
         let lastPos = null; // Aktive GNSS-Position (echt oder simuliert)
         let realPos = null; // Speichert das echte GNSS-Signal im Hintergrund
         let heading = 0; // Aktuelle Kompass-Ausrichtung
+        let lastDeviceOrientation = null; // Speichert Neigungswinkel für Stabilisierung (3DOF)
         let mapStations, userLayer; // Karten-Objekte
         let currentTrackingID = -1; // ID des aktuell getrackten Objekts
         let lossCounter = 0; // Zähler für Marker-Verlust
@@ -441,6 +442,9 @@
         const STANDARD_PERSISTENCE = 5000; // 5 Sek
 
         // --- PARTIKELSYSTEM ---
+        // Erzeugt einen Wasser-Effekt (Punkte). 
+        // WICHTIG: Die Partikel-Logik wurde angepasst, damit sie nach oben (Y-Achse) sprühen
+        // und nicht mit dem Modell zur Seite rotieren.
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -450,10 +454,13 @@
             for (let i = 0; i < particleCount; i++) {
                 // Startposition 0,0,0
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
-                // Ausstoß entlang der positiven Z-Achse (angepasst an Modell-Ausrichtung)
-                velocities[i*3] = (Math.random() - 0.5) * 0.005; // X Streuung
-                velocities[i*3+1] = (Math.random() - 0.5) * 0.005; // Y Streuung
-                velocities[i*3+2] = (Math.random() * 0.1 + 0.05);  // Z (Oben)
+                
+                // Ausstoß:
+                // Doppelt so breiter Strahl auf X (0.012 statt 0.005) und Z.
+                // Y ist die Achse nach OBEN in der Welt.
+                velocities[i*3] = (Math.random() - 0.5) * 0.012;     // X Streuung (Breite)
+                velocities[i*3+1] = (Math.random() * 0.1 + 0.05);    // Y (Nach Oben)
+                velocities[i*3+2] = (Math.random() - 0.5) * 0.012;   // Z Streuung (Tiefe)
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -473,18 +480,19 @@
 
             for (let i = 0; i < pos.length / 3; i++) {
                 pos[i*3] += vels[i*3];     
-                pos[i*3+1] += vels[i*3+1]; 
+                pos[i*3+1] += vels[i*3+1]; // Bewegung in Y (Oben/Unten)
                 pos[i*3+2] += vels[i*3+2]; 
                 
-                // Schwerkraft entgegen Z-Achse
-                vels[i*3+2] -= gravity; 
+                // Schwerkraft wirkt auf Y-Achse nach unten
+                vels[i*3+1] -= gravity; 
 
-                // Reset wenn Partikel unter Boden
-                if (pos[i*3+2] < 0) {
+                // Reset wenn Partikel den Boden berührt (Y < 0)
+                if (pos[i*3+1] < 0) {
                     pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
-                    vels[i*3] = (Math.random() - 0.5) * 0.005;
-                    vels[i*3+1] = (Math.random() - 0.5) * 0.005;
-                    vels[i*3+2] = (Math.random() * 0.1 + 0.05); 
+                    // Neustart
+                    vels[i*3] = (Math.random() - 0.5) * 0.012; // Breite beibehalten
+                    vels[i*3+1] = (Math.random() * 0.1 + 0.05); 
+                    vels[i*3+2] = (Math.random() - 0.5) * 0.012; 
                 }
             }
             points.geometry.attributes.position.needsUpdate = true; 
@@ -597,33 +605,69 @@
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
                 // GNSS Gruppe steuern (bei Simulation oder echtem GNSS)
-                if (showSimulation) {
+                if (showSimulation || (!isMarkerTracking && gnssGroup)) {
+                    // WENN KEIN MARKER SICHTBAR -> GNSS MODUS
                     gnssGroup.visible = true;
+                    
+                    // --- STABILISIERUNG (Fehlerbehebung 1) ---
+                    // Wenn man das Handy neigt, muss die virtuelle Welt ("gnssGroup") 
+                    // entgegengesetzt rotieren, damit der Horizont gerade bleibt.
+                    // Das verhindert, dass Objekte beim Hochschauen mit nach oben wandern.
+                    if (lastDeviceOrientation) {
+                         const q = getDeviceQuaternion(lastDeviceOrientation);
+                         // Invertierte Rotation anwenden, damit die Welt stabil bleibt
+                         gnssGroup.setRotationFromQuaternion(q.invert());
+                    } else {
+                         // Fallback: Nur Kompass
+                         gnssGroup.rotation.set(0, -THREE.MathUtils.degToRad(heading), 0);
+                    }
+
                     updateGNSSObjects();
                     updateGNSSUI(); 
-                } else if (!isMarkerTracking) {
-                    gnssGroup.visible = true;
-                    updateGNSSObjects();
-                    updateGNSSUI();
                 } else {
                     gnssGroup.visible = false;
                 }
 
+                // Partikel-Updates für GNSS Objekte
+                // Die Partikel sind nun eigenständige "Geschwister"-Objekte in der Gruppe,
+                // um Rotation des Eltern-Modells zu vermeiden.
                 Object.values(gnssMeshes).forEach(m => {
-                    if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
+                    if (m.userData.particles) {
+                        if (m.visible) {
+                            updateWaterEffect(m.userData.particles);
+                            // Position kopieren (Partikel folgen dem Modell)
+                            const worldPos = new THREE.Vector3();
+                            m.getWorldPosition(worldPos);
+                            m.userData.particles.position.copy(worldPos);
+                            m.userData.particles.visible = true;
+                        } else {
+                            m.userData.particles.visible = false;
+                        }
+                    }
                 });
 
-                // --- Rotationsanzeige Debug (Wiederhergestellt) ---
+                // Partikel-Updates für ArUco und MindAR
+                // Auch hier: Partikelposition abgleichen
+                Object.values(loadedMeshes).forEach(m => {
+                    if (m.userData.particles) {
+                         if (m.visible) {
+                             updateWaterEffect(m.userData.particles);
+                             const worldPos = new THREE.Vector3();
+                             m.getWorldPosition(worldPos);
+                             m.userData.particles.position.copy(worldPos);
+                             m.userData.particles.visible = true;
+                         } else {
+                             m.userData.particles.visible = false;
+                         }
+                    }
+                });
+
+                // --- Rotationsanzeige Debug ---
                 let currentRotY = 0;
                 
                 // Priorität 1: GNSS Gruppe / Simulation
                 if (gnssGroup.visible) {
-                     // Suche sichtbares GNSS Mesh und lies dessen Rotation aus (ohne Kompass-Einfluss)
-                     Object.keys(gnssMeshes).forEach(key => { 
-                         if (gnssMeshes[key].visible) {
-                             currentRotY = gnssMeshes[key].rotation.y;
-                         }
-                     });
+                     currentRotY = gnssGroup.rotation.y;
                 } 
                 // Priorität 2: MindAR (Standard Image Tracking)
                 else if (isMarkerTracking && activeMindARId !== -1) {
@@ -631,12 +675,11 @@
                      Object.keys(mindARMeshes).forEach(idStr => {
                          const id = parseInt(idStr);
                          if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id].length > 0) {
-                             // Das erste Mesh in der Gruppe
                              if(mindARMeshes[id][0].visible) currentRotY = mindARMeshes[id][0].rotation.y;
                          }
                      });
                 }
-                // Priorität 3: ArUco (hier Z-Rotation als Y interpretieren für Anzeige)
+                // Priorität 3: ArUco
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
                      currentRotY = loadedMeshes[currentTrackingID].rotation.z;
                 }
@@ -648,7 +691,7 @@
                 if(!angleSpan) {
                     const d = document.createElement('div');
                     d.style.marginTop = "8px"; d.style.borderTop = "1px solid rgba(255,255,255,0.3)"; d.style.paddingTop = "5px";
-                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Y-Achse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
+                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Stehachse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
                     document.getElementById('debugInfo').appendChild(d);
                 } else {
                     angleSpan.innerText = finalDeg + "°";
@@ -659,6 +702,26 @@
 
                 renderer.render(scene, camera);
             });
+        }
+
+        // Hilfsfunktion: Quaternion aus Sensordaten berechnen (Für Stabilisierung)
+        function getDeviceQuaternion(orientData) {
+            const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; // Z
+            const beta = orientData.beta ? THREE.MathUtils.degToRad(orientData.beta) : 0;   // X
+            const gamma = orientData.gamma ? THREE.MathUtils.degToRad(orientData.gamma) : 0; // Y
+            const orient = window.screen.orientation ? THREE.MathUtils.degToRad(window.screen.orientation.angle) : 0;
+
+            const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            const q = new THREE.Quaternion();
+            q.setFromEuler(euler);
+            
+            // Anpassung für Handy-Ausrichtung (Landscape/Portrait)
+            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); // -90 Deg X
+            q.multiply(q1);
+            const q2 = new THREE.Quaternion();
+            q2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -orient);
+            q.multiply(q2);
+            return q;
         }
 
         function activateSimulation(lat, lon) {
@@ -682,9 +745,13 @@
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2; 
                     if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
+                    
                     if (id === 3 || id === 33) {
+                        // Partikel NICHT als Kind-Objekt, sondern separat,
+                        // damit sie immer nach oben sprühen (unabhängig von Modell-Rotation)
                         const p = createWaterEffect();
-                        modelAruco.add(p); modelAruco.userData.particles = p;
+                        modelAruco.userData.particles = p; // Referenz speichern
+                        markerGroup.add(p); // Zur Gruppe hinzufügen, nicht zum Modell
                     }
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
@@ -696,14 +763,14 @@
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
-                        // KORREKTUR: Start-Rotation für Blumengarten (ID 1) auf 0 Grad fixieren
                         if (id === 1) {
                              modelGNSS.rotation.y = 0; 
                         }
 
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
-                             modelGNSS.add(pG); modelGNSS.userData.particles = pG;
+                             modelGNSS.userData.particles = pG;
+                             gnssGroup.add(pG); // Zur GNSS-Gruppe hinzufügen
                         }
                         modelGNSS.visible = false;
                         gnssGroup.add(modelGNSS);
@@ -727,8 +794,12 @@
                                 if (id === 1) modelMind.position.y = -1.5; 
 
                                 if (id === 3 || id === 33) {
+                                     // Auch hier: Partikel separat
                                      const pM = createWaterEffect();
-                                     modelMind.add(pM); modelMind.userData.particles = pM;
+                                     modelMind.userData.particles = pM;
+                                     // Da MindAR anchors die Welt bewegen, fügen wir es dem Anker hinzu,
+                                     // aber nicht dem gedrehten Modell-Mesh
+                                     mindarAnchors[targetIndex].group.add(pM);
                                 }
 
                                 mindarAnchors[targetIndex].group.add(modelMind);
@@ -794,10 +865,8 @@
         function updateGNSSObjects() {
             if (!lastPos) return;
             
-            // KORREKTUR (Fehler 2): Gruppe entgegengesetzt zum Kompass drehen (-heading),
-            // damit die Welt stabil bleibt und sich nicht mit dem Nutzer mitdreht.
-            // Norden in Three.js (negative Z) bleibt so Norden in der Realität.
-            gnssGroup.rotation.y = -THREE.MathUtils.degToRad(heading);
+            // Die Rotation der Gruppe passiert nun im Render-Loop (für Stabilisierung).
+            // Hier kümmern wir uns nur um die Positionierung der Objekte.
             
             Object.keys(gnssMeshes).forEach(key => {
                 const id = parseInt(key);
@@ -815,15 +884,17 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // KORREKTUR (Fehler 3): Höhe auf 0 setzen für "Schwebe-Effekt" bei Simulation,
-                        // oder auf -1.5 für Boden bei echtem GNSS.
-                        let heightY = -2.0; // Standard Bodenverankerung für echtes GNSS
+                        // KORREKTUR: Höhe
+                        // Simulation: Objekt soll "schweben" (auf Augenhöhe), damit man es gut sieht.
+                        // Durch die Stabilisierung bleibt es auf dieser Höhe, wenn man das Handy neigt.
+                        let heightY = -2.0; // Boden (bei echtem GNSS)
                         if (isSimulatedPos) {
-                            heightY = -0.5; // Schwebend auf Augenhöhe für Simulation (Target 0, 4, 5, 6)
+                            heightY = -0.5; // Leicht unter Augenhöhe für Simulation
                         }
 
-                        // Polare Positionierung: Wir nutzen die Differenz in Metern und den Winkel
+                        // Polare Positionierung
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                        // Wir setzen die Position in der bereits stabilisierten Welt
                         mesh.position.set(offset.x, heightY, -offset.z); 
                     } else {
                         mesh.visible = false;
@@ -934,11 +1005,22 @@
             stations.forEach(s => { L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`); });
             userLayer = L.layerGroup().addTo(mapStations);
             locateBtn.addEventListener('click', (e) => { e.stopPropagation(); if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17); else mapStations.locate({ setView: true, maxZoom: 17 }); });
+            
+            // Event-Listener für Orientierung (Kompass + Neigung)
             orientBtn.addEventListener('click', async (e) => {
                 e.stopPropagation();
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    try { const res = await DeviceOrientationEvent.requestPermission(); if (res === 'granted') { window.addEventListener('deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; } } catch (err) { console.warn(err); }
-                } else { window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; }
+                    try { 
+                        const res = await DeviceOrientationEvent.requestPermission(); 
+                        if (res === 'granted') { 
+                            window.addEventListener('deviceorientation', onDeviceOrientation, true); 
+                            orientBtn.style.background = '#4f4'; 
+                        } 
+                    } catch (err) { console.warn(err); }
+                } else { 
+                    window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true); 
+                    orientBtn.style.background = '#4f4'; 
+                }
             });
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
@@ -955,6 +1037,14 @@
         }
 
         function onDeviceOrientation(e) {
+            // Wir speichern hier alle Orientierungsdaten (Alpha, Beta, Gamma)
+            // Dies ist notwendig, damit die 3D-Welt beim Hochschauen stabilisiert werden kann.
+            lastDeviceOrientation = {
+                alpha: e.alpha,
+                beta: e.beta,
+                gamma: e.gamma
+            };
+
             let alpha = e.alpha; 
             if (e.webkitCompassHeading) alpha = e.webkitCompassHeading; 
             if (alpha == null) return;
