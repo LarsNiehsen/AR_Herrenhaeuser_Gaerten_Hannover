@@ -613,37 +613,43 @@
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
 
-                // --- Rotationsanzeige Debug ---
-                let currentRotZ = 0;
+                // --- Rotationsanzeige Debug (Fehlerbehebung 1 & 2) ---
+                let currentRotY = 0;
                 
                 // Priorität 1: GNSS Gruppe / Simulation
                 if (gnssGroup.visible) {
+                     // Suche sichtbares GNSS Mesh und lies dessen Rotation aus (ohne Kompass-Einfluss)
                      Object.keys(gnssMeshes).forEach(key => { 
                          if (gnssMeshes[key].visible) {
-                             currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y;
+                             currentRotY = gnssMeshes[key].rotation.y;
                          }
                      });
                 } 
                 // Priorität 2: MindAR (Standard Image Tracking)
                 else if (isMarkerTracking && activeMindARId !== -1) {
-                     // Wenn MindAR aktiv ist, nutzen wir die Rotation des Ankers
-                     if(mindarAnchors[activeMindARId]) {
-                         currentRotZ = mindarAnchors[activeMindARId].group.rotation.y;
-                     }
+                     // Lies die Rotation des aktiven Mesh aus
+                     // Mapping: activeMindARId -> AR Model ID -> Mesh
+                     Object.keys(mindARMeshes).forEach(idStr => {
+                         const id = parseInt(idStr);
+                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id].length > 0) {
+                             // Das erste Mesh in der Gruppe (da sie alle gleich gedreht sind)
+                             if(mindARMeshes[id][0].visible) currentRotY = mindARMeshes[id][0].rotation.y;
+                         }
+                     });
                 }
-                // Priorität 3: ArUco
+                // Priorität 3: ArUco (hier Z-Rotation als Y interpretieren für Anzeige)
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
-                     currentRotZ = loadedMeshes[currentTrackingID].rotation.z;
+                     currentRotY = loadedMeshes[currentTrackingID].rotation.z;
                 }
 
                 let angleSpan = document.getElementById('debugAngle');
-                const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotZ) % 360);
+                const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotY) % 360);
                 const finalDeg = displayDeg < 0 ? displayDeg + 360 : displayDeg;
                 
                 if(!angleSpan) {
                     const d = document.createElement('div');
                     d.style.marginTop = "8px"; d.style.borderTop = "1px solid rgba(255,255,255,0.3)"; d.style.paddingTop = "5px";
-                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Z-Achse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
+                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Y-Achse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
                     document.getElementById('debugInfo').appendChild(d);
                 } else {
                     angleSpan.innerText = finalDeg + "°";
@@ -691,6 +697,7 @@
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
+                        // KORREKTUR: Start-Rotation für Blumengarten (ID 1) auf 0 Grad fixieren
                         if (id === 1) {
                              modelGNSS.rotation.y = 0; 
                         }
@@ -787,8 +794,11 @@
 
         function updateGNSSObjects() {
             if (!lastPos) return;
-            // Rotation der Gruppe nach Kompass (polare Ausrichtung der Objekte relativ zum Nutzer)
-            gnssGroup.rotation.y = THREE.MathUtils.degToRad(heading);
+            
+            // KORREKTUR (Fehler 2): Gruppe entgegengesetzt zum Kompass drehen (-heading),
+            // damit die Welt stabil bleibt und sich nicht mit dem Nutzer mitdreht.
+            // Norden in Three.js (negative Z) bleibt so Norden in der Realität.
+            gnssGroup.rotation.y = -THREE.MathUtils.degToRad(heading);
             
             Object.keys(gnssMeshes).forEach(key => {
                 const id = parseInt(key);
@@ -806,10 +816,10 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // KORREKTUR: Höhe auf 1 gesetzt, damit Objekte nicht versinken
-                        // KORREKTUR: Polare Positionierung (berechnet aus GNSS-Differenz zur Referenz/Position)
+                        // KORREKTUR (Fehler 3): Höhe auf -1.5 setzen (Bodenhöhe relativ zur Kamera auf 0 oder 1.6)
+                        // Damit stehen Objekte fest auf dem Boden.
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, 1, -offset.z); 
+                        mesh.position.set(offset.x, -1.5, -offset.z); 
                     } else {
                         mesh.visible = false;
                         if (id === 3 || id === 33) historicalInfo.style.display = 'none';
@@ -1054,11 +1064,15 @@
             else { mapContainer.style.display = 'block'; toggleMapBtn.innerText = '✖'; toggleMapBtn.style.background = 'rgba(150, 0, 0, 0.85)'; if (mapStations) { setTimeout(() => mapStations.invalidateSize(), 50); } }
         });
 
+        // Rotation Buttons: Rotieren nur das 3D-Modell, nicht die Welt
         rotLeftBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
             ids.forEach(id => {
+                // ArUco (Z-Achse)
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
+                // GNSS (Y-Achse)
                 if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
+                // MindAR (Y-Achse)
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
             });
         });
