@@ -387,7 +387,8 @@
         // MindAR Steuerung
         let activeMindARId = -1; 
         let activeMindAREndTime = 0; 
-        const STANDARD_PERSISTENCE = 2000; // Modelle bleiben 2 Sekunden nach Verlust sichtbar
+        // ÄNDERUNG: Persistenz auf 10000ms (10 Sekunden) erhöht
+        const STANDARD_PERSISTENCE = 10000; 
 
         // --- PARTIKELSYSTEM (FONTÄNE) ---
         // Erstellung der Wasser-Partikel
@@ -402,7 +403,7 @@
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
                 
                 // Geschwindigkeit und Richtung der Partikel:
-                // VERBESSERUNG: Strahlbreite (X/Z) und Strahlhöhe (Y) wurden verdreifacht.
+                // Strahlbreite (X/Z) und Strahlhöhe (Y) wurden verdreifacht.
                 // Y-Achse zeigt nach oben.
                 velocities[i*3] = (Math.random() - 0.5) * 0.036;     // X-Breite (3x)
                 velocities[i*3+1] = (Math.random() * 0.3 + 0.15);    // Y-Höhe (3x)
@@ -411,7 +412,8 @@
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             const material = new THREE.PointsMaterial({
-                color: 0xaaddff, size: 0.015, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
+                // ÄNDERUNG: Partikelgröße verdoppelt auf 0.03
+                color: 0xaaddff, size: 0.03, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
             });
             const points = new THREE.Points(geometry, material);
             // Speichern der Geschwindigkeiten im UserData-Objekt
@@ -484,7 +486,7 @@
                     } else if (i === 4 || i === 5 || i === 6) {
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
                     } else if (i === 1 || i === 2 || i === 3) {
-                         // Target 1, 2, 3 bleiben 2 Sekunden sichtbar
+                         // Target 1, 2, 3 bleiben 10 Sekunden sichtbar
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 };
@@ -584,7 +586,7 @@
                                     const worldPos = new THREE.Vector3();
                                     mesh.getWorldPosition(worldPos);
                                     
-                                    // VERBESSERUNG: Offset hinzufügen, damit Fontäne an der SPITZE startet.
+                                    // Offset hinzufügen, damit Fontäne an der SPITZE startet.
                                     // Für ID 3 und 33 (Große Fontäne) fügen wir 4 Meter in Y-Richtung hinzu.
                                     let yOffset = 0;
                                     if (id === 3 || id === 33) {
@@ -592,13 +594,6 @@
                                     }
 
                                     // Partikel sind Geschwister-Objekte (in derselben Gruppe), folgen aber der Position.
-                                    // Da die Gruppe (GNSS) rotiert, müssen wir aufpassen.
-                                    // Einfachste Methode: Wir setzen die Partikel an die Weltposition des Modells + Offset.
-                                    // Da `userData.particles` auch in der Gruppe ist, nutzen wir lokale Koordinaten des Modells,
-                                    // die relativ zur Gruppe sind.
-                                    
-                                    // Da `userData.particles` separat zur Gruppe hinzugefügt wurde:
-                                    // mesh.position ist lokal in der Gruppe.
                                     mesh.userData.particles.position.copy(mesh.position);
                                     mesh.userData.particles.position.y += yOffset;
                                     
@@ -643,7 +638,7 @@
                 if(!angleSpan) {
                     const d = document.createElement('div');
                     d.style.marginTop = "8px"; d.style.borderTop = "1px solid rgba(255,255,255,0.3)"; d.style.paddingTop = "5px";
-                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Stehachse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
+                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Y-Achse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
                     document.getElementById('debugInfo').appendChild(d);
                 } else {
                     angleSpan.innerText = finalDeg + "°";
@@ -740,11 +735,10 @@
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
                                 modelMind.rotation.y = rotationY; 
                                 
-                                // VERBESSERUNG: Modelle für Simulation (4,5,6) tiefer setzen.
-                                // Auch für ID 1 (Blumengarten).
-                                // Neuer Wert: -3.5 (deutlich tiefer als -1.5)
+                                // ÄNDERUNG: Tiefe drastisch auf -6.0 gesenkt.
+                                // Gilt für Simulationstrigger (4,5,6) und Blumengarten (1).
                                 if (id === 1 || [4,5,6].includes(targetIndex)) {
-                                     modelMind.position.y = -3.5; 
+                                     modelMind.position.y = -6.0; 
                                 }
 
                                 if (id === 3 || id === 33) {
@@ -811,7 +805,8 @@
             }
             arrowContainer.style.opacity = 1;
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
-            const relativeAngle = bearing - heading;
+            // ÄNDERUNG: Stabilere Berechnung mit Modulo, um negative Winkel zu vermeiden
+            const relativeAngle = (bearing - heading + 360) % 360;
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
@@ -836,9 +831,8 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // VERBESSERUNG: Feste Höhe von -3.5 Metern.
-                        // Dies positioniert die Objekte tiefer, sodass man an ihnen hochschauen kann.
-                        const heightY = -3.5; 
+                        // ÄNDERUNG: Tiefe deutlich erhöht auf -6.0, da vorherige Anpassung nicht ausreichte
+                        const heightY = -6.0; 
 
                         // Positionierung basierend auf Distanz und Winkel
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
