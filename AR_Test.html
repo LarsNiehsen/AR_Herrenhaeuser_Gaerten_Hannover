@@ -735,10 +735,10 @@
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
                                 modelMind.rotation.y = rotationY; 
                                 
-                                // ÄNDERUNG: Tiefe drastisch auf -6.0 gesenkt.
+                                // ÄNDERUNG: Tiefe gesenkt.
                                 // Gilt für Simulationstrigger (4,5,6) und Blumengarten (1).
                                 if (id === 1 || [4,5,6].includes(targetIndex)) {
-                                     modelMind.position.y = -6.0; 
+                                     modelMind.position.y = -2.0; 
                                 }
 
                                 if (id === 3 || id === 33) {
@@ -831,8 +831,8 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // ÄNDERUNG: Tiefe deutlich erhöht auf -6.0, da vorherige Anpassung nicht ausreichte
-                        const heightY = -6.0; 
+                        // ÄNDERUNG: Tiefe 
+                        const heightY = -2.0; 
 
                         // Positionierung basierend auf Distanz und Winkel
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
