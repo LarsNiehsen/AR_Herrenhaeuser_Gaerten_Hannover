@@ -519,8 +519,10 @@
                     
                     // Entscheiden ob Simulation oder Standard
                     if (i === 0) {
+                        // Fontäne Simulation
                         activateSimulation(target0Lat, target0Lon);
                     } else if (i === 4 || i === 5 || i === 6) {
+                        // Blumengarten Simulation
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
                     } else if (i === 1 || i === 2 || i === 3) {
                          // Standard Image Tracking -> Timer und Sichtbarkeit setzen
@@ -585,13 +587,10 @@
                 }
 
                 // Sichtbarkeit der MindAR Modelle steuern (Target 1,2,3)
-                // Wir iterieren durch alle MindAR Meshes und zeigen NUR die an, die zur aktiven ID gehören
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
-                    // Die Mapping-Logik: Welche Model-ID gehört zu welchem Marker-Index?
-                    // Im Konfig-Objekt AR_MODELS ist das definiert.
-                    // Vereinfachung: Da AR_MODELS[id].mindTargetIndexes die Marker enthält.
-                    
+                    // Standard MindAR Tracking nur für IDs, die dies unterstützen (1,2,3)
+                    // Für Target 4,5,6 wird die GNSS Simulation genutzt, daher hier ausgeblendet
                     const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
                     
                     if (mindARMeshes[id]) {
@@ -612,6 +611,8 @@
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
                 // GNSS Gruppe steuern (Sichtbar bei Simulation ODER echtem GNSS ohne Marker)
+                // Bei Simulation für Target 4,5,6 wird das Modell ID 1 hierüber angezeigt,
+                // und durch die Distanzberechnung (calcOffset) korrekt in die Entfernung gesetzt.
                 if (showSimulation) {
                     gnssGroup.visible = true;
                     updateGNSSObjects();
@@ -631,10 +632,26 @@
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
 
-                // Rotationsanzeige Debug
+                // --- Rotationsanzeige Debug (Wiederhergestellt) ---
                 let currentRotZ = 0;
-                Object.keys(gnssMeshes).forEach(key => { if (gnssMeshes[key].visible) currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y; });
                 
+                // Wir lesen die Rotation vom GNSS-Objekt aus, wenn es sichtbar ist
+                // Wenn Simulation aktiv ist (z.B. Target 4,5,6), ist gnssGroup sichtbar
+                if (gnssGroup.visible) {
+                     // Suche nach einem sichtbaren GNSS Mesh
+                     Object.keys(gnssMeshes).forEach(key => { 
+                         if (gnssMeshes[key].visible) {
+                             // Gesamtrotation = Gruppenrotation (Kompass) + Objekt-Eigenrotation
+                             currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y;
+                         }
+                     });
+                } 
+                // Fallback für ArUco
+                else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
+                     currentRotZ = loadedMeshes[currentTrackingID].rotation.z;
+                }
+
+                // Anzeige im HTML aktualisieren
                 let angleSpan = document.getElementById('debugAngle');
                 const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotZ) % 360);
                 const finalDeg = displayDeg < 0 ? displayDeg + 360 : displayDeg;
@@ -658,8 +675,6 @@
 
         // Aktiviert die GNSS Simulation (wird durch Event ausgelöst)
         function activateSimulation(lat, lon) {
-            // Nur aktivieren, wenn wir nicht gerade ArUco oder ein anderes Bild tracken, das Vorrang hat?
-            // Hier: Harter Switch zur Simulation
             isSimulatedPos = true;
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
             simulatedCoords = { lat: lat, lon: lon };
@@ -689,11 +704,21 @@
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
-                    // 2. GNSS (auch für Simulation)
+                    // 2. GNSS (auch für Simulation genutzt)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
+                        
+                        // Rotations-Logik für GNSS Modelle
+                        if (id === 1) {
+                             // Für ID 1 (Blumengarten) speziell 0 Grad Startwert setzen
+                             // Damit es bei Simulation durch Target 4,5,6 korrekt ausgerichtet startet
+                             modelGNSS.rotation.y = 0; 
+                        } else {
+                             // Andere Modelle Standardrotation (wenn nötig anpassen)
+                        }
+
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
                              modelGNSS.add(pG); modelGNSS.userData.particles = pG;
@@ -704,6 +729,7 @@
                     }
 
                     // 3. MindAR (Nur Standard Targets 1,2,3)
+                    // Targets 4,5,6 erzeugen kein "attached" Mesh, sondern nutzen GNSS-Simulation (s.o.)
                     if (config.mindTargetIndexes) {
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
@@ -807,6 +833,9 @@
                              historicalInfo.style.display = 'none';
                         }
                         
+                        // Das Objekt wird basierend auf dem GPS-Abstand positioniert.
+                        // Im Simulationsmodus (Target 4,5,6) ist lastPos = Marker, config = Statue.
+                        // Daher wird das Objekt entsprechend weit entfernt gerendert und wirkt kleiner.
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                         mesh.position.set(offset.x, -10, -offset.z); 
                     } else {
