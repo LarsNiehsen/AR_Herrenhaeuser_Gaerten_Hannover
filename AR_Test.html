@@ -234,18 +234,16 @@
 </head>
 <body>
 
-    <!-- HTML Struktur der Anwendung -->
-    
-    <!-- Video Element für den Kamerastream (unsichtbar, wird in Canvas/Three.js gerendert) -->
+    <!-- Video Element für den Kamerastream -->
     <video id="videoElement" playsinline muted autoplay></video>
     
-    <!-- Container für die 3D-Szene (MindAR / Three.js) -->
+    <!-- Container für die 3D-Szene -->
     <div id="container"></div>
     
-    <!-- Canvas für 2D-Zeichnungen (ArUco Marker Erkennung) -->
+    <!-- Canvas für ArUco Marker Debug-Zeichnungen -->
     <canvas id="videoCanvas"></canvas>
 
-    <!-- Info Panel oben links mit Start-Status -->
+    <!-- Info Panel oben links -->
     <div id="debugInfo" class="ui-panel">
         <strong id="debugTitle">Herrenhäuser Gärten - Augmented Reality (AR)</strong>
         <div id="statusText">Starte System...<br><span style='color: #aaa;'>Initialisiere...</span></div>
@@ -254,7 +252,7 @@
     <!-- Schließen Button -->
     <div id="closeBtn" class="ui-panel" title="Schließen" onclick="window.history.length > 1 ? window.history.back() : window.close()">✕</div>
 
-    <!-- Bildcontainer für historische Info (Kupferstich) -->
+    <!-- Bildcontainer für historische Info -->
     <div id="historicalInfo" class="ui-panel">
         <h4>Kupferstich Große Fontäne um 1800</h4>
         <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
@@ -265,7 +263,7 @@
         <div id="arrow"></div>
     </div>
 
-    <!-- Info-Fenster unten (Titel und Beschreibung des Objekts) -->
+    <!-- Info-Fenster unten -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
@@ -274,7 +272,7 @@
     <!-- Klick-Hinweis Overlay -->
     <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
 
-    <!-- Karten-UI und Kamera-Umschaltknopf -->
+    <!-- Karten-UI -->
     <div id="mapControls">
         <div id="mapContainer">
             <div id="mapStations"></div>
@@ -289,92 +287,42 @@
         </div>
     </div>
 
-    <!-- Rotations-Buttons unten links -->
+    <!-- Rotations-Buttons -->
     <div id="rotationControls">
         <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
-    <!-- Externe Bibliotheken laden -->
-    <!-- Leaflet für die Karte -->
+    <!-- Bibliotheken laden -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-    <!-- Bibliotheken für ArUco Marker Erkennung -->
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     
-    <!-- Hauptlogik der Anwendung als JavaScript Modul -->
     <script type="module">
-        // Importieren der benötigten Three.js Module
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
         // --- KONFIGURATION ---
-        const markerSize = 100.0; // Markergröße in mm für ArUco
-        const selectedDictionary = 'ARUCO_MIP_36h12'; // Das verwendete ArUco Wörterbuch
-        const VISIBILITY_DISTANCE = 75.0; // Sichtweite in Metern für GNSS-Objekte
+        const markerSize = 100.0; 
+        const selectedDictionary = 'ARUCO_MIP_36h12'; 
+        const VISIBILITY_DISTANCE = 75.0; 
         
-        // Referenzkoordinaten für Target 0 (Schild Große Fontäne)
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
-
-        // Referenzkoordinaten für Target 4, 5, 6 (Schild Niederdeutscher Blumengarten)
         const targetBlumengartenLat = 52.388029;
         const targetBlumengartenLon = 9.697794;
         
-        // Definition der Modelle und ihrer Daten
         const AR_MODELS = {
-            0: { 
-                url: '3D_models/Koenig.glb', 
-                scale: 150.0, 
-                title: 'König Georg I.', 
-                info: 'Referenzmodell (ID 0)', 
-                link: null,
-                lat: null, lon: null 
-            },
-            1: { 
-                url: '3D_models/Statue_3D.glb', 
-                scale: 90.0, 
-                title: 'Niederdeutscher Blumengarten', 
-                info: 'Sandsteinstatue "Veritas" von 1730', 
-                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
-                // Targets 1, 2, 3: Standard Bild-Tracking (5s Persistenz)
-                // Targets 4, 5, 6: Lösen GNSS-Simulation aus (30s Persistenz)
-                mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
-                lat: 52.388196, lon: 9.697853
-            },
-            2: { 
-                url: '3D_models/BorghesischerFechter_WebAR.glb', 
-                scale: 26000.0, 
-                title: 'Borghesischer Fechter', 
-                info: 'Borghesischer Fechter am Gartentheater', 
-                link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
-                lat: 52.389463, lon: 9.699207
-            },
-            3: { 
-                url: '3D_models/GrosseFontaine_WebAR.glb', 
-                scale: 8000.0, 
-                title: 'Große Fontäne', 
-                info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
-                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-                isAnimated: true, // Markiert das Modell für Animationen
-                mindTargetIndexes: [0], // Target 0 löst GNSS-Simulation aus
-                lat: 52.386018, lon: 9.695975 
-            },
-            33: { // Alternativer Standort für die Fontäne
-                url: '3D_models/GrosseFontaine_WebAR.glb',
-                scale: 8000.0,
-                title: 'Große Fontäne',
-                info: 'Große Fontäne (Standort 2)',
-                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
-                isAnimated: true,
-                lat: 52.388778, lon: 9.817775
-            }
+            0: { url: '3D_models/Koenig.glb', scale: 150.0, title: 'König Georg I.', info: 'Referenzmodell (ID 0)', link: null, lat: null, lon: null },
+            1: { url: '3D_models/Statue_3D.glb', scale: 90.0, title: 'Niederdeutscher Blumengarten', info: 'Sandsteinstatue "Veritas" von 1730', link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten', mindTargetIndexes: [1, 2, 3, 4, 5, 6], lat: 52.388196, lon: 9.697853 },
+            2: { url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', lat: 52.389463, lon: 9.699207 },
+            3: { url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, title: 'Große Fontäne', info: 'Große Fontäne - Wahrzeichen des Großen Gartens', link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst', isAnimated: true, mindTargetIndexes: [0], lat: 52.386018, lon: 9.695975 },
+            33: { url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, title: 'Große Fontäne', info: 'Große Fontäne (Standort 2)', link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst', isAnimated: true, lat: 52.388778, lon: 9.817775 }
         };
 
-        // Koordinaten für Marker auf der 2D-Karte
         const stations = [
             { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -385,7 +333,6 @@
             { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
-        // Referenzen auf HTML Elemente holen, um sie per Code zu steuern
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -395,7 +342,6 @@
         const arrowContainer = document.getElementById('direction-indicator');
         const arrowEl = document.getElementById('arrow');
         const historicalInfo = document.getElementById('historicalInfo');
-
         const switchCamBtn = document.getElementById('switchCamBtn');
         const toggleMapBtn = document.getElementById('toggleMapBtn');
         const rotLeftBtn = document.getElementById('rotLeftBtn');
@@ -405,60 +351,56 @@
         const locateBtn = document.getElementById('locateBtn');
         const orientBtn = document.getElementById('orientBtn');
 
-        // 2D-Kontext für das Zeichnen auf dem Canvas (für ArUco)
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Globale Variablen für den Programmzustand
         let activeLink = null;
-        let loadedMeshes = {}; // Speichert geladene Modelle für ArUco
-        let mindARMeshes = {}; // Speichert Modelle für MindAR
-        let gnssMeshes = {};   // Speichert Modelle für GNSS
-        let detector, posit;   // Variablen für ArUco-Erkennung
-        let mindarThree, renderer, scene, camera; // Three.js Variablen
-        let mindarAnchors = []; // MindAR Ankerpunkte
-        let markerGroup, gnssGroup; // Gruppen für 3D-Objekte
+        let loadedMeshes = {}; 
+        let mindARMeshes = {}; 
+        let gnssMeshes = {};   
+        let detector, posit;   
+        let mindarThree, renderer, scene, camera; 
+        let mindarAnchors = []; 
+        let markerGroup, gnssGroup; 
         
-        let lastPos = null; // Aktive GNSS-Position (echt oder simuliert)
-        let realPos = null; // Speichert das echte GNSS-Signal im Hintergrund
-        let heading = 0; // Aktuelle Kompass-Ausrichtung
-        let mapStations, userLayer; // Karten-Objekte
-        let currentTrackingID = -1; // ID des aktuell getrackten Objekts
-        let lossCounter = 0; // Zähler für Marker-Verlust
+        let lastPos = null; 
+        let realPos = null; 
+        let heading = 0; 
+        let mapStations, userLayer; 
+        let currentTrackingID = -1; 
+        let lossCounter = 0; 
         const maxLossFrames = 30; 
         let hintTimeout = null; 
         let isMarkerTracking = false; 
         let closestObjForArrow = null;
 
-        // --- VARIABLEN FÜR POSITIONS-SIMULATION ---
         let isSimulatedPos = false;
         let simulationEndTime = 0;
         let simulatedCoords = null;
-        const SIMULATION_PERSISTENCE = 30000; // 30 Sek
+        const SIMULATION_PERSISTENCE = 30000; 
 
-        // --- VARIABLEN FÜR STANDARD MINDAR ---
-        let activeMindARId = -1; // Welches Image-Target ist gerade aktiv? (Exklusivität)
-        let activeMindAREndTime = 0; // Wann läuft die Sichtbarkeit ab
-        const STANDARD_PERSISTENCE = 5000; // 5 Sek
+        let activeMindARId = -1; 
+        let activeMindAREndTime = 0; 
+        const STANDARD_PERSISTENCE = 5000; 
 
-        // --- PARTIKELSYSTEM ---
+        // --- PARTIKELSYSTEM (KORREKTUR FEHLER 2) ---
         function createWaterEffect() {
-            const particleCount = 15000; 
+            const particleCount = 12000; 
             const geometry = new THREE.BufferGeometry();
             const positions = new Float32Array(particleCount * 3); 
             const velocities = new Float32Array(particleCount * 3); 
 
             for (let i = 0; i < particleCount; i++) {
-                // Startposition 0,0,0
+                // Alle Partikel starten im Zentrum
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
-                // Ausstoß entlang der positiven Z-Achse (angepasst an Modell-Ausrichtung)
-                velocities[i*3] = (Math.random() - 0.5) * 0.005; // X Streuung
-                velocities[i*3+1] = (Math.random() - 0.5) * 0.005; // Y Streuung
-                velocities[i*3+2] = (Math.random() * 0.1 + 0.05);  // Z (Oben)
+                // KORREKTUR: Ausstoß primär nach oben (Y-Achse), schmalere Streuung auf X/Z
+                velocities[i*3] = (Math.random() - 0.5) * 0.02;     // X Streuung (Breite reduziert)
+                velocities[i*3+1] = (Math.random() * 0.15 + 0.1);  // Y (Geschwindigkeit nach oben erhöht)
+                velocities[i*3+2] = (Math.random() - 0.5) * 0.02;  // Z Streuung (Tiefe reduziert)
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             const material = new THREE.PointsMaterial({
-                color: 0xaaddff, size: 0.015, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
+                color: 0xbbddff, size: 0.015, transparent: true, opacity: 0.7, blending: THREE.AdditiveBlending, depthWrite: false
             });
             const points = new THREE.Points(geometry, material);
             points.userData.vels = velocities; 
@@ -469,22 +411,23 @@
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            const gravity = 0.003; 
+            const gravity = 0.0035; // Etwas stärkere Schwerkraft für natürlicheren Fall
 
             for (let i = 0; i < pos.length / 3; i++) {
+                // Positionen aktualisieren
                 pos[i*3] += vels[i*3];     
                 pos[i*3+1] += vels[i*3+1]; 
                 pos[i*3+2] += vels[i*3+2]; 
                 
-                // Schwerkraft entgegen Z-Achse
-                vels[i*3+2] -= gravity; 
+                // Schwerkraft wirkt auf Y-Achse (nach unten)
+                vels[i*3+1] -= gravity; 
 
-                // Reset wenn Partikel unter Boden
-                if (pos[i*3+2] < 0) {
+                // Reset, wenn Partikel unter die Modell-Basis fallen
+                if (pos[i*3+1] < 0) {
                     pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
-                    vels[i*3] = (Math.random() - 0.5) * 0.005;
-                    vels[i*3+1] = (Math.random() - 0.5) * 0.005;
-                    vels[i*3+2] = (Math.random() * 0.1 + 0.05); 
+                    vels[i*3] = (Math.random() - 0.5) * 0.02;
+                    vels[i*3+1] = (Math.random() * 0.15 + 0.1); 
+                    vels[i*3+2] = (Math.random() - 0.5) * 0.02;
                 }
             }
             points.geometry.attributes.position.needsUpdate = true; 
@@ -506,48 +449,33 @@
             camera.far = 50000; camera.updateProjectionMatrix();
             renderer.setClearColor(0x000000, 0);
             
-            scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
-            const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
+            scene.add(new THREE.AmbientLight(0xffffff, 1.2)); 
+            const dl = new THREE.DirectionalLight(0xffffff, 2.5); 
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
-            // Event-Listener für MindAR Anker
             for (let i = 0; i < 7; i++) {
                 const anchor = mindarThree.addAnchor(i);
-                
                 anchor.onTargetFound = () => {
                     activeMindARId = i;
-                    
-                    if (i === 0) {
-                        activateSimulation(target0Lat, target0Lon);
-                    } else if (i === 4 || i === 5 || i === 6) {
-                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
-                    } else if (i === 1 || i === 2 || i === 3) {
-                         activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
-                    }
+                    if (i === 0) activateSimulation(target0Lat, target0Lon);
+                    else if (i === 4 || i === 5 || i === 6) activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
+                    else if (i === 1 || i === 2 || i === 3) activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                 };
-
                 anchor.onTargetLost = () => {
-                    if (i === activeMindARId) {
-                         if (i === 1 || i === 2 || i === 3) {
-                             activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
-                         }
-                    }
+                    if (i === activeMindARId && (i === 1 || i === 2 || i === 3)) activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                 };
-                
                 mindarAnchors[i] = anchor;
             }
 
             loadModels();
             await mindarThree.start();
 
-            // --- RENDER LOOP ---
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
-                
                 const arucoFound = processArucoFrame(video);
                 
                 let showSimulation = false;
@@ -559,49 +487,35 @@
                     if (isSimulatedPos) {
                         if (Date.now() < simulationEndTime) {
                             showSimulation = true;
-                            if (simulatedCoords) {
-                                lastPos = { latitude: simulatedCoords.lat, longitude: simulatedCoords.lon, accuracy: 1.5 };
-                            }
+                            if (simulatedCoords) lastPos = { latitude: simulatedCoords.lat, longitude: simulatedCoords.lon, accuracy: 1.5 };
                         } else {
                             isSimulatedPos = false;
                             if (realPos) lastPos = realPos;
                         }
                     } 
                     else if (activeMindARId >= 1 && activeMindARId <= 3) {
-                        if (Date.now() < activeMindAREndTime) {
-                            showStandardMindAR = true;
-                        } else {
-                            activeMindARId = -1;
-                        }
+                        if (Date.now() < activeMindAREndTime) showStandardMindAR = true;
+                        else activeMindARId = -1;
                     }
                 }
 
-                // Sichtbarkeit der Standard MindAR Modelle (Target 1,2,3)
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
-                    const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
-                    
+                    const isRelevant = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
                     if (mindARMeshes[id]) {
                         mindARMeshes[id].forEach(mesh => {
-                            if (showStandardMindAR && isRelevantForActiveTarget) {
+                            if (showStandardMindAR && isRelevant) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
                                 updateUIForModel(id, "MindAR (Image)");
-                            } else {
-                                mesh.visible = false;
-                            }
+                            } else mesh.visible = false;
                         });
                     }
                 });
 
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
-                // GNSS Gruppe steuern (bei Simulation oder echtem GNSS)
-                if (showSimulation) {
-                    gnssGroup.visible = true;
-                    updateGNSSObjects();
-                    updateGNSSUI(); 
-                } else if (!isMarkerTracking) {
+                if (showSimulation || !isMarkerTracking) {
                     gnssGroup.visible = true;
                     updateGNSSObjects();
                     updateGNSSUI();
@@ -612,47 +526,6 @@
                 Object.values(gnssMeshes).forEach(m => {
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
-
-                // --- Rotationsanzeige Debug (Wiederhergestellt) ---
-                let currentRotY = 0;
-                
-                // Priorität 1: GNSS Gruppe / Simulation
-                if (gnssGroup.visible) {
-                     // Suche sichtbares GNSS Mesh und lies dessen Rotation aus (ohne Kompass-Einfluss)
-                     Object.keys(gnssMeshes).forEach(key => { 
-                         if (gnssMeshes[key].visible) {
-                             currentRotY = gnssMeshes[key].rotation.y;
-                         }
-                     });
-                } 
-                // Priorität 2: MindAR (Standard Image Tracking)
-                else if (isMarkerTracking && activeMindARId !== -1) {
-                     // Lies die Rotation des aktiven Mesh aus
-                     Object.keys(mindARMeshes).forEach(idStr => {
-                         const id = parseInt(idStr);
-                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id].length > 0) {
-                             // Das erste Mesh in der Gruppe
-                             if(mindARMeshes[id][0].visible) currentRotY = mindARMeshes[id][0].rotation.y;
-                         }
-                     });
-                }
-                // Priorität 3: ArUco (hier Z-Rotation als Y interpretieren für Anzeige)
-                else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
-                     currentRotY = loadedMeshes[currentTrackingID].rotation.z;
-                }
-
-                let angleSpan = document.getElementById('debugAngle');
-                const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotY) % 360);
-                const finalDeg = displayDeg < 0 ? displayDeg + 360 : displayDeg;
-                
-                if(!angleSpan) {
-                    const d = document.createElement('div');
-                    d.style.marginTop = "8px"; d.style.borderTop = "1px solid rgba(255,255,255,0.3)"; d.style.paddingTop = "5px";
-                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Y-Achse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
-                    document.getElementById('debugInfo').appendChild(d);
-                } else {
-                    angleSpan.innerText = finalDeg + "°";
-                }
 
                 if (closestObjForArrow) updateArrow();
                 else arrowContainer.style.opacity = 0;
@@ -670,18 +543,15 @@
 
         function loadModels() {
             const loader = new GLTFLoader();
-            const ids = Object.keys(AR_MODELS);
-
-            ids.forEach(idStr => {
+            Object.keys(AR_MODELS).forEach(idStr => {
                 const id = parseInt(idStr);
                 const config = AR_MODELS[id];
-                
                 loader.load(config.url, (gltf) => {
-                    // 1. ArUco
+                    // ArUco
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2; 
-                    if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
+                    if ([1, 2, 3, 33].includes(id)) modelAruco.rotation.z += Math.PI;
                     if (id === 3 || id === 33) {
                         const p = createWaterEffect();
                         modelAruco.add(p); modelAruco.userData.particles = p;
@@ -690,17 +560,11 @@
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
-                    // 2. GNSS (auch für Simulation genutzt)
-                    if (config.lat && config.lon) {
+                    // GNSS (KORREKTUR FEHLER 1: Simulation-IDs 0, 4, 5, 6)
+                    if (config.lat && config.lon || [0].includes(id)) {
                         const modelGNSS = gltf.scene.clone();
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
-                        
-                        // KORREKTUR: Start-Rotation für Blumengarten (ID 1) auf 0 Grad fixieren
-                        if (id === 1) {
-                             modelGNSS.rotation.y = 0; 
-                        }
-
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
                              modelGNSS.add(pG); modelGNSS.userData.particles = pG;
@@ -710,28 +574,21 @@
                         gnssMeshes[id] = modelGNSS;
                     }
 
-                    // 3. MindAR (Nur Standard Targets 1,2,3)
+                    // MindAR
                     if (config.mindTargetIndexes) {
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
-
-                        config.mindTargetIndexes.forEach(targetIndex => {
-                            if ([1, 2, 3].includes(targetIndex) && mindarAnchors[targetIndex]) {
+                        config.mindTargetIndexes.forEach(idx => {
+                            if ([1, 2, 3].includes(idx) && mindarAnchors[idx]) {
                                 const modelMind = gltf.scene.clone();
-                                const mindScale = config.scale * 0.015;
-                                modelMind.scale.set(mindScale, mindScale, mindScale);
-                                
-                                let rotationY = Math.PI;
-                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
-                                modelMind.rotation.y = rotationY; 
-                                
+                                modelMind.scale.set(config.scale * 0.015, config.scale * 0.015, config.scale * 0.015);
+                                if (idx === 1) modelMind.rotation.y = THREE.MathUtils.degToRad(346); 
+                                else modelMind.rotation.y = Math.PI;
                                 if (id === 1) modelMind.position.y = -1.5; 
-
                                 if (id === 3 || id === 33) {
                                      const pM = createWaterEffect();
                                      modelMind.add(pM); modelMind.userData.particles = pM;
                                 }
-
-                                mindarAnchors[targetIndex].group.add(modelMind);
+                                mindarAnchors[idx].group.add(modelMind);
                                 mindARMeshes[id].push(modelMind);
                                 modelMind.visible = false;
                             }
@@ -742,37 +599,22 @@
         }
 
         function updateGNSSUI() {
-            if (!lastPos) {
-                 statusText.innerHTML = "Warte auf GNSS Signal...";
-                 return;
-            }
+            if (!lastPos) { statusText.innerHTML = "Warte auf GNSS Signal..."; return; }
             let closestDist = 99999;
             let closestObj = null;
             Object.keys(AR_MODELS).forEach(key => {
                 const m = AR_MODELS[key];
                 if(m.lat && m.lon) {
                     const dist = haversineDist(lastPos.latitude, lastPos.longitude, m.lat, m.lon);
-                    if(dist < closestDist) {
-                        closestDist = dist;
-                        closestObj = m;
-                    }
+                    if(dist < closestDist) { closestDist = dist; closestObj = m; }
                 }
             });
             closestObjForArrow = closestObj;
-            
             if (closestObj) {
                 const distStr = closestDist < 1000 ? Math.round(closestDist) + " m" : (closestDist/1000).toFixed(1) + " km";
-                const latStr = lastPos.latitude.toFixed(5) + "°";
-                const lonStr = lastPos.longitude.toFixed(5) + "°";
-                const accStr = "± " + Math.round(lastPos.accuracy || 0) + " m";
-                const compassStr = Math.round(heading) + "°";
-                
-                let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
-
                 statusText.innerHTML = `
-                    <span class="label-small">${sourceLabel}</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
-                    <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
-                    <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
+                    <span class="label-small">${isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)"}</span> <span class="val-highlight">${lastPos.latitude.toFixed(5)}°, ${lastPos.longitude.toFixed(5)}°</span><br>
+                    <span class="label-small">Kompass</span> <span class="val-highlight">${Math.round(heading)}°</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${closestObj.title}</span><br>
                     <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
@@ -781,54 +623,52 @@
         }
         
         function updateArrow() {
-            if (!lastPos || !closestObjForArrow) {
-                arrowContainer.style.opacity = 0;
-                return;
-            }
+            if (!lastPos || !closestObjForArrow) { arrowContainer.style.opacity = 0; return; }
             arrowContainer.style.opacity = 1;
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
             const relativeAngle = bearing - heading;
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
+        // KORREKTUR FEHLER 1: POSITIONIERUNG UND HÖHE BEI SIMULATION
         function updateGNSSObjects() {
             if (!lastPos) return;
-            
-            // KORREKTUR (Fehler 2): Gruppe entgegengesetzt zum Kompass drehen (-heading),
-            // damit die Welt stabil bleibt und sich nicht mit dem Nutzer mitdreht.
-            // Norden in Three.js (negative Z) bleibt so Norden in der Realität.
+            // Gruppe stabil zur realen Welt ausrichten
             gnssGroup.rotation.y = -THREE.MathUtils.degToRad(heading);
             
             Object.keys(gnssMeshes).forEach(key => {
                 const id = parseInt(key);
                 const mesh = gnssMeshes[id];
                 const config = AR_MODELS[id];
-                if (config.lat && config.lon) {
-                    const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                    
-                    if (dist < VISIBILITY_DISTANCE) {
-                        mesh.visible = true;
-                        
-                        if (id === 3 || id === 33) {
-                             historicalInfo.style.display = 'block';
-                        } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
-                             historicalInfo.style.display = 'none';
-                        }
-                        
-                        // KORREKTUR (Fehler 3): Höhe auf 0 setzen für "Schwebe-Effekt" bei Simulation,
-                        // oder auf -1.5 für Boden bei echtem GNSS.
-                        let heightY = -2.0; // Standard Bodenverankerung für echtes GNSS
-                        if (isSimulatedPos) {
-                            heightY = -0.5; // Schwebend auf Augenhöhe für Simulation (Target 0, 4, 5, 6)
-                        }
+                if (!config.lat || !config.lon) return;
 
-                        // Polare Positionierung: Wir nutzen die Differenz in Metern und den Winkel
-                        const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, heightY, -offset.z); 
-                    } else {
-                        mesh.visible = false;
-                        if (id === 3 || id === 33) historicalInfo.style.display = 'none';
+                const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                
+                // Einblenden, wenn in Reichweite ODER wenn Simulation für dieses Objekt aktiv ist
+                const isTargetOfSimulation = (isSimulatedPos && 
+                    ((activeMindARId === 0 && (id === 3 || id === 33)) || 
+                     ([4,5,6].includes(activeMindARId) && id === 1)));
+
+                if (dist < VISIBILITY_DISTANCE || isTargetOfSimulation) {
+                    mesh.visible = true;
+                    if (id === 3 || id === 33) historicalInfo.style.display = 'block';
+
+                    let heightY = -2.0; // Standard Bodenhöhe
+                    let posFactor = 1.0; 
+
+                    // Speziallogik für Simulation: Objekte mittig und komplett sichtbar einblenden
+                    if (isSimulatedPos) {
+                        heightY = -0.3; // Knapp unter Augenhöhe für "schwebenden" Effekt in Bildmitte
+                        // Wenn zu weit weg in Simulation, künstlich näher ranziehen für ArUco-Feeling
+                        if (dist > 15) posFactor = 10 / dist; 
                     }
+
+                    const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    // Positionierung relativ zum Nutzer (Z-Achse in Three.js ist Süden, daher -offset.z)
+                    mesh.position.set(offset.x * posFactor, heightY, -offset.z * posFactor); 
+                } else {
+                    mesh.visible = false;
+                    if (id === 3 || id === 33) historicalInfo.style.display = 'none';
                 }
             });
         }
@@ -853,76 +693,49 @@
             const destLatRad = destLat * (Math.PI / 180); const destLngRad = destLng * (Math.PI / 180);
             const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
             const x = Math.cos(startLatRad) * Math.sin(destLatRad) - Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
-            let brng = Math.atan2(y, x);
-            return ((brng * 180 / Math.PI) + 360) % 360;
+            return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
         }
 
         function processArucoFrame(video) {
             if (!video || video.readyState < video.HAVE_METADATA) return false;
-
             const cw = videoCanvas.width; const ch = videoCanvas.height;
             if (cw !== window.innerWidth || ch !== window.innerHeight) {
                 videoCanvas.width = window.innerWidth; videoCanvas.height = window.innerHeight;
                 posit = new POS.Posit(markerSize, window.innerWidth);
             }
-
             const vw = video.videoWidth; const vh = video.videoHeight;
             const rV = vw / vh; const rC = cw / ch;
             let sx, sy, sw, sh;
             if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
             else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
-            
             context2D.clearRect(0, 0, cw, ch);
             context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
             const imageData = context2D.getImageData(0, 0, cw, ch);
             context2D.clearRect(0, 0, cw, ch); 
-
             let markers = detector.detect(imageData);
-            markers = markers.filter(m => {
-                const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
-                return d > 30 && m.id !== 97; 
-            });
-
+            markers = markers.filter(m => Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2)) > 30);
             let found = false;
             if (markers.length > 0) {
                 markers.forEach(marker => {
-                    drawRedBox(marker.corners); drawIdText(marker.corners, marker.id);
+                    drawRedBox(marker.corners);
                     const cornersCentered = marker.corners.map(c => ({ x: c.x - (cw / 2), y: (ch / 2) - c.y }));
                     const pose = posit.pose(cornersCentered);
-                    
-                    if (pose) {
+                    if (pose && AR_MODELS[marker.id] && marker === markers[0]) {
+                        found = true; lossCounter = 0;
                         const r = pose.bestRotation; const t = pose.bestTranslation;
-                        drawAxis(r, t, markerSize);
-                        const id = marker.id;
-                        if (AR_MODELS[id] && marker === markers[0]) {
-                            found = true; 
-                            lossCounter = 0;
-                            updatePoseUI(r, t, id, "ArUco");
-                            const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
-                            const m = new THREE.Matrix4();
-                            m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
-                            const fullQuat = new THREE.Quaternion().setFromRotationMatrix(m);
-                            const euler = new THREE.Euler().setFromQuaternion(fullQuat, 'YXZ');
-                            const uprightQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, euler.y, 0));
-                            updateActiveModelArUco(id, targetPos, uprightQuat);
-                        }
+                        updatePoseUI(r, t, marker.id, "ArUco");
+                        const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
+                        const m = new THREE.Matrix4();
+                        m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
+                        const euler = new THREE.Euler().setFromQuaternion(new THREE.Quaternion().setFromRotationMatrix(m), 'YXZ');
+                        updateActiveModelArUco(marker.id, targetPos, new THREE.Quaternion().setFromEuler(new THREE.Euler(0, euler.y, 0)));
                     }
                 });
             }
-
             if (!found) {
-                markerGroup.visible = false;
-                lossCounter++;
-                if (lossCounter > maxLossFrames) {
-                    if (currentTrackingID !== -1) {
-                            modelInfo.style.display = 'none';
-                            clickHint.style.opacity = 0;
-                            historicalInfo.style.display = 'none'; 
-                            currentTrackingID = -1;
-                    }
-                    if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
-                            statusText.innerHTML = "Warte auf GNSS Signal...";
-                    }
+                markerGroup.visible = false; lossCounter++;
+                if (lossCounter > maxLossFrames && currentTrackingID !== -1) {
+                    modelInfo.style.display = 'none'; clickHint.style.opacity = 0; historicalInfo.style.display = 'none'; currentTrackingID = -1;
                 }
             }
             return found;
@@ -930,116 +743,59 @@
 
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
-            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
-            stations.forEach(s => { L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`); });
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19 }).addTo(mapStations);
+            stations.forEach(s => L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`));
             userLayer = L.layerGroup().addTo(mapStations);
-            locateBtn.addEventListener('click', (e) => { e.stopPropagation(); if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17); else mapStations.locate({ setView: true, maxZoom: 17 }); });
-            orientBtn.addEventListener('click', async (e) => {
+            locateBtn.onclick = (e) => { e.stopPropagation(); if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17); };
+            orientBtn.onclick = async (e) => {
                 e.stopPropagation();
                 if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
-                    try { const res = await DeviceOrientationEvent.requestPermission(); if (res === 'granted') { window.addEventListener('deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; } } catch (err) { console.warn(err); }
-                } else { window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true); orientBtn.style.background = '#4f4'; }
-            });
-            setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
+                    const res = await DeviceOrientationEvent.requestPermission();
+                    if (res === 'granted') window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                } else window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true);
+            };
+            if (navigator.geolocation) navigator.geolocation.watchPosition(onPos, null, { enableHighAccuracy: true });
         }
 
         function onPos(pos) {
             realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
-            if (!isSimulatedPos) {
-                lastPos = realPos;
-                if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
-                drawUserOnMap(lastPos);
-            } else {
-                if (lastPos) drawUserOnMap(lastPos);
-            }
+            if (!isSimulatedPos) lastPos = realPos;
+            drawUserOnMap(lastPos);
         }
 
         function onDeviceOrientation(e) {
-            let alpha = e.alpha; 
-            if (e.webkitCompassHeading) alpha = e.webkitCompassHeading; 
-            if (alpha == null) return;
-            heading = (360 - alpha) % 360; 
+            let alpha = e.webkitCompassHeading || (360 - e.alpha);
+            heading = alpha % 360;
             if (lastPos) drawUserOnMap(lastPos);
         }
 
         function drawUserOnMap(p) {
             if (!userLayer) return; userLayer.clearLayers();
-            L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
-            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
-            const url = 'data:image/svg+xml;base64,' + btoa(svg);
-            const icon = L.icon({ iconUrl: url, iconSize: [48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
-            L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
-        }
-
-        function project(point3d, rot, trans) {
-            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
-            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
-            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
-            if (z <= 0) return { x: -1000, y: -1000 };
-            const f = videoCanvas.width; const scale = f / z;
-            return { x: x * scale + (videoCanvas.width / 2), y: (videoCanvas.height / 2) - y * scale };
-        }
-
-        function drawAxis(rot, trans, len) {
-            const o = project([0, 0, 0], rot, trans);
-            const ax = project([len, 0, 0], rot, trans);
-            const ay = project([0, len, 0], rot, trans);
-            const az = project([0, 0, len], rot, trans);
-            context2D.lineWidth = 4;
-            context2D.strokeStyle = "red"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ax.x, ax.y); context2D.stroke();
-            context2D.strokeStyle = "lime"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ay.x, ay.y); context2D.stroke();
-            context2D.strokeStyle = "blue"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
+            L.circle([p.latitude, p.longitude], { radius: p.accuracy, color: 'red', weight: 1 }).addTo(userLayer);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/></g></svg>`;
+            L.marker([p.latitude, p.longitude], { icon: L.icon({ iconUrl: 'data:image/svg+xml;base64,' + btoa(svg), iconSize: [48, 48], iconAnchor: [24, 24] }) }).addTo(userLayer);
         }
 
         function drawRedBox(corners) {
-            context2D.lineWidth = 4; context2D.strokeStyle = "rgba(255, 0, 0, 0.7)";
-            context2D.beginPath();
-            corners.forEach((c, i) => { if (i === 0) context2D.moveTo(c.x, c.y); else context2D.lineTo(c.x, c.y); });
+            context2D.lineWidth = 4; context2D.strokeStyle = "red";
+            context2D.beginPath(); corners.forEach((c, i) => i === 0 ? context2D.moveTo(c.x, c.y) : context2D.lineTo(c.x, c.y));
             context2D.closePath(); context2D.stroke();
         }
 
-        function drawIdText(corners, id, source = "ArUco") {
-            const pt = corners[0];
-            context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
-            context2D.lineWidth = 4; context2D.strokeStyle = "black";
-            context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
-            context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
-        }
-
-        function updatePoseUI(r, t, id, source = "ArUco") {
-            const m = new THREE.Matrix4();
-            m.set(r[0][0], r[0][1], r[0][2], t[0], -r[1][0], -r[1][1], -r[1][2], -t[1], -r[2][0], -r[2][1], -r[2][2], -t[2], 0, 0, 0, 1);
-            const inv = m.clone().invert();
-            const pos = new THREE.Vector3(); const quat = new THREE.Quaternion(); const sc = new THREE.Vector3();
-            inv.decompose(pos, quat, sc);
-            const euler = new THREE.Euler().setFromQuaternion(quat);
-            const x = (pos.x / 10).toFixed(0); const y = (pos.y / 10).toFixed(0); const z = (pos.z / 10).toFixed(0);
-            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
-            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
-            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
-
-            statusText.innerHTML = `
-                <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
-                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
-                    <span class="label-small">Position (Relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
-                </div>
-                <div style="margin-top:8px;">
-                    <span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
-                </div>
-            `;
+        function updatePoseUI(r, t, id, source) {
+            statusText.innerHTML = `<span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>Entfernung: ${(t[2]/10).toFixed(0)} cm`;
         }
 
         function triggerHint() {
             clickHint.style.opacity = 1;
             if (hintTimeout) clearTimeout(hintTimeout);
-            hintTimeout = setTimeout(() => { clickHint.style.opacity = 0; }, 3000);
+            hintTimeout = setTimeout(() => clickHint.style.opacity = 0, 3000);
         }
 
         function updateUIForModel(id, sourceName) {
             if (currentTrackingID !== id) {
                 currentTrackingID = id;
-                modelInfo.style.display = (id === 0 ? 'none' : 'block');
-                if (id === 3 || id === 33) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                modelInfo.style.display = id === 0 ? 'none' : 'block';
                 objTitle.innerText = AR_MODELS[id].title;
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
@@ -1048,90 +804,41 @@
         }
 
         function updateActiveModelArUco(id, pos, quat) {
-            if (AR_MODELS[id]) {
-                Object.keys(loadedMeshes).forEach(key => { loadedMeshes[key].visible = (parseInt(key) === id); });
-                updateUIForModel(id, "ArUco");
-                markerGroup.visible = true;
-                markerGroup.position.lerp(pos, 0.2);
-                markerGroup.quaternion.slerp(quat, 0.2);
-            }
+            Object.keys(loadedMeshes).forEach(k => loadedMeshes[k].visible = parseInt(k) === id);
+            updateUIForModel(id, "ArUco");
+            markerGroup.visible = true;
+            markerGroup.position.lerp(pos, 0.2);
+            markerGroup.quaternion.slerp(quat, 0.2);
         }
 
         detector = new AR.Detector({ dictionaryName: selectedDictionary });
-        posit = new POS.Posit(markerSize, window.innerWidth);
         initMap();
         startAR();
 
-        switchCamBtn.addEventListener('click', () => { mindarThree.switchCamera(); });
-        toggleMapBtn.addEventListener('click', () => {
-            const isVisible = mapContainer.style.display === 'block';
-            if (isVisible) { mapContainer.style.display = 'none'; toggleMapBtn.innerText = '🗺️'; toggleMapBtn.style.background = 'rgba(30, 30, 30, 0.85)'; }
-            else { mapContainer.style.display = 'block'; toggleMapBtn.innerText = '✖'; toggleMapBtn.style.background = 'rgba(150, 0, 0, 0.85)'; if (mapStations) { setTimeout(() => mapStations.invalidateSize(), 50); } }
-        });
+        switchCamBtn.onclick = () => mindarThree.switchCamera();
+        toggleMapBtn.onclick = () => {
+            const isVis = mapContainer.style.display === 'block';
+            mapContainer.style.display = isVis ? 'none' : 'block';
+            toggleMapBtn.innerText = isVis ? '🗺️' : '✖';
+            if (!isVis) setTimeout(() => mapStations.invalidateSize(), 50);
+        };
 
-        // Rotation Buttons: Rotieren nur das 3D-Modell, nicht die Welt
-        rotLeftBtn.addEventListener('click', () => { 
-            const ids = Object.keys(AR_MODELS);
-            ids.forEach(id => {
-                // ArUco (Z-Achse)
-                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
-                // GNSS (Y-Achse)
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
-                // MindAR (Y-Achse)
+        rotLeftBtn.onclick = () => { 
+            Object.keys(AR_MODELS).forEach(id => {
+                if(loadedMeshes[id]?.visible) loadedMeshes[id].rotation.z -= 0.2;
+                if(gnssMeshes[id]?.visible) gnssMeshes[id].rotation.y -= 0.2;
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
             });
-        });
-        rotRightBtn.addEventListener('click', () => { 
-            const ids = Object.keys(AR_MODELS);
-             ids.forEach(id => {
-                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
+        };
+        rotRightBtn.onclick = () => { 
+            Object.keys(AR_MODELS).forEach(id => {
+                if(loadedMeshes[id]?.visible) loadedMeshes[id].rotation.z += 0.2;
+                if(gnssMeshes[id]?.visible) gnssMeshes[id].rotation.y += 0.2;
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y += 0.2; });
             });
-        });
+        };
 
-        modelInfo.addEventListener('click', () => { if (activeLink) window.open(activeLink, '_blank'); });
-        
-        document.body.addEventListener('click', (event) => {
-            if (!camera) return;
-            const mouse = new THREE.Vector2();
-            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
-            const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(mouse, camera);
-            let objectsToCheck = [];
-            Object.values(loadedMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
-            Object.values(mindARMeshes).forEach(meshArray => {
-                if (Array.isArray(meshArray)) { meshArray.forEach(m => { if(m.visible) objectsToCheck.push(m); }); }
-            });
-            Object.values(gnssMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
-            
-            if(objectsToCheck.length === 0) return;
-            const intersects = raycaster.intersectObjects(objectsToCheck, true);
-            if (intersects.length > 0) {
-                let clickedObj = intersects[0].object;
-                while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     for(let [key, val] of Object.entries(gnssMeshes)) {
-                         if(val === clickedObj) {
-                             activeLink = AR_MODELS[key].link;
-                             let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
-                             updateUIForModel(parseInt(key), label);
-                             window.open(activeLink, '_blank');
-                             return;
-                         }
-                     }
-                     for(let id in mindARMeshes) {
-                         if(mindARMeshes[id].includes(clickedObj)) {
-                             activeLink = AR_MODELS[id].link;
-                             updateUIForModel(parseInt(id), "MindAR");
-                             window.open(activeLink, '_blank');
-                             return;
-                         }
-                     }
-                     clickedObj = clickedObj.parent;
-                }
-                if (currentTrackingID !== -1 && activeLink) window.open(activeLink, '_blank');
-            }
-        });
-
+        modelInfo.onclick = () => { if (activeLink) window.open(activeLink, '_blank'); };
     </script>
 </body>
 </html>
