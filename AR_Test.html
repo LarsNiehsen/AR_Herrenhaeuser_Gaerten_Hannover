@@ -440,7 +440,7 @@
         let activeMindAREndTime = 0; // Wann läuft die Sichtbarkeit ab
         const STANDARD_PERSISTENCE = 5000; // 5 Sek
 
-        // --- PARTIKELSYSTEM (Verbessert: Richtung Z-Achse) ---
+        // --- PARTIKELSYSTEM ---
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -450,12 +450,10 @@
             for (let i = 0; i < particleCount; i++) {
                 // Startposition 0,0,0
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
-                
-                // KORREKTUR: Ausstoß entlang der positiven Z-Achse (passend zur Modell-Ausrichtung)
-                // Geringere Streuung in X und Y
+                // Ausstoß entlang der positiven Z-Achse (angepasst an Modell-Ausrichtung)
                 velocities[i*3] = (Math.random() - 0.5) * 0.005; // X Streuung
                 velocities[i*3+1] = (Math.random() - 0.5) * 0.005; // Y Streuung
-                velocities[i*3+2] = (Math.random() * 0.1 + 0.05);  // Z (Positiv = Oben relativ zum Modell)
+                velocities[i*3+2] = (Math.random() * 0.1 + 0.05);  // Z (Oben)
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -468,26 +466,25 @@
             return points;
         }
 
-        // Update der Partikel
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            const gravity = 0.003; // Schwerkraft wirkt entgegen der Z-Achse
+            const gravity = 0.003; 
 
             for (let i = 0; i < pos.length / 3; i++) {
                 pos[i*3] += vels[i*3];     
                 pos[i*3+1] += vels[i*3+1]; 
                 pos[i*3+2] += vels[i*3+2]; 
                 
-                // Schwerkraft zieht Z nach unten (negative Richtung)
+                // Schwerkraft entgegen Z-Achse
                 vels[i*3+2] -= gravity; 
 
-                // Wenn Partikel unter Ebene fallen (Z < 0), Reset
+                // Reset wenn Partikel unter Boden
                 if (pos[i*3+2] < 0) {
                     pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
                     vels[i*3] = (Math.random() - 0.5) * 0.005;
                     vels[i*3+1] = (Math.random() - 0.5) * 0.005;
-                    vels[i*3+2] = (Math.random() * 0.1 + 0.05); // Reset Ausstoß nach oben
+                    vels[i*3+2] = (Math.random() * 0.1 + 0.05); 
                 }
             }
             points.geometry.attributes.position.needsUpdate = true; 
@@ -616,10 +613,10 @@
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
 
-                // --- Rotationsanzeige Debug (Wiederhergestellt) ---
+                // --- Rotationsanzeige Debug ---
                 let currentRotZ = 0;
                 
-                // Priorität: GNSS Gruppe (also auch Simulation ID 0, 4, 5, 6)
+                // Priorität 1: GNSS Gruppe / Simulation
                 if (gnssGroup.visible) {
                      Object.keys(gnssMeshes).forEach(key => { 
                          if (gnssMeshes[key].visible) {
@@ -627,13 +624,16 @@
                          }
                      });
                 } 
-                // Fallback: ArUco
+                // Priorität 2: MindAR (Standard Image Tracking)
+                else if (isMarkerTracking && activeMindARId !== -1) {
+                     // Wenn MindAR aktiv ist, nutzen wir die Rotation des Ankers
+                     if(mindarAnchors[activeMindARId]) {
+                         currentRotZ = mindarAnchors[activeMindARId].group.rotation.y;
+                     }
+                }
+                // Priorität 3: ArUco
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
                      currentRotZ = loadedMeshes[currentTrackingID].rotation.z;
-                }
-                // Fallback: MindAR
-                else if (isMarkerTracking && activeMindARId !== -1) {
-                     // Hier könnte man MindAR Rotation auslesen, falls nötig
                 }
 
                 let angleSpan = document.getElementById('debugAngle');
@@ -691,7 +691,6 @@
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
-                        // KORREKTUR: Start-Rotation für Blumengarten (ID 1) auf 0 Grad fixieren
                         if (id === 1) {
                              modelGNSS.rotation.y = 0; 
                         }
@@ -788,6 +787,7 @@
 
         function updateGNSSObjects() {
             if (!lastPos) return;
+            // Rotation der Gruppe nach Kompass (polare Ausrichtung der Objekte relativ zum Nutzer)
             gnssGroup.rotation.y = THREE.MathUtils.degToRad(heading);
             
             Object.keys(gnssMeshes).forEach(key => {
@@ -806,10 +806,10 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // KORREKTUR: Y-Position tiefer setzen (-35), damit das Modell nicht am unteren Bildschirmrand "klebt",
-                        // sondern perspektivisch korrekt in der Entfernung auf dem Boden steht.
+                        // KORREKTUR: Höhe auf 1 gesetzt, damit Objekte nicht versinken
+                        // KORREKTUR: Polare Positionierung (berechnet aus GNSS-Differenz zur Referenz/Position)
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, -35, -offset.z); 
+                        mesh.position.set(offset.x, 1, -offset.z); 
                     } else {
                         mesh.visible = false;
                         if (id === 3 || id === 33) historicalInfo.style.display = 'none';
