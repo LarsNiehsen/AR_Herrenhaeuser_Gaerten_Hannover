@@ -440,7 +440,7 @@
         let activeMindAREndTime = 0; // Wann läuft die Sichtbarkeit ab
         const STANDARD_PERSISTENCE = 5000; // 5 Sek
 
-        // --- PARTIKELSYSTEM ---
+        // --- PARTIKELSYSTEM (Verbessert: Richtung Z-Achse) ---
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -448,10 +448,14 @@
             const velocities = new Float32Array(particleCount * 3); 
 
             for (let i = 0; i < particleCount; i++) {
+                // Startposition 0,0,0
                 positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
-                velocities[i*3] = (Math.random() - 0.5) * 0.0008; 
-                velocities[i*3+1] = (Math.random() - 0.5) * 0.0008;
-                velocities[i*3+2] = -(Math.random() * 0.08 + 0.04); 
+                
+                // KORREKTUR: Ausstoß entlang der positiven Z-Achse (passend zur Modell-Ausrichtung)
+                // Geringere Streuung in X und Y
+                velocities[i*3] = (Math.random() - 0.5) * 0.005; // X Streuung
+                velocities[i*3+1] = (Math.random() - 0.5) * 0.005; // Y Streuung
+                velocities[i*3+2] = (Math.random() * 0.1 + 0.05);  // Z (Positiv = Oben relativ zum Modell)
             }
 
             geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
@@ -464,21 +468,26 @@
             return points;
         }
 
+        // Update der Partikel
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
-            const gravity = 0.0005; 
+            const gravity = 0.003; // Schwerkraft wirkt entgegen der Z-Achse
 
             for (let i = 0; i < pos.length / 3; i++) {
                 pos[i*3] += vels[i*3];     
                 pos[i*3+1] += vels[i*3+1]; 
                 pos[i*3+2] += vels[i*3+2]; 
-                vels[i*3+2] += gravity; 
-                if (pos[i*3+2] > 0) {
+                
+                // Schwerkraft zieht Z nach unten (negative Richtung)
+                vels[i*3+2] -= gravity; 
+
+                // Wenn Partikel unter Ebene fallen (Z < 0), Reset
+                if (pos[i*3+2] < 0) {
                     pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
-                    vels[i*3] = (Math.random() - 0.5) * 0.0008;
-                    vels[i*3+1] = (Math.random() - 0.5) * 0.0008;
-                    vels[i*3+2] = -(Math.random() * 0.08 + 0.04);
+                    vels[i*3] = (Math.random() - 0.5) * 0.005;
+                    vels[i*3+1] = (Math.random() - 0.5) * 0.005;
+                    vels[i*3+2] = (Math.random() * 0.1 + 0.05); // Reset Ausstoß nach oben
                 }
             }
             points.geometry.attributes.position.needsUpdate = true; 
@@ -508,31 +517,23 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
-            // Event-Listener für MindAR Anker setzen, um Loop zu entlasten
+            // Event-Listener für MindAR Anker
             for (let i = 0; i < 7; i++) {
                 const anchor = mindarThree.addAnchor(i);
                 
-                // Wenn ein Marker gefunden wird:
                 anchor.onTargetFound = () => {
-                    // Exklusivität: Wenn ein neuer Marker gefunden wird, wird er zum aktiven Marker
                     activeMindARId = i;
                     
-                    // Entscheiden ob Simulation oder Standard
                     if (i === 0) {
-                        // Fontäne Simulation
                         activateSimulation(target0Lat, target0Lon);
                     } else if (i === 4 || i === 5 || i === 6) {
-                        // Blumengarten Simulation
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon);
                     } else if (i === 1 || i === 2 || i === 3) {
-                         // Standard Image Tracking -> Timer und Sichtbarkeit setzen
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 };
 
-                // Wenn ein Marker verloren wird:
                 anchor.onTargetLost = () => {
-                    // Timer startet jetzt (läuft ab jetzt runter)
                     if (i === activeMindARId) {
                          if (i === 1 || i === 2 || i === 3) {
                              activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
@@ -550,52 +551,41 @@
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 
-                // 1. Suche nach ArUco Markern
                 const arucoFound = processArucoFrame(video);
                 
-                // Statusvariablen für diesen Frame
                 let showSimulation = false;
                 let showStandardMindAR = false;
                 
-                // Wenn ArUco gefunden wurde, hat es Vorrang -> MindAR Logik überspringen/ausblenden
                 if (arucoFound) {
-                    activeMindARId = -1; // Reset MindAR Fokus
+                    activeMindARId = -1; 
                 } else {
-                    // Prüfen, ob eine Simulation aktiv ist (Target 0, 4, 5, 6)
                     if (isSimulatedPos) {
                         if (Date.now() < simulationEndTime) {
                             showSimulation = true;
-                            // Setze lastPos auf die fixen Koordinaten
                             if (simulatedCoords) {
                                 lastPos = { latitude: simulatedCoords.lat, longitude: simulatedCoords.lon, accuracy: 1.5 };
                             }
                         } else {
-                            // Zeit abgelaufen
                             isSimulatedPos = false;
                             if (realPos) lastPos = realPos;
                         }
                     } 
-                    // Prüfen, ob Standard MindAR aktiv ist (Target 1, 2, 3)
                     else if (activeMindARId >= 1 && activeMindARId <= 3) {
                         if (Date.now() < activeMindAREndTime) {
                             showStandardMindAR = true;
                         } else {
-                            // Zeit abgelaufen
                             activeMindARId = -1;
                         }
                     }
                 }
 
-                // Sichtbarkeit der MindAR Modelle steuern (Target 1,2,3)
+                // Sichtbarkeit der Standard MindAR Modelle (Target 1,2,3)
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
-                    // Standard MindAR Tracking nur für IDs, die dies unterstützen (1,2,3)
-                    // Für Target 4,5,6 wird die GNSS Simulation genutzt, daher hier ausgeblendet
                     const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
                     
                     if (mindARMeshes[id]) {
                         mindARMeshes[id].forEach(mesh => {
-                            // Mesh nur anzeigen, wenn Standard-Modus aktiv UND es zum aktuellen Target gehört
                             if (showStandardMindAR && isRelevantForActiveTarget) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
@@ -607,27 +597,21 @@
                     }
                 });
 
-                // Gesamtstatus Marker-Tracking
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
-                // GNSS Gruppe steuern (Sichtbar bei Simulation ODER echtem GNSS ohne Marker)
-                // Bei Simulation für Target 4,5,6 wird das Modell ID 1 hierüber angezeigt,
-                // und durch die Distanzberechnung (calcOffset) korrekt in die Entfernung gesetzt.
+                // GNSS Gruppe steuern (bei Simulation oder echtem GNSS)
                 if (showSimulation) {
                     gnssGroup.visible = true;
                     updateGNSSObjects();
                     updateGNSSUI(); 
                 } else if (!isMarkerTracking) {
-                    // Echtes GNSS
                     gnssGroup.visible = true;
                     updateGNSSObjects();
                     updateGNSSUI();
                 } else {
-                    // Marker aktiv -> GNSS ausblenden
                     gnssGroup.visible = false;
                 }
 
-                // Animationen für GNSS Meshes (auch bei Simulation)
                 Object.values(gnssMeshes).forEach(m => {
                     if (m.visible && m.userData.particles) updateWaterEffect(m.userData.particles);
                 });
@@ -635,23 +619,23 @@
                 // --- Rotationsanzeige Debug (Wiederhergestellt) ---
                 let currentRotZ = 0;
                 
-                // Wir lesen die Rotation vom GNSS-Objekt aus, wenn es sichtbar ist
-                // Wenn Simulation aktiv ist (z.B. Target 4,5,6), ist gnssGroup sichtbar
+                // Priorität: GNSS Gruppe (also auch Simulation ID 0, 4, 5, 6)
                 if (gnssGroup.visible) {
-                     // Suche nach einem sichtbaren GNSS Mesh
                      Object.keys(gnssMeshes).forEach(key => { 
                          if (gnssMeshes[key].visible) {
-                             // Gesamtrotation = Gruppenrotation (Kompass) + Objekt-Eigenrotation
                              currentRotZ = gnssGroup.rotation.y + gnssMeshes[key].rotation.y;
                          }
                      });
                 } 
-                // Fallback für ArUco
+                // Fallback: ArUco
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
                      currentRotZ = loadedMeshes[currentTrackingID].rotation.z;
                 }
+                // Fallback: MindAR
+                else if (isMarkerTracking && activeMindARId !== -1) {
+                     // Hier könnte man MindAR Rotation auslesen, falls nötig
+                }
 
-                // Anzeige im HTML aktualisieren
                 let angleSpan = document.getElementById('debugAngle');
                 const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotZ) % 360);
                 const finalDeg = displayDeg < 0 ? displayDeg + 360 : displayDeg;
@@ -665,7 +649,6 @@
                     angleSpan.innerText = finalDeg + "°";
                 }
 
-                // Pfeil Update
                 if (closestObjForArrow) updateArrow();
                 else arrowContainer.style.opacity = 0;
 
@@ -673,15 +656,13 @@
             });
         }
 
-        // Aktiviert die GNSS Simulation (wird durch Event ausgelöst)
         function activateSimulation(lat, lon) {
             isSimulatedPos = true;
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
             simulatedCoords = { lat: lat, lon: lon };
-            activeMindARId = -1; // Standard-Tracking deaktivieren, da wir jetzt simulieren
+            activeMindARId = -1; 
         }
 
-        // Lädt die GLB-Modelle
         function loadModels() {
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
@@ -710,13 +691,9 @@
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
-                        // Rotations-Logik für GNSS Modelle
+                        // KORREKTUR: Start-Rotation für Blumengarten (ID 1) auf 0 Grad fixieren
                         if (id === 1) {
-                             // Für ID 1 (Blumengarten) speziell 0 Grad Startwert setzen
-                             // Damit es bei Simulation durch Target 4,5,6 korrekt ausgerichtet startet
                              modelGNSS.rotation.y = 0; 
-                        } else {
-                             // Andere Modelle Standardrotation (wenn nötig anpassen)
                         }
 
                         if (id === 3 || id === 33) {
@@ -729,7 +706,6 @@
                     }
 
                     // 3. MindAR (Nur Standard Targets 1,2,3)
-                    // Targets 4,5,6 erzeugen kein "attached" Mesh, sondern nutzen GNSS-Simulation (s.o.)
                     if (config.mindTargetIndexes) {
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
@@ -760,7 +736,6 @@
             });
         }
 
-        // UI Update Funktion
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -800,7 +775,6 @@
             }
         }
         
-        // Pfeil Richtung
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -812,7 +786,6 @@
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
-        // GNSS Objekte steuern
         function updateGNSSObjects() {
             if (!lastPos) return;
             gnssGroup.rotation.y = THREE.MathUtils.degToRad(heading);
@@ -833,11 +806,10 @@
                              historicalInfo.style.display = 'none';
                         }
                         
-                        // Das Objekt wird basierend auf dem GPS-Abstand positioniert.
-                        // Im Simulationsmodus (Target 4,5,6) ist lastPos = Marker, config = Statue.
-                        // Daher wird das Objekt entsprechend weit entfernt gerendert und wirkt kleiner.
+                        // KORREKTUR: Y-Position tiefer setzen (-35), damit das Modell nicht am unteren Bildschirmrand "klebt",
+                        // sondern perspektivisch korrekt in der Entfernung auf dem Boden steht.
                         const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, -10, -offset.z); 
+                        mesh.position.set(offset.x, -35, -offset.z); 
                     } else {
                         mesh.visible = false;
                         if (id === 3 || id === 33) historicalInfo.style.display = 'none';
@@ -846,7 +818,6 @@
             });
         }
 
-        // Geometrie Berechnungen
         function haversineDist(lat1, lon1, lat2, lon2) {
             const R = 6371e3; const rad = Math.PI/180;
             const dLat = (lat2-lat1)*rad; const dLon = (lon2-lon1)*rad;
@@ -871,7 +842,6 @@
             return ((brng * 180 / Math.PI) + 360) % 360;
         }
 
-        // ArUco Erkennung
         function processArucoFrame(video) {
             if (!video || video.readyState < video.HAVE_METADATA) return false;
 
@@ -943,7 +913,6 @@
             return found;
         }
 
-        // Karten & UI Funktionen
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
