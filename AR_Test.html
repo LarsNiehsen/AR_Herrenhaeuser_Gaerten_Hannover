@@ -592,8 +592,15 @@
                 else if (isMarkerTracking && activeMindARId !== -1) {
                      Object.keys(mindARMeshes).forEach(idStr => {
                          const id = parseInt(idStr);
-                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id].length > 0) {
-                             if(mindARMeshes[id][0].visible) currentRotY = mindARMeshes[id][0].rotation.y;
+                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
+                             // Durchlaufe alle 3D-Modelle, die zu dieser ID gehören, um dasjenige zu finden, das gerade sichtbar ist.
+                             // Dies korrigiert den Fehler, dass nur das erste Modell (Index 0) geprüft wurde.
+                             // Jetzt wird der Rotationswert des tatsächlich sichtbaren Modells (z.B. Target 3) für die Anzeige verwendet.
+                             mindARMeshes[id].forEach(mesh => {
+                                 if (mesh.visible) {
+                                     currentRotY = mesh.rotation.y;
+                                 }
+                             });
                          }
                      });
                 }
