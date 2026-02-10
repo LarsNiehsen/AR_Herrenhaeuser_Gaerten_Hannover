@@ -26,8 +26,14 @@
     .intro p{margin:0 0 10px 0;color:#444;line-height:1.45;}
     .cam-header{display:flex;justify-content:center;align-items:center;gap:12px;}
     .cam-header h2{margin:0;color:var(--accent);font-size:16px;text-align:center;}
-    #viewWindow{width:100%;height:56vw;max-height:68vh;min-height:200px;background:#0b3a66;border-radius:10px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;color:#fff;}
-    @media (max-width:900px){#viewWindow{height:55vh;}}
+    
+    /* 
+       Updated viewWindow Height: 
+       Increased to 80vh to effectively double the visual length compared to previous (~40-50vh).
+    */
+    #viewWindow{width:100%;height:80vh;min-height:400px;background:#0b3a66;border-radius:10px;overflow:hidden;position:relative;display:flex;align-items:center;justify-content:center;color:#fff;}
+    @media (max-width:900px){#viewWindow{height:75vh;}}
+
     .controls-row{display:flex;gap:8px;align-items:center;justify-content:flex-end;margin-top:10px;}
     button{cursor:pointer;border:0;padding:8px 12px;border-radius:8px;font-weight:600;}
     .btn-primary{background:var(--btn-blue);color:#fff;}
@@ -63,6 +69,15 @@
         <h2>Explore the Herrenhäuser Gardens in Hanover - virtually with Augmented Reality (AR)!</h2>
       </div>
 
+      <!-- Info-Block über dem Fenster (mit passendem Hintergrund für den weißen Text) -->
+      <div style="background:#0b3a66; border-radius:10px; margin-top: 12px; margin-bottom:12px; color:#fff;">
+        <div style="text-align:center;padding:18px;">
+          <div style="font-weight:700;font-size:18px;margin-bottom:6px;">AR-Experience startet in neuem Browsertab</div>
+          <div style="opacity:0.9;margin-bottom:12px;">Tippe auf <strong>Start AR</strong>, um das WebXR-basiertes Augmented Reality Erlebnis in einem separaten Tab zu öffnen.</div>
+          <div style="font-size:13px;color:#e6f0ff;">Hinweis: WebXR für AR läuft nur auf unterstützten Geräten/Browsers über HTTPS (z. B. Chrome + ARCore auf Android).</div>
+        </div>
+      </div>
+
       <div id="viewWindow">
         <!-- Einbindung der WebAR_10022026_MA.html via IFrame -->
         <iframe 
@@ -75,16 +90,13 @@
 
       <div class="controls-row" id="controlsRow" style="margin-top:12px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;">
         
-        <!-- 
-          1. order: 10 -> Schiebt den Text visuell NACH die Buttons (die haben Standard order 0)
-          2. width: 100% -> Zwingt den Text in eine eigene neue Zeile (Umbruch)
-          3. text-align: center -> Sieht unter den Buttons meist besser aus
-        -->
         <div style="color:#666; order: 10; width: 100%; text-align: center; margin-top: 10px;">
           Start Augmented Reality on Smartphones (Android & IOS)
         </div>
         
-        <!-- Den Buttons geben wir etwas Margin, damit sie auf kleinen Displays nicht kleben -->
+        <!-- Neuer Button für Vollbild -->
+        <button id="openFullscreenBtn" class="btn-primary" style="margin: 5px; background-color: #28a745;">AR Vollbild (Neuer Tab)</button>
+
         <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_WebXR)</button>
         <button id="startARBtSL" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_GNSS)</button>
         <button id="startARBtm" class="btn-primary" style="margin: 5px;">Start AR (Markerbasiert)</button>
@@ -119,12 +131,24 @@
     </footer>
   </main>
 
+  <!-- Script für den neuen Vollbild-Button -->
+  <script>
+    (function () {
+      const fsBtn = document.getElementById('openFullscreenBtn');
+      fsBtn.addEventListener('click', () => {
+        const newWin = window.open('WebAR_10022026_MA.html', '_blank');
+        if (!newWin) {
+          alert('Bitte Popups erlauben, um die AR-Anwendung im Vollbild zu starten.');
+        }
+      });
+    })();
+  </script>
+
   <!-- START AR: neues Tab synchron öffnen -->
   <script>
     (function () {
       const startBtn = document.getElementById('startARBtp');
       startBtn.addEventListener('click', (ev) => {
-        // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
         if (!newWin) {
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
@@ -139,7 +163,6 @@
     (function () {
       const startBtn = document.getElementById('startARBtSL');
       startBtn.addEventListener('click', (ev) => {
-        // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
         if (!newWin) {
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
@@ -154,7 +177,6 @@
     (function () {
       const startBtn = document.getElementById('startARBtm');
       startBtn.addEventListener('click', (ev) => {
-        // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
         if (!newWin) {
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
@@ -169,7 +191,6 @@
     (function () {
       const startBtn = document.getElementById('startARBtIT');
       startBtn.addEventListener('click', (ev) => {
-        // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
         if (!newWin) {
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
@@ -184,7 +205,6 @@
     (function () {
       const startBtn = document.getElementById('startARBtT');
       startBtn.addEventListener('click', (ev) => {
-        // Must open synchronously on the click event so browser treats it as user-initiated
         const newWin = window.open('', '_blank');
         if (!newWin) {
           alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
