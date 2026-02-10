@@ -518,11 +518,15 @@
                 // Sichtbarkeit und Skalierung der MindAR-Modelle
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
-                    const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
+                    // Der Aufruf wird hier nicht mehr benötigt, da wir unten eine spezifischere Prüfung auf den Anker-Index machen
+                    // const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
                     
                     if (mindARMeshes[id]) {
                         mindARMeshes[id].forEach(mesh => {
-                            if (showStandardMindAR && isRelevantForActiveTarget) {
+                            // WICHTIG: Wir prüfen hier, ob das Modell zu dem AKTUELL ERKANNTEN Marker (activeMindARId) gehört.
+                            // Wir nutzen dafür 'userData.anchorIndex', das wir beim Laden gespeichert haben.
+                            // So verhindern wir, dass das Modell von Marker 1 sichtbar wird, wenn eigentlich Marker 3 erkannt wurde.
+                            if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
                                 updateUIForModel(id, "MindAR (Image)");
@@ -593,9 +597,9 @@
                      Object.keys(mindARMeshes).forEach(idStr => {
                          const id = parseInt(idStr);
                          if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
-                             // Durchlaufe alle 3D-Modelle, die zu dieser ID gehören, um dasjenige zu finden, das gerade sichtbar ist.
-                             // Dies korrigiert den Fehler, dass nur das erste Modell (Index 0) geprüft wurde.
-                             // Jetzt wird der Rotationswert des tatsächlich sichtbaren Modells (z.B. Target 3) für die Anzeige verwendet.
+                             // Hier suchen wir nach dem *tatsächlich sichtbaren* Modell in der Liste der Modelle.
+                             // Da ein Modell (z.B. ID 1) mehreren Markern zugeordnet sein kann, gibt es mehrere Instanzen.
+                             // Wir wollen den Rotationswert von der Instanz, die gerade sichtbar ist (visible === true).
                              mindARMeshes[id].forEach(mesh => {
                                  if (mesh.visible) {
                                      currentRotY = mesh.rotation.y;
@@ -743,6 +747,11 @@
                                      modelMind.userData.particles = pM;
                                      mindarAnchors[targetIndex].group.add(pM);
                                 }
+
+                                // WICHTIG: Speichern des Index in den User-Daten des Modells.
+                                // Dies ermöglicht uns später beim Rendern zu unterscheiden, welches der Modelle
+                                // zu welchem Marker gehört, auch wenn sie die gleiche ID haben.
+                                modelMind.userData.anchorIndex = targetIndex;
 
                                 mindarAnchors[targetIndex].group.add(modelMind);
                                 mindARMeshes[id].push(modelMind);
