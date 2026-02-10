@@ -4,16 +4,16 @@
     <meta charset="UTF-8">
     <!-- 
         Viewport-Einstellungen: 
-        Stellt sicher, dass die Seite auf mobilen Geräten korrekt skaliert wird.
-        'user-scalable=no' verhindert Zoomen, da dies die AR-Darstellung verzerren würde.
+        Legt fest, wie die Webseite auf mobilen Geräten dargestellt wird.
+        'user-scalable=no' verhindert das Zoomen, was für AR-Anwendungen wichtig ist.
     -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Herrenhäuser Gärten Hannover - Augmented Reality (AR)</title>
     
-    <!-- Leaflet CSS: Design für die 2D-Karte -->
+    <!-- Leaflet CSS: Lädt das Design für die 2D-Karte -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
-    <!-- Importmap: Definiert Quellen für Three.js und MindAR -->
+    <!-- Importmap: Definiert die Quellen für externe JavaScript-Bibliotheken (Three.js und MindAR) -->
     <script type="importmap">
     {
       "imports": {
@@ -24,7 +24,7 @@
     }
     </script>
 
-    <!-- CSS Styles: Design-Definitionen bleiben unverändert -->
+    <!-- CSS Styles: Definition des visuellen Erscheinungsbildes (unverändert) -->
     <style>
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
@@ -147,7 +147,7 @@
 </head>
 <body>
 
-    <!-- HTML Elemente der Anwendung -->
+    <!-- HTML Struktur der Benutzeroberfläche -->
     <video id="videoElement" playsinline muted autoplay></video>
     <div id="container"></div>
     <canvas id="videoCanvas"></canvas>
@@ -194,37 +194,44 @@
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
-    <!-- Externe JavaScript Bibliotheken laden -->
+    <!-- Externe JavaScript Bibliotheken -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     
-    <!-- Haupt-Skript der Anwendung -->
+    <!-- Haupt-Logik der Anwendung -->
     <script type="module">
-        // Import von Three.js und MindAR Modulen
+        // Importieren der notwendigen 3D- und AR-Module
         import * as THREE from 'three';
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
         // --- KONFIGURATION DER ANWENDUNG ---
-        const markerSize = 100.0; 
-        const selectedDictionary = 'ARUCO_MIP_36h12'; 
-        const VISIBILITY_DISTANCE = 75.0; 
+        const markerSize = 100.0; // Größe der ArUco-Marker in Millimetern
+        const selectedDictionary = 'ARUCO_MIP_36h12'; // Verwendeter Marker-Typ
+        const VISIBILITY_DISTANCE = 75.0; // Sichtweite für GNSS-Objekte in Metern
         
-        // GNSS-Koordinaten für Simulationstrigger
+        // Magnetische Deklination für Hannover (ca. 3.5° Ost).
+        // Dies korrigiert den Unterschied zwischen magnetischem Nordpol (Kompass) und geographischem Nordpol (Karte).
+        // Dadurch wird der Richtungspfeil präziser.
+        const magDeclination = 3.5;
+
+        // GNSS-Koordinaten, die bei Erkennung bestimmter Bilder eine Simulation auslösen
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
 
         const targetBlumengartenLat = 52.388029;
         const targetBlumengartenLon = 9.697794;
         
+        // Definition aller AR-Modelle und ihrer Eigenschaften
+        // 'initRotation' legt den Startwinkel (in Grad) des Modells fest.
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', scale: 150.0, 
                 title: 'König Georg I.', info: 'Referenzmodell (ID 0)', link: null,
-                lat: null, lon: null 
+                lat: null, lon: null, initRotation: 0 
             },
             1: { 
                 url: '3D_models/Statue_3D.glb', scale: 90.0, 
@@ -232,30 +239,33 @@
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
-                lat: 52.388196, lon: 9.697853
+                lat: 52.388196, lon: 9.697853,
+                initRotation: 0 // Startwinkel für Blumengarten
             },
             2: { 
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
                 title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', 
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
-                lat: 52.389463, lon: 9.699207
+                lat: 52.389463, lon: 9.699207,
+                initRotation: 188 // Spezifischer Startwinkel für den Fechter
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, 
                 title: 'Große Fontäne', info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true, mindTargetIndexes: [0],
-                lat: 52.386018, lon: 9.695975 
+                lat: 52.386018, lon: 9.695975, initRotation: 0
             },
             33: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0,
                 title: 'Große Fontäne', info: 'Große Fontäne (Standort 2)',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true,
-                lat: 52.388778, lon: 9.817775
+                lat: 52.388778, lon: 9.817775, initRotation: 0
             }
         };
 
+        // Koordinaten für die Marker auf der 2D-Karte
         const stations = [
             { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -266,6 +276,7 @@
             { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
+        // Referenzen auf HTML-Elemente speichern
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -289,21 +300,19 @@
 
         // Globale Variablen für den Programmzustand
         let activeLink = null;
-        let loadedMeshes = {}; 
-        let mindARMeshes = {}; 
-        let gnssMeshes = {};   
+        let loadedMeshes = {}; // Speichert geladene ArUco-Modelle
+        let mindARMeshes = {}; // Speichert geladene MindAR-Modelle
+        let gnssMeshes = {};   // Speichert geladene GNSS-Modelle
         let detector, posit;   
         let mindarThree, renderer, scene, camera;
         let mindarAnchors = [];
         let markerGroup, gnssGroup; 
         
-        let lastPos = null; 
-        let realPos = null; 
-        let heading = 0; 
-        // rawHeading speichert den rohen Sensorwert ohne Korrektur
-        let rawHeading = 0;
-        // compassOffset speichert die Differenz (Korrekturwert) zwischen Soll- und Ist-Wert
-        let compassOffset = 0;
+        let lastPos = null; // Letzte bekannte GNSS-Position
+        let realPos = null; // Echte Sensor-Position
+        let heading = 0;    // Aktuelle Blickrichtung (Kompass)
+        let rawHeading = 0; // Unkorrigierter Kompasswert vom Sensor
+        let compassOffset = 0; // Korrekturwert für den Kompass (durch Bilderkennung ermittelt)
         let lastDeviceOrientation = null; 
         let mapStations, userLayer; 
         let currentTrackingID = -1; 
@@ -313,15 +322,18 @@
         let isMarkerTracking = false; 
         let closestObjForArrow = null;
 
+        // Variablen für die GNSS-Simulation
         let isSimulatedPos = false;
         let simulationEndTime = 0;
         let simulatedCoords = null;
         const SIMULATION_PERSISTENCE = 30000; 
 
+        // Variablen für MindAR-Tracking
         let activeMindARId = -1; 
         let activeMindAREndTime = 0; 
         const STANDARD_PERSISTENCE = 10000; 
 
+        // Erstellt das Partikelsystem für den Wassereffekt (Fontäne)
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -345,6 +357,7 @@
             return points;
         }
 
+        // Aktualisiert die Position der Wasserpartikel (Animation)
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
@@ -366,6 +379,7 @@
             points.geometry.attributes.position.needsUpdate = true; 
         }
 
+        // Startet die AR-Engine
         const startAR = async () => {
             mindarThree = new MindARThree({
                 container: document.querySelector("#container"),
@@ -389,17 +403,16 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
+            // Konfiguration der MindAR-Anker (Bilderkennung)
             for (let i = 0; i < 7; i++) {
                 const anchor = mindarThree.addAnchor(i);
                 anchor.onTargetFound = () => {
                     activeMindARId = i;
                     if (i === 0) {
-                        // Target 0: Große Fontäne, Soll-Kompass 335°
-                        // Der Funktion wird nun der Soll-Winkel übergeben
+                        // Bei Erkennung von Target 0: Simulation starten und Kompass auf 335° kalibrieren
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
-                        // Targets 4,5,6: Blumengarten, Soll-Kompass 22°
-                        // Der Funktion wird nun der Soll-Winkel übergeben
+                        // Bei Erkennung von Target 4,5,6: Simulation starten und Kompass auf 22° kalibrieren
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
                     } else if (i === 1 || i === 2 || i === 3) {
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
@@ -418,6 +431,7 @@
             loadModels();
             await mindarThree.start();
 
+            // Die Render-Schleife wird ca. 60 Mal pro Sekunde ausgeführt
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 const arucoFound = processArucoFrame(video);
@@ -435,7 +449,6 @@
                         } else {
                             isSimulatedPos = false;
                             if (realPos) lastPos = realPos;
-                            // Reset des Offsets wenn Simulation endet, optional, hier behalten wir ihn bei
                         }
                     } 
                     else if (activeMindARId >= 1 && activeMindARId <= 3) {
@@ -444,6 +457,7 @@
                     }
                 }
 
+                // Sichtbarkeit und Skalierung der MindAR-Modelle steuern
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
                     const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
@@ -463,9 +477,9 @@
 
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
+                // Steuerung der GNSS-Objekte (bei echter Position oder Simulation)
                 if (showSimulation || (!isMarkerTracking && gnssGroup)) {
                     gnssGroup.visible = true;
-                    // GNSS Gruppe Rotation verwendet nun den korrigierten 'heading' Wert
                     if (lastDeviceOrientation) {
                          const q = getDeviceQuaternion(lastDeviceOrientation);
                          gnssGroup.setRotationFromQuaternion(q.invert());
@@ -478,6 +492,7 @@
                     gnssGroup.visible = false;
                 }
 
+                // Partikel-Effekte synchronisieren
                 const handleParticles = (meshList, listType) => {
                     Object.entries(meshList).forEach(([key, m]) => {
                         let id = parseInt(key);
@@ -509,6 +524,7 @@
                 handleParticles(loadedMeshes, 'aruco'); 
                 handleParticles(mindARMeshes, 'mindar');
 
+                // Ausrichtung im Debug-Fenster anzeigen
                 let currentRotY = 0;
                 if (gnssGroup.visible) {
                      Object.keys(gnssMeshes).forEach(id => {
@@ -565,23 +581,21 @@
             return q;
         }
 
-        // Aktiviert die GNSS-Simulation für 30 Sekunden
-        // Akzeptiert nun einen optionalen Ziel-Winkel (targetHeading) für die Kompass-Korrektur
+        // Aktiviert die Simulation und berechnet ggf. den Kompass-Offset
         function activateSimulation(lat, lon, targetHeading) {
             isSimulatedPos = true;
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
             simulatedCoords = { lat: lat, lon: lon };
             activeMindARId = -1; 
             
-            // Wenn ein Ziel-Winkel übergeben wurde, wird der Kompass-Offset neu berechnet
+            // Wenn ein Ziel-Winkel (Soll-Wert) übergeben wird, wird der Offset neu berechnet
             if (typeof targetHeading === 'number') {
-                // Offset berechnen: Differenz zwischen dem bekannten Ziel-Winkel und dem rohen Sensorwert
-                // (Ziel - Roh + 360) % 360 sorgt für positive Werte
                 compassOffset = (targetHeading - rawHeading + 360) % 360;
                 console.log("Kompass kalibriert. Soll: " + targetHeading + ", Roh: " + rawHeading + ", Offset: " + compassOffset);
             }
         }
 
+        // Lädt die 3D-Modelle und wendet Skalierungen/Rotationen an
         function loadModels() {
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
@@ -607,11 +621,16 @@
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
 
+                    // Laden der GNSS-Version des Modells
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
-                        modelGNSS.rotation.y = 0; 
+                        
+                        // Hier wird die individuelle Start-Rotation angewendet (Task 2)
+                        // Falls 'initRotation' definiert ist, wird sie genutzt, sonst 0.
+                        const initRotDeg = config.initRotation || 0;
+                        modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
 
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
@@ -623,13 +642,20 @@
                         gnssMeshes[id] = modelGNSS;
                     }
 
+                    // Laden der MindAR-Version des Modells
                     if (config.mindTargetIndexes) {
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
                         config.mindTargetIndexes.forEach(targetIndex => {
                             if ([1, 2, 3, 4, 5, 6].includes(targetIndex) && mindarAnchors[targetIndex]) {
                                 const modelMind = gltf.scene.clone();
-                                const mindScale = config.scale * 0.015;
+                                let mindScale = config.scale * 0.015;
+
+                                // Task 4: Wenn Target ID 1, 2 oder 3 erkannt wird, soll das Modell nur halb so groß sein.
+                                if (targetIndex >= 1 && targetIndex <= 3) {
+                                    mindScale = mindScale * 0.5;
+                                }
+
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
                                 
                                 let rotationY = Math.PI;
@@ -656,6 +682,7 @@
             });
         }
 
+        // Aktualisiert die Anzeige der GNSS-Informationen
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -680,12 +707,10 @@
                 const latStr = lastPos.latitude.toFixed(5) + "°";
                 const lonStr = lastPos.longitude.toFixed(5) + "°";
                 const accStr = "± " + Math.round(lastPos.accuracy || 0) + " m";
-                // Zeigt den korrigierten Kompass-Wert an
                 const compassStr = Math.round(heading) + "°";
                 
                 let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
 
-                // Zusätzliche Info, falls eine Simulation läuft und ein Offset aktiv ist
                 let offsetInfo = "";
                 if (isSimulatedPos && compassOffset !== 0) {
                      offsetInfo = `<br><span class="label-small">Kompass-Korrektur</span> <span class="val-green">${Math.round(compassOffset)}°</span>`;
@@ -702,6 +727,7 @@
             }
         }
         
+        // Aktualisiert die Rotation des grünen Richtungspfeils
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -709,6 +735,8 @@
             }
             arrowContainer.style.opacity = 1;
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
+            // Der Pfeil zeigt die Differenz zwischen Zielrichtung (bearing) und aktueller Blickrichtung (heading) an.
+            // Die Blickrichtung 'heading' enthält bereits die magnetische Deklination und ggf. den manuellen Offset.
             const relativeAngle = (bearing - heading + 360) % 360;
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
@@ -879,7 +907,7 @@
             }
         }
 
-        // Orientierungsupdate (Kompass)
+        // Verarbeitung der Geräteausrichtung (Kompass)
         function onDeviceOrientation(e) {
             lastDeviceOrientation = {
                 alpha: e.alpha,
@@ -887,18 +915,19 @@
                 gamma: e.gamma
             };
 
-            // Rohdaten des Sensors ermitteln (je nach Gerätetyp iOS/Android)
+            // Rohdaten des Sensors abrufen (Unterscheidung iOS / Android)
             if (e.webkitCompassHeading) {
-                // iOS liefert direkt die Gradzahl (0=Nord, 90=Ost)
                 rawHeading = e.webkitCompassHeading;
             } else if (e.alpha !== null) {
-                // Android liefert 'alpha' gegen den Uhrzeigersinn, Umrechnung nötig
                 rawHeading = (360 - e.alpha) % 360;
             }
 
-            // Anwendung des Kompass-Offsets (Differenz) auf den Rohwert
-            // Der Offset wurde durch die Bilderkennung kalibriert
-            heading = (rawHeading + compassOffset) % 360;
+            // Berechnung des finalen Kompasswertes 'heading'.
+            // Dieser setzt sich zusammen aus:
+            // 1. Dem Sensor-Rohwert (rawHeading)
+            // 2. Der magnetischen Deklination (magDeclination), um Nordabweichung zu korrigieren.
+            // 3. Dem manuellen Offset (compassOffset), falls eine Bilderkennung stattgefunden hat.
+            heading = (rawHeading + magDeclination + compassOffset) % 360;
 
             if (lastPos) drawUserOnMap(lastPos);
         }
