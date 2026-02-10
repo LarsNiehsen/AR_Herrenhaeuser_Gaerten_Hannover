@@ -289,8 +289,8 @@
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853,
-                // Initiale Drehung auf 215° festgelegt (Anforderung GNSS)
-                initRotation: 215 
+                // Initiale Drehung auf 1° festgelegt für GNSS-Positionsplatzierung
+                initRotation: 1 
             },
             2: { 
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
@@ -722,6 +722,9 @@
                                 
                                 let rotationY = Math.PI;
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
+                                // Setzen der spezifischen Rotation für Target ID 3 auf 231 Grad
+                                if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(231);
+
                                 modelMind.rotation.y = rotationY; 
                                 
                                 if (id === 1 || [4,5,6].includes(targetIndex)) {
