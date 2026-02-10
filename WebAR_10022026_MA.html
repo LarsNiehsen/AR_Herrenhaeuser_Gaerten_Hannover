@@ -1,0 +1,1187 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <!-- 
+        Viewport-Einstellungen: 
+        Definiert den sichtbaren Bereich auf mobilen Geräten. 
+        'user-scalable=no' verhindert das Zoomen, um die AR-Darstellung stabil zu halten.
+    -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Herrenhäuser Gärten Hannover - Augmented Reality (AR)</title>
+    
+    <!-- Leaflet CSS: Lädt die Stilvorlagen für die 2D-Karte -->
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    
+    <!-- Importmap: Definiert Speicherorte für externe Module (Three.js und MindAR) -->
+    <script type="importmap">
+    {
+      "imports": {
+        "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+        "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/",
+        "mindar-image-three": "https://cdn.jsdelivr.net/npm/mind-ar@1.2.5/dist/mindar-image-three.prod.js"
+      }
+    }
+    </script>
+
+    <!-- CSS Styles: Visuelle Gestaltung der Benutzeroberfläche -->
+    <style>
+        /* Basis-Layout: Vollbild, schwarz, keine Scrollleisten */
+        body, html {
+            margin: 0; padding: 0; width: 100%; height: 100%;
+            overflow: hidden; background-color: #000;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        /* Video-Element wird von MindAR verwaltet, CSS blendet das Original aus */
+        #videoElement { display: none; }
+
+        /* Canvas über dem Video für Debug-Linien (ArUco) */
+        #videoCanvas {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 30; pointer-events: none;
+        }
+
+        /* Container für die 3D-Szene (Three.js) */
+        #container {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            z-index: 20; pointer-events: auto; overflow: hidden;
+        }
+
+        /* Standard-Design für UI-Elemente (halbtransparent, abgerundet) */
+        .ui-panel {
+            position: absolute; z-index: 100; background: rgba(0, 0, 0, 0.6);
+            border: 1px solid rgba(255, 255, 255, 0.2); color: white;
+            border-radius: 12px; backdrop-filter: blur(8px);
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: all 0.3s ease;
+        }
+
+        /* Debug-Informationen oben links */
+        #debugInfo {
+            top: 20px; left: 20px; padding: 15px; min-width: 200px;
+            max-width: calc(100% - 100px); font-size: 13px; pointer-events: none;
+        }
+
+        #debugInfo strong {
+            display: block; margin-bottom: 8px; color: #ffffff;
+            font-weight: bold; font-size: 11px; 
+            border-bottom: 1px solid rgba(255,255,255,0.3);
+            padding-bottom: 5px; line-height: 1.3;
+        }
+
+        /* Schließen-Button oben rechts */
+        #closeBtn {
+            top: 20px; right: 20px; width: 44px; height: 44px;
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 22px; cursor: pointer;
+            background: rgba(200, 40, 40, 0.85);
+            border: 1px solid rgba(255, 100, 100, 0.5);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); padding: 0; line-height: 1;
+        }
+        #closeBtn:active { transform: scale(0.95); }
+
+        /* Informationsfeld unten Mitte für 3D-Modelle */
+        #modelInfo {
+            position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
+            width: 85%; max-width: 400px; text-align: center; display: none; cursor: pointer; z-index: 200; 
+        }
+        #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
+        #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
+
+        /* Historisches Bild rechts Mitte */
+        #historicalInfo {
+            display: none; top: 50%; right: 20px; left: auto;
+            transform: translateY(-50%); width: 180px; padding: 10px; text-align: center; z-index: 250;
+        }
+        #historicalInfo h4 {
+            margin: 0 0 8px 0; font-size: 12px; color: #ffda85; 
+            border-bottom: 1px solid rgba(255,255,255,0.2); padding-bottom: 4px;
+        }
+        #historicalInfo img {
+            width: 100%; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        /* Kartensteuerung unten rechts */
+        #mapControls {
+            position: absolute; bottom: 20px; right: 20px; z-index: 150;
+            display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
+        }
+
+        #mapContainer {
+            position: relative; width: 240px; height: 180px;
+            border-radius: 12px; border: 1px solid rgba(255,255,255,0.3);
+            overflow: hidden; box-shadow: 0 10px 30px rgba(0,0,0,0.8);
+            display: none; pointer-events: auto;
+        }
+
+        #mapStations { width: 100%; height: 100%; }
+
+        .map-btn-overlay {
+            position: absolute; top: 5px; right: 5px;
+            display: flex; flex-direction: column; gap: 4px; z-index: 1000;
+        }
+
+        .icon-btn {
+            background: rgba(255, 255, 255, 0.9); border: none; border-radius: 4px; padding: 6px;
+            cursor: pointer; font-weight: bold; box-shadow: 0 2px 5px rgba(0,0,0,0.2); font-size: 14px;
+            display: flex; align-items: center; justify-content: center;
+        }
+
+        .bottom-right-btns { display: flex; gap: 12px; }
+
+        .action-btn {
+            width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+            font-size: 24px; font-weight: bold; cursor: pointer; position: relative;
+            padding: 0; line-height: 1;
+        }
+
+        /* Rotationssteuerung unten links */
+        #rotationControls {
+            position: absolute; bottom: 20px; left: 20px; z-index: 100; display: flex; gap: 12px;
+        }
+
+        .rotate-btn {
+            width: 52px; height: 52px; display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 26px; cursor: pointer; position: relative;
+            padding: 0; line-height: 1;
+        }
+
+        /* Tipp-Hinweis Mitte */
+        #clickHint {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
+            font-weight: bold; font-family: sans-serif;
+            z-index: 90; pointer-events: none; opacity: 0;
+            transition: opacity 0.5s; font-size: 1.3rem;
+            background: rgba(0,0,0,0.6); padding: 15px 25px; border-radius: 30px;
+            text-align: center; border: 1px solid rgba(255,255,255,0.3);
+        }
+
+        /* Richtungspfeil unten Mitte */
+        #direction-indicator {
+            position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
+            width: 70px; height: 70px;
+            background: rgba(0, 0, 0, 0.5);
+            border: 1px solid rgba(255, 255, 255, 0.2);
+            border-radius: 50%; z-index: 95;
+            display: flex; justify-content: center; align-items: center;
+            backdrop-filter: blur(4px); pointer-events: none; transition: opacity 0.5s; opacity: 0;
+        }
+        
+        #arrow {
+            width: 0; height: 0; border-left: 12px solid transparent; border-right: 12px solid transparent;
+            border-bottom: 30px solid #00ff00; /* Grüner Pfeil */
+            transform-origin: center 20px;
+            filter: drop-shadow(0 0 4px #00ff00); transform: rotate(0deg); transition: transform 0.2s ease-out;
+        }
+
+        .label-small { font-size: 11px; color: #bbb; margin-right: 5px; text-transform: uppercase; }
+        .val-highlight { color: #fff; font-weight: bold; }
+        .val-green { color: #4f4; font-weight: bold; }
+
+    </style>
+</head>
+<body>
+
+    <!-- Video-Element mit Autofokus-Attribut -->
+    <video id="videoElement" playsinline muted autoplay autofocus></video>
+    
+    <!-- 3D-Container -->
+    <div id="container"></div>
+    
+    <!-- 2D-Overlay Canvas -->
+    <canvas id="videoCanvas"></canvas>
+
+    <!-- Debug-Panel -->
+    <div id="debugInfo" class="ui-panel">
+        <strong id="debugTitle">Herrenhäuser Gärten - Augmented Reality (AR)</strong>
+        <div id="statusText">Starte System...<br><span style='color: #aaa;'>Initialisiere...</span></div>
+    </div>
+
+    <!-- Schließen -->
+    <div id="closeBtn" class="ui-panel" title="Schließen" onclick="window.history.length > 1 ? window.history.back() : window.close()">✕</div>
+
+    <!-- Historisches Bild -->
+    <div id="historicalInfo" class="ui-panel">
+        <h4>Kupferstich Große Fontäne um 1800</h4>
+        <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
+    </div>
+
+    <!-- Pfeil -->
+    <div id="direction-indicator">
+        <div id="arrow"></div>
+    </div>
+
+    <!-- Modell-Info -->
+    <div id="modelInfo" class="ui-panel">
+        <h3 id="objTitle">Titel</h3>
+        <p id="objText">Beschreibung</p>
+    </div>
+
+    <!-- Klick-Hinweis -->
+    <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
+
+    <!-- Karten-Controls -->
+    <div id="mapControls">
+        <div id="mapContainer">
+            <div id="mapStations"></div>
+            <div class="map-btn-overlay">
+                <button id="locateBtn" class="icon-btn" title="Standort">📍</button>
+                <button id="orientBtn" class="icon-btn" title="Ausrichtung">🧭</button>
+            </div>
+        </div>
+        <div class="bottom-right-btns">
+            <button id="toggleMapBtn" class="ui-panel action-btn">🗺️</button>
+            <button id="switchCamBtn" class="ui-panel action-btn">📷</button>
+        </div>
+    </div>
+
+    <!-- Rotations-Buttons -->
+    <div id="rotationControls">
+        <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
+        <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
+    </div>
+
+    <!-- Externe Skripte -->
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
+    <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
+    
+    <!-- Anwendungs-Logik -->
+    <script type="module">
+        // Importieren der Three.js Bibliothek für 3D-Grafiken
+        import * as THREE from 'three';
+        // Importieren des GLTF-Loaders zum Laden von 3D-Modellen
+        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
+        // Importieren der MindAR-Bibliothek für Bilderkennung im Browser
+        import { MindARThree } from 'mindar-image-three';
+
+        // --- KONFIGURATION DER ANWENDUNG ---
+        const markerSize = 100.0; // Definierte Größe der ArUco-Marker in mm
+        const selectedDictionary = 'ARUCO_MIP_36h12'; // Typ des verwendeten Markersets
+        const VISIBILITY_DISTANCE = 75.0; // Distanz (Meter), ab der GNSS-Objekte eingeblendet werden
+        
+        // Magnetische Deklination: Korrekturwert zwischen magnetischem Nordpol und geographischem Nordpol
+        // Für Hannover beträgt dieser Wert ca. 3.5° Ost. Erhöht die Präzision des Richtungspfeils.
+        const magDeclination = 3.5;
+
+        // Koordinaten für Simulationstrigger (Starten der Simulation bei Erkennung)
+        const target0Lat = 52.386444;
+        const target0Lon = 9.695780;
+
+        const targetBlumengartenLat = 52.388029;
+        const targetBlumengartenLon = 9.697794;
+        
+        // Konfiguration der 3D-Modelle
+        // 'initRotation': Anfangsdrehung des Modells in Grad für die GNSS-Ansicht
+        const AR_MODELS = {
+            0: { 
+                url: '3D_models/Koenig.glb', scale: 150.0, 
+                title: 'König Georg I.', info: 'Referenzmodell (ID 0)', link: null,
+                lat: null, lon: null, initRotation: 0 
+            },
+            1: { 
+                url: '3D_models/Statue_3D.glb', scale: 90.0, 
+                title: 'Niederdeutscher Blumengarten', 
+                info: 'Sandsteinstatue "Veritas" von 1730', 
+                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
+                mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
+                lat: 52.388196, lon: 9.697853,
+                // Initiale Drehung auf 1° festgelegt für GNSS-Positionsplatzierung
+                initRotation: 1 
+            },
+            2: { 
+                url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
+                title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', 
+                link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
+                lat: 52.389463, lon: 9.699207,
+                initRotation: 188 
+            },
+            3: { 
+                url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, 
+                title: 'Große Fontäne', info: 'Große Fontäne - Wahrzeichen des Großen Gartens', 
+                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+                isAnimated: true, mindTargetIndexes: [0],
+                lat: 52.386018, lon: 9.695975, initRotation: 0
+            },
+            33: { 
+                url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0,
+                title: 'Große Fontäne', info: 'Große Fontäne (Standort 2)',
+                link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
+                isAnimated: true,
+                lat: 52.388778, lon: 9.817775, initRotation: 0
+            }
+        };
+
+        // Stationen für die Kartenanzeige (Leaflet)
+        const stations = [
+            { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
+            { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
+            { title: 'Haupteingang mit Kasse', coords: [52.391185, 9.698368] },
+            { title: 'Niki de Saint Phalle - Grotte', coords: [52.390713, 9.696767] },
+            { title: 'Sommer - Statue', coords: [ 52.389583, 9.697833] },
+            { title: 'Borghesischer Fechter', coords: [52.389463, 9.699207] },
+            { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
+        ];
+
+        // Referenzen auf HTML-Elemente für den Zugriff im Code
+        const videoCanvas = document.getElementById('videoCanvas');
+        const statusText = document.getElementById('statusText');
+        const modelInfo = document.getElementById('modelInfo');
+        const objTitle = document.getElementById('objTitle');
+        const objText = document.getElementById('objText');
+        const clickHint = document.getElementById('clickHint');
+        const arrowContainer = document.getElementById('direction-indicator');
+        const arrowEl = document.getElementById('arrow');
+        const historicalInfo = document.getElementById('historicalInfo');
+
+        const switchCamBtn = document.getElementById('switchCamBtn');
+        const toggleMapBtn = document.getElementById('toggleMapBtn');
+        const rotLeftBtn = document.getElementById('rotLeftBtn');
+        const rotRightBtn = document.getElementById('rotRightBtn');
+        const mapEl = document.getElementById('mapStations');
+        const mapContainer = document.getElementById('mapContainer');
+        const locateBtn = document.getElementById('locateBtn');
+        const orientBtn = document.getElementById('orientBtn');
+
+        const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
+
+        // Globale Variablen
+        let activeLink = null;
+        let loadedMeshes = {}; // ArUco-Objekte
+        let mindARMeshes = {}; // MindAR-Objekte
+        let gnssMeshes = {};   // GNSS-Objekte
+        let detector, posit;   
+        let mindarThree, renderer, scene, camera;
+        let mindarAnchors = [];
+        let markerGroup, gnssGroup; 
+        
+        let lastPos = null; // Letzte GNSS-Position
+        let realPos = null; // Reale GNSS-Position
+        let heading = 0;    // Blickrichtung (korrigiert)
+        let rawHeading = 0; // Sensor-Rohdaten
+        let compassOffset = 0; // Kalibrierungsoffset
+        let lastDeviceOrientation = null; 
+        let mapStations, userLayer; 
+        let currentTrackingID = -1; 
+        let lossCounter = 0; 
+        const maxLossFrames = 30; 
+        let hintTimeout = null; 
+        let isMarkerTracking = false; 
+        let closestObjForArrow = null;
+
+        // Simulations-Variablen
+        let isSimulatedPos = false;
+        let simulationEndTime = 0;
+        let simulatedCoords = null;
+        const SIMULATION_PERSISTENCE = 30000; 
+
+        // MindAR-Tracking Variablen
+        let activeMindARId = -1; 
+        let activeMindAREndTime = 0; 
+        const STANDARD_PERSISTENCE = 10000; 
+
+        // Erstellung der Wasser-Partikel (Fontäne)
+        function createWaterEffect() {
+            const particleCount = 15000; 
+            const geometry = new THREE.BufferGeometry();
+            const positions = new Float32Array(particleCount * 3); 
+            const velocities = new Float32Array(particleCount * 3); 
+
+            for (let i = 0; i < particleCount; i++) {
+                positions[i*3] = 0; positions[i*3+1] = 0; positions[i*3+2] = 0;
+                velocities[i*3] = (Math.random() - 0.5) * 0.036;     
+                velocities[i*3+1] = (Math.random() * 0.3 + 0.15);    
+                velocities[i*3+2] = (Math.random() - 0.5) * 0.036;   
+            }
+
+            geometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            const material = new THREE.PointsMaterial({
+                color: 0xaaddff, size: 0.03, transparent: true, opacity: 0.8, blending: THREE.AdditiveBlending, depthWrite: false
+            });
+            const points = new THREE.Points(geometry, material);
+            points.userData.vels = velocities; 
+            points.frustumCulled = false; 
+            return points;
+        }
+
+        // Animation der Wasser-Partikel
+        function updateWaterEffect(points) {
+            const pos = points.geometry.attributes.position.array;
+            const vels = points.userData.vels;
+            const gravity = 0.003; 
+
+            for (let i = 0; i < pos.length / 3; i++) {
+                pos[i*3] += vels[i*3];     
+                pos[i*3+1] += vels[i*3+1]; 
+                pos[i*3+2] += vels[i*3+2]; 
+                vels[i*3+1] -= gravity; 
+
+                if (pos[i*3+1] < 0) {
+                    pos[i*3] = 0; pos[i*3+1] = 0; pos[i*3+2] = 0;
+                    vels[i*3] = (Math.random() - 0.5) * 0.036; 
+                    vels[i*3+1] = (Math.random() * 0.3 + 0.15); 
+                    vels[i*3+2] = (Math.random() - 0.5) * 0.036; 
+                }
+            }
+            points.geometry.attributes.position.needsUpdate = true; 
+        }
+
+        // Start der AR-Funktionen
+        const startAR = async () => {
+            mindarThree = new MindARThree({
+                container: document.querySelector("#container"),
+                imageTargetSrc: 'ImageMatching/GrosseFontaineInfo_NiederdeutscherBlumengarten_targets.mind',
+                uiLoading: "no", uiScanning: "no", uiError: "no",
+                filterMinCF: 0.0001, filterBeta: 0.001,
+                maxTrack: 2 
+            });
+
+            renderer = mindarThree.renderer;
+            scene = mindarThree.scene;
+            camera = mindarThree.camera;
+            camera.far = 50000; camera.updateProjectionMatrix();
+            renderer.setClearColor(0x000000, 0);
+            
+            scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
+            const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
+            dl.position.set(0, 500, 1000);
+            scene.add(dl);
+
+            markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
+            gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
+            
+            // Einrichtung der MindAR-Anker
+            for (let i = 0; i < 7; i++) {
+                const anchor = mindarThree.addAnchor(i);
+                anchor.onTargetFound = () => {
+                    activeMindARId = i;
+                    if (i === 0) {
+                        // Bei Erkennung Target 0: Simulation starten, Kompass auf 335°
+                        activateSimulation(target0Lat, target0Lon, 335);
+                    } else if (i === 4 || i === 5 || i === 6) {
+                        // Bei Erkennung Target 4-6: Simulation starten, Kompass auf 22°
+                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                    } else if (i === 1 || i === 2 || i === 3) {
+                         // Initialer Timer-Start bei Erkennung
+                         activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
+                    }
+                };
+                anchor.onTargetLost = () => {
+                    // Beim Verlust nicht sofort ausblenden, Timer läuft weiter
+                };
+                mindarAnchors[i] = anchor;
+            }
+
+            loadModels();
+            await mindarThree.start();
+
+            // Render-Schleife (wird kontinuierlich ausgeführt)
+            renderer.setAnimationLoop(() => {
+                const video = mindarThree.video;
+                const arucoFound = processArucoFrame(video);
+                
+                let showSimulation = false;
+                let showStandardMindAR = false;
+
+                // Logik für MindAR-Persistenz (Timer verlängern, solange Marker sichtbar)
+                // Wenn ein Target (ID 1, 2 oder 3) aktiv ist, prüfen wir, ob es noch getrackt wird.
+                // 'visible' ist true, solange MindAR das Bild erkennt.
+                if (activeMindARId >= 1 && activeMindARId <= 3) {
+                    if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
+                        // Solange sichtbar: Timer immer wieder auf "jetzt + 10s" setzen (schiebendes Fenster)
+                        activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
+                    }
+                }
+                
+                if (arucoFound) {
+                    activeMindARId = -1; 
+                } else {
+                    if (isSimulatedPos) {
+                        if (Date.now() < simulationEndTime) {
+                            showSimulation = true;
+                            if (simulatedCoords) lastPos = { latitude: simulatedCoords.lat, longitude: simulatedCoords.lon, accuracy: 1.5 };
+                        } else {
+                            isSimulatedPos = false;
+                            if (realPos) lastPos = realPos;
+                        }
+                    } 
+                    else if (activeMindARId >= 1 && activeMindARId <= 3) {
+                        // Anzeigen, solange die Zeit noch nicht abgelaufen ist
+                        if (Date.now() < activeMindAREndTime) showStandardMindAR = true;
+                        else activeMindARId = -1;
+                    }
+                }
+
+                // Sichtbarkeit und Skalierung der MindAR-Modelle
+                Object.keys(mindARMeshes).forEach(idStr => {
+                    const id = parseInt(idStr);
+                    // Der Aufruf wird hier nicht mehr benötigt, da wir unten eine spezifischere Prüfung auf den Anker-Index machen
+                    // const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
+                    
+                    if (mindARMeshes[id]) {
+                        mindARMeshes[id].forEach(mesh => {
+                            // WICHTIG: Wir prüfen hier, ob das Modell zu dem AKTUELL ERKANNTEN Marker (activeMindARId) gehört.
+                            // Wir nutzen dafür 'userData.anchorIndex', das wir beim Laden gespeichert haben.
+                            // So verhindern wir, dass das Modell von Marker 1 sichtbar wird, wenn eigentlich Marker 3 erkannt wurde.
+                            if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
+                                mesh.visible = true;
+                                if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
+                                updateUIForModel(id, "MindAR (Image)");
+                            } else {
+                                mesh.visible = false;
+                            }
+                        });
+                    }
+                });
+
+                isMarkerTracking = arucoFound || showStandardMindAR;
+
+                // GNSS-Gruppe (Positionsbasiert)
+                if (showSimulation || (!isMarkerTracking && gnssGroup)) {
+                    gnssGroup.visible = true;
+                    if (lastDeviceOrientation) {
+                         const q = getDeviceQuaternion(lastDeviceOrientation);
+                         gnssGroup.setRotationFromQuaternion(q.invert());
+                    } else {
+                         gnssGroup.rotation.set(0, -THREE.MathUtils.degToRad(heading), 0);
+                    }
+                    updateGNSSObjects();
+                    updateGNSSUI(); 
+                } else {
+                    gnssGroup.visible = false;
+                }
+
+                // Partikel-Effekte synchronisieren
+                const handleParticles = (meshList, listType) => {
+                    Object.entries(meshList).forEach(([key, m]) => {
+                        let id = parseInt(key);
+                        let meshes = Array.isArray(m) ? m : [m];
+                        
+                        meshes.forEach(mesh => {
+                            if (mesh.userData.particles) {
+                                if (mesh.visible) {
+                                    updateWaterEffect(mesh.userData.particles);
+                                    if (listType === 'aruco' && (id === 3 || id === 33)) {
+                                    } else {
+                                        const worldPos = new THREE.Vector3();
+                                        mesh.getWorldPosition(worldPos);
+                                        let yOffset = 0;
+                                        if (id === 3 || id === 33) yOffset = 4.0; 
+                                        mesh.userData.particles.position.copy(mesh.position);
+                                        mesh.userData.particles.position.y += yOffset;
+                                    }
+                                    mesh.userData.particles.visible = true;
+                                } else {
+                                    mesh.userData.particles.visible = false;
+                                }
+                            }
+                        });
+                    });
+                };
+
+                handleParticles(gnssMeshes, 'gnss');
+                handleParticles(loadedMeshes, 'aruco'); 
+                handleParticles(mindARMeshes, 'mindar');
+
+                // Debug-Anzeige Ausrichtung
+                let currentRotY = 0;
+                if (gnssGroup.visible) {
+                     Object.keys(gnssMeshes).forEach(id => {
+                         if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
+                     });
+                } 
+                else if (isMarkerTracking && activeMindARId !== -1) {
+                     Object.keys(mindARMeshes).forEach(idStr => {
+                         const id = parseInt(idStr);
+                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
+                             // Hier suchen wir nach dem *tatsächlich sichtbaren* Modell in der Liste der Modelle.
+                             // Da ein Modell (z.B. ID 1) mehreren Markern zugeordnet sein kann, gibt es mehrere Instanzen.
+                             // Wir wollen den Rotationswert von der Instanz, die gerade sichtbar ist (visible === true).
+                             mindARMeshes[id].forEach(mesh => {
+                                 if (mesh.visible) {
+                                     currentRotY = mesh.rotation.y;
+                                 }
+                             });
+                         }
+                     });
+                }
+                else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
+                     currentRotY = loadedMeshes[currentTrackingID].rotation.z;
+                }
+
+                let angleSpan = document.getElementById('debugAngle');
+                const displayDeg = Math.round(THREE.MathUtils.radToDeg(currentRotY) % 360);
+                const finalDeg = displayDeg < 0 ? displayDeg + 360 : displayDeg;
+                
+                if(!angleSpan) {
+                    const d = document.createElement('div');
+                    d.style.marginTop = "8px"; d.style.borderTop = "1px solid rgba(255,255,255,0.3)"; d.style.paddingTop = "5px";
+                    d.innerHTML = `<span class="label-small">Modell-Ausrichtung (Stehachse)</span><br><span id="debugAngle" class="val-highlight">${finalDeg}°</span>`;
+                    document.getElementById('debugInfo').appendChild(d);
+                } else {
+                    angleSpan.innerText = finalDeg + "°";
+                }
+
+                if (closestObjForArrow) updateArrow();
+                else arrowContainer.style.opacity = 0;
+
+                renderer.render(scene, camera);
+            });
+        }
+
+        // Berechnung der Geräte-Rotation
+        function getDeviceQuaternion(orientData) {
+            const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; 
+            const beta = orientData.beta ? THREE.MathUtils.degToRad(orientData.beta) : 0;   
+            const gamma = orientData.gamma ? THREE.MathUtils.degToRad(orientData.gamma) : 0; 
+            const orient = window.screen.orientation ? THREE.MathUtils.degToRad(window.screen.orientation.angle) : 0;
+
+            const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            const q = new THREE.Quaternion();
+            q.setFromEuler(euler);
+            
+            const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
+            q.multiply(q1);
+            const q2 = new THREE.Quaternion();
+            q2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -orient);
+            q.multiply(q2);
+            return q;
+        }
+
+        // Aktivierung der Simulation und Berechnung des Kompass-Offsets
+        // Berechnung des finalen Kompasswertes 'heading'.
+            // Dieser setzt sich zusammen aus:
+            // 1. Dem Sensor-Rohwert (rawHeading)
+            // 2. Der magnetischen Deklination (magDeclination), um Nordabweichung zu korrigieren.
+            // 3. Dem manuellen Offset (compassOffset), falls eine Bilderkennung stattgefunden hat.
+        function activateSimulation(lat, lon, targetHeading) {
+            isSimulatedPos = true;
+            simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
+            simulatedCoords = { lat: lat, lon: lon };
+            activeMindARId = -1; 
+            
+            if (typeof targetHeading === 'number') {
+                compassOffset = (targetHeading - rawHeading + 360) % 360;
+                console.log("Kompass kalibriert. Soll: " + targetHeading + ", Roh: " + rawHeading + ", Offset: " + compassOffset);
+            }
+        }
+
+        // Laden und Konfigurieren der 3D-Modelle
+        function loadModels() {
+            const loader = new GLTFLoader();
+            const ids = Object.keys(AR_MODELS);
+
+            ids.forEach(idStr => {
+                const id = parseInt(idStr);
+                const config = AR_MODELS[id];
+                
+                loader.load(config.url, (gltf) => {
+                    const modelAruco = gltf.scene.clone();
+                    modelAruco.scale.set(config.scale, config.scale, config.scale);
+                    modelAruco.rotation.x = Math.PI / 2; 
+                    if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
+                    
+                    if (id === 3 || id === 33) {
+                        const p = createWaterEffect();
+                        modelAruco.add(p); 
+                        p.position.set(0, 4.0, 0); 
+                        p.rotation.x = -Math.PI / 2;
+                        modelAruco.userData.particles = p; 
+                    }
+                    modelAruco.visible = false;
+                    markerGroup.add(modelAruco);
+                    loadedMeshes[id] = modelAruco;
+
+                    // GNSS-Version des Modells
+                    if (config.lat && config.lon) {
+                        const modelGNSS = gltf.scene.clone();
+                        const gnssScale = config.scale * 0.05; 
+                        modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
+                        
+                        // Setzen der initialen Rotation aus der Konfiguration
+                        const initRotDeg = config.initRotation || 0;
+                        modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
+
+                        if (id === 3 || id === 33) {
+                             const pG = createWaterEffect();
+                             modelGNSS.userData.particles = pG;
+                             gnssGroup.add(pG); 
+                        }
+                        modelGNSS.visible = false;
+                        gnssGroup.add(modelGNSS);
+                        gnssMeshes[id] = modelGNSS;
+                    }
+
+                    // MindAR-Version des Modells
+                    if (config.mindTargetIndexes) {
+                        if (!mindARMeshes[id]) mindARMeshes[id] = [];
+
+                        config.mindTargetIndexes.forEach(targetIndex => {
+                            if ([1, 2, 3, 4, 5, 6].includes(targetIndex) && mindarAnchors[targetIndex]) {
+                                const modelMind = gltf.scene.clone();
+                                let mindScale = config.scale * 0.015;
+
+                                // Reduzierung der Größe auf 50% für Targets 1-3
+                                if (targetIndex >= 1 && targetIndex <= 3) {
+                                    mindScale = mindScale * 0.5;
+                                }
+
+                                modelMind.scale.set(mindScale, mindScale, mindScale);
+                                
+                                let rotationY = Math.PI;
+                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
+                                // Setzen der spezifischen Rotation für Target ID 3 auf 231 Grad
+                                if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(231);
+
+                                modelMind.rotation.y = rotationY; 
+                                
+                                if (id === 1 || [4,5,6].includes(targetIndex)) {
+                                     modelMind.position.y = -2.0; 
+                                }
+
+                                if (id === 3 || id === 33) {
+                                     const pM = createWaterEffect();
+                                     modelMind.userData.particles = pM;
+                                     mindarAnchors[targetIndex].group.add(pM);
+                                }
+
+                                // WICHTIG: Speichern des Index in den User-Daten des Modells.
+                                // Dies ermöglicht uns später beim Rendern zu unterscheiden, welches der Modelle
+                                // zu welchem Marker gehört, auch wenn sie die gleiche ID haben.
+                                modelMind.userData.anchorIndex = targetIndex;
+
+                                mindarAnchors[targetIndex].group.add(modelMind);
+                                mindARMeshes[id].push(modelMind);
+                                modelMind.visible = false;
+                            }
+                        });
+                    }
+                });
+            });
+        }
+
+        // Anzeige der GNSS-Informationen
+        function updateGNSSUI() {
+            if (!lastPos) {
+                 statusText.innerHTML = "Warte auf GNSS Signal...";
+                 return;
+            }
+            let closestDist = 99999;
+            let closestObj = null;
+            Object.keys(AR_MODELS).forEach(key => {
+                const m = AR_MODELS[key];
+                if(m.lat && m.lon) {
+                    const dist = haversineDist(lastPos.latitude, lastPos.longitude, m.lat, m.lon);
+                    if(dist < closestDist) {
+                        closestDist = dist;
+                        closestObj = m;
+                    }
+                }
+            });
+            closestObjForArrow = closestObj;
+            
+            if (closestObj) {
+                const distStr = closestDist < 1000 ? Math.round(closestDist) + " m" : (closestDist/1000).toFixed(1) + " km";
+                const latStr = lastPos.latitude.toFixed(5) + "°";
+                const lonStr = lastPos.longitude.toFixed(5) + "°";
+                const accStr = "± " + Math.round(lastPos.accuracy || 0) + " m";
+                const compassStr = Math.round(heading) + "°";
+                
+                let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
+
+                let offsetInfo = "";
+                if (isSimulatedPos && compassOffset !== 0) {
+                     offsetInfo = `<br><span class="label-small">Kompass-Korrektur</span> <span class="val-green">${Math.round(compassOffset)}°</span>`;
+                }
+
+                statusText.innerHTML = `
+                    <span class="label-small">${sourceLabel}</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
+                    <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
+                    <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span>${offsetInfo}<br>
+                    <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
+                    <span class="label-small">POI</span> <span class="val-green">${closestObj.title}</span><br>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
+                `;
+            }
+        }
+        
+        // Aktualisierung des Richtungspfeils
+        function updateArrow() {
+            if (!lastPos || !closestObjForArrow) {
+                arrowContainer.style.opacity = 0;
+                return;
+            }
+            arrowContainer.style.opacity = 1;
+            const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
+            // Berechnung der Differenz zwischen Zielrichtung und Blickrichtung.
+            // Sowohl 'heading' als auch der Pfeil basieren auf derselben Kompass-Information (inkl. Deklination und Offset).
+            const relativeAngle = (bearing - heading + 360) % 360;
+            arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
+        }
+
+        // Aktualisierung der Positionen der GNSS-Modelle
+        function updateGNSSObjects() {
+            if (!lastPos) return;
+            
+            Object.keys(gnssMeshes).forEach(key => {
+                const id = parseInt(key);
+                const mesh = gnssMeshes[id];
+                const config = AR_MODELS[id];
+                if (config.lat && config.lon) {
+                    const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    
+                    if (dist < VISIBILITY_DISTANCE) {
+                        mesh.visible = true;
+                        
+                        if (id === 3 || id === 33) {
+                             historicalInfo.style.display = 'block';
+                        } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
+                             historicalInfo.style.display = 'none';
+                        }
+                        
+                        const heightY = -2.0; 
+                        const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                        mesh.position.set(offset.x, heightY, -offset.z); 
+                    } else {
+                        mesh.visible = false;
+                        if (id === 3 || id === 33) historicalInfo.style.display = 'none';
+                    }
+                }
+            });
+        }
+
+        // Haversine-Formel zur Abstandsberechnung
+        function haversineDist(lat1, lon1, lat2, lon2) {
+            const R = 6371e3; 
+            const rad = Math.PI/180;
+            const dLat = (lat2-lat1)*rad; const dLon = (lon2-lon1)*rad;
+            const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
+            return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+        }
+
+        // Berechnung des 3D-Versatzes aus GPS-Koordinaten
+        function calcOffset(lat1, lon1, lat2, lon2) {
+            const R = 6378137; 
+            const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
+            const lat1Rad = lat1 * Math.PI / 180;
+            const dx = dLon * Math.cos(lat1Rad) * R; const dz = dLat * R; 
+            return { x: dx, z: dz };
+        }
+        
+        // Berechnung des Winkels zum Ziel
+        function calculateBearing(startLat, startLng, destLat, destLng) {
+            const startLatRad = startLat * (Math.PI / 180); const startLngRad = startLng * (Math.PI / 180);
+            const destLatRad = destLat * (Math.PI / 180); const destLngRad = destLng * (Math.PI / 180);
+            const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
+            const x = Math.cos(startLatRad) * Math.sin(destLatRad) - Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
+            let brng = Math.atan2(y, x);
+            return ((brng * 180 / Math.PI) + 360) % 360;
+        }
+
+        // Verarbeitung des Kamerabildes für ArUco-Marker
+        function processArucoFrame(video) {
+            if (!video || video.readyState < video.HAVE_METADATA) return false;
+
+            const cw = videoCanvas.width; const ch = videoCanvas.height;
+            if (cw !== window.innerWidth || ch !== window.innerHeight) {
+                videoCanvas.width = window.innerWidth; videoCanvas.height = window.innerHeight;
+                posit = new POS.Posit(markerSize, window.innerWidth);
+            }
+
+            const vw = video.videoWidth; const vh = video.videoHeight;
+            const rV = vw / vh; const rC = cw / ch;
+            let sx, sy, sw, sh;
+            if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
+            else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
+            
+            context2D.clearRect(0, 0, cw, ch);
+            context2D.drawImage(video, sx, sy, sw, sh, 0, 0, cw, ch);
+            const imageData = context2D.getImageData(0, 0, cw, ch);
+            context2D.clearRect(0, 0, cw, ch); 
+
+            let markers = detector.detect(imageData);
+            markers = markers.filter(m => {
+                const d = Math.sqrt(Math.pow(m.corners[0].x - m.corners[1].x, 2) + Math.pow(m.corners[0].y - m.corners[1].y, 2));
+                return d > 30 && m.id !== 97; 
+            });
+
+            let found = false;
+            if (markers.length > 0) {
+                markers.forEach(marker => {
+                    drawRedBox(marker.corners); drawIdText(marker.corners, marker.id);
+                    const cornersCentered = marker.corners.map(c => ({ x: c.x - (cw / 2), y: (ch / 2) - c.y }));
+                    const pose = posit.pose(cornersCentered);
+                    
+                    if (pose) {
+                        const r = pose.bestRotation; const t = pose.bestTranslation;
+                        drawAxis(r, t, markerSize);
+                        const id = marker.id;
+                        if (AR_MODELS[id] && marker === markers[0]) {
+                            found = true; 
+                            lossCounter = 0;
+                            updatePoseUI(r, t, id, "ArUco");
+                            const targetPos = new THREE.Vector3(t[0], -t[1], -t[2]);
+                            const m = new THREE.Matrix4();
+                            m.set(r[0][0], r[0][1], r[0][2], 0, -r[1][0], -r[1][1], -r[1][2], 0, -r[2][0], -r[2][1], -r[2][2], 0, 0, 0, 0, 1);
+                            const fullQuat = new THREE.Quaternion().setFromRotationMatrix(m);
+                            const euler = new THREE.Euler().setFromQuaternion(fullQuat, 'YXZ');
+                            const uprightQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, euler.y, 0));
+                            updateActiveModelArUco(id, targetPos, uprightQuat);
+                        }
+                    }
+                });
+            }
+
+            if (!found) {
+                markerGroup.visible = false;
+                lossCounter++;
+                if (lossCounter > maxLossFrames) {
+                    if (currentTrackingID !== -1) {
+                            modelInfo.style.display = 'none';
+                            clickHint.style.opacity = 0;
+                            historicalInfo.style.display = 'none'; 
+                            currentTrackingID = -1;
+                    }
+                    if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
+                            statusText.innerHTML = "Warte auf GNSS Signal...";
+                    }
+                }
+            }
+            return found;
+        }
+
+        // Initialisierung der 2D-Karte
+        function initMap() {
+            mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
+            stations.forEach(s => { L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`); });
+            userLayer = L.layerGroup().addTo(mapStations);
+            locateBtn.addEventListener('click', (e) => { e.stopPropagation(); if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17); else mapStations.locate({ setView: true, maxZoom: 17 }); });
+            
+            orientBtn.addEventListener('click', async (e) => {
+                e.stopPropagation();
+                if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                    try { 
+                        const res = await DeviceOrientationEvent.requestPermission(); 
+                        if (res === 'granted') { 
+                            window.addEventListener('deviceorientation', onDeviceOrientation, true); 
+                            orientBtn.style.background = '#4f4'; 
+                        } 
+                    } catch (err) { console.warn(err); }
+                } else { 
+                    if ('ondeviceorientationabsolute' in window) {
+                        window.addEventListener('deviceorientationabsolute', onDeviceOrientation, true);
+                    } else {
+                        window.addEventListener('deviceorientation', onDeviceOrientation, true);
+                    }
+                    orientBtn.style.background = '#4f4'; 
+                }
+            });
+            setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
+        }
+
+        // Verarbeitung der GNSS-Position
+        function onPos(pos) {
+            realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
+            if (!isSimulatedPos) {
+                lastPos = realPos;
+                if (mapStations && !mapStations._userCentered) { mapStations.setView([lastPos.latitude, lastPos.longitude], 17); mapStations._userCentered = true; }
+                drawUserOnMap(lastPos);
+            } else {
+                if (lastPos) drawUserOnMap(lastPos);
+            }
+        }
+
+        // Verarbeitung der Geräteausrichtung (Kompass)
+        function onDeviceOrientation(e) {
+            lastDeviceOrientation = {
+                alpha: e.alpha,
+                beta: e.beta,
+                gamma: e.gamma
+            };
+
+            // Auslesen der Rohdaten je nach Betriebssystem
+            if (e.webkitCompassHeading) {
+                rawHeading = e.webkitCompassHeading;
+            } else if (e.alpha !== null) {
+                rawHeading = (360 - e.alpha) % 360;
+            }
+
+            // Berechnung des korrigierten Kompass-Wertes (inkl. Deklination und Offset)
+            heading = (rawHeading + magDeclination + compassOffset) % 360;
+
+            if (lastPos) drawUserOnMap(lastPos);
+        }
+
+        function drawUserOnMap(p) {
+            if (!userLayer) return; userLayer.clearLayers();
+            L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
+            const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
+            const url = 'data:image/svg+xml;base64,' + btoa(svg);
+            const icon = L.icon({ iconUrl: url, iconSize: [48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
+            L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
+        }
+
+        function project(point3d, rot, trans) {
+            const x = rot[0][0] * point3d[0] + rot[0][1] * point3d[1] + rot[0][2] * point3d[2] + trans[0];
+            const y = rot[1][0] * point3d[0] + rot[1][1] * point3d[1] + rot[1][2] * point3d[2] + trans[1];
+            const z = rot[2][0] * point3d[0] + rot[2][1] * point3d[1] + rot[2][2] * point3d[2] + trans[2];
+            if (z <= 0) return { x: -1000, y: -1000 };
+            const f = videoCanvas.width; const scale = f / z;
+            return { x: x * scale + (videoCanvas.width / 2), y: (videoCanvas.height / 2) - y * scale };
+        }
+
+        function drawAxis(rot, trans, len) {
+            const o = project([0, 0, 0], rot, trans);
+            const ax = project([len, 0, 0], rot, trans);
+            const ay = project([0, len, 0], rot, trans);
+            const az = project([0, 0, len], rot, trans);
+            context2D.lineWidth = 4;
+            context2D.strokeStyle = "red"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ax.x, ax.y); context2D.stroke();
+            context2D.strokeStyle = "lime"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(ay.x, ay.y); context2D.stroke();
+            context2D.strokeStyle = "blue"; context2D.beginPath(); context2D.moveTo(o.x, o.y); context2D.lineTo(az.x, az.y); context2D.stroke();
+        }
+
+        function drawRedBox(corners) {
+            context2D.lineWidth = 4; context2D.strokeStyle = "rgba(255, 0, 0, 0.7)";
+            context2D.beginPath();
+            corners.forEach((c, i) => { if (i === 0) context2D.moveTo(c.x, c.y); else context2D.lineTo(c.x, c.y); });
+            context2D.closePath(); context2D.stroke();
+        }
+
+        function drawIdText(corners, id, source = "ArUco") {
+            const pt = corners[0];
+            context2D.font = "bold 24px monospace"; context2D.textAlign = "left"; context2D.textBaseline = "bottom";
+            context2D.lineWidth = 4; context2D.strokeStyle = "black";
+            context2D.strokeText(`ID: ${id}`, pt.x, pt.y - 10);
+            context2D.fillStyle = "#00FFFF"; context2D.fillText(`ID: ${id}`, pt.x, pt.y - 10);
+        }
+
+        function updatePoseUI(r, t, id, source = "ArUco") {
+            const m = new THREE.Matrix4();
+            m.set(r[0][0], r[0][1], r[0][2], t[0], -r[1][0], -r[1][1], -r[1][2], -t[1], -r[2][0], -r[2][1], -r[2][2], -t[2], 0, 0, 0, 1);
+            const inv = m.clone().invert();
+            const pos = new THREE.Vector3(); const quat = new THREE.Quaternion(); const sc = new THREE.Vector3();
+            inv.decompose(pos, quat, sc);
+            const euler = new THREE.Euler().setFromQuaternion(quat);
+            const x = (pos.x / 10).toFixed(0); const y = (pos.y / 10).toFixed(0); const z = (pos.z / 10).toFixed(0);
+            const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
+            const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
+            const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
+
+            statusText.innerHTML = `
+                <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
+                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
+                    <span class="label-small">Position (Relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
+                </div>
+                <div style="margin-top:8px;">
+                    <span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
+                </div>
+            `;
+        }
+
+        function triggerHint() {
+            clickHint.style.opacity = 1;
+            if (hintTimeout) clearTimeout(hintTimeout);
+            hintTimeout = setTimeout(() => { clickHint.style.opacity = 0; }, 3000);
+        }
+
+        function updateUIForModel(id, sourceName) {
+            if (currentTrackingID !== id) {
+                currentTrackingID = id;
+                modelInfo.style.display = (id === 0 ? 'none' : 'block');
+                if (id === 3 || id === 33) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                objTitle.innerText = AR_MODELS[id].title;
+                objText.innerText = AR_MODELS[id].info;
+                activeLink = AR_MODELS[id].link;
+                triggerHint();
+            }
+        }
+
+        function updateActiveModelArUco(id, pos, quat) {
+            if (AR_MODELS[id]) {
+                Object.keys(loadedMeshes).forEach(key => { loadedMeshes[key].visible = (parseInt(key) === id); });
+                updateUIForModel(id, "ArUco");
+                markerGroup.visible = true;
+                markerGroup.position.lerp(pos, 0.2);
+                markerGroup.quaternion.slerp(quat, 0.2);
+            }
+        }
+
+        detector = new AR.Detector({ dictionaryName: selectedDictionary });
+        posit = new POS.Posit(markerSize, window.innerWidth);
+        initMap();
+        startAR();
+
+        switchCamBtn.addEventListener('click', () => { mindarThree.switchCamera(); });
+        toggleMapBtn.addEventListener('click', () => {
+            const isVisible = mapContainer.style.display === 'block';
+            if (isVisible) { mapContainer.style.display = 'none'; toggleMapBtn.innerText = '🗺️'; toggleMapBtn.style.background = 'rgba(30, 30, 30, 0.85)'; }
+            else { mapContainer.style.display = 'block'; toggleMapBtn.innerText = '✖'; toggleMapBtn.style.background = 'rgba(150, 0, 0, 0.85)'; if (mapStations) { setTimeout(() => mapStations.invalidateSize(), 50); } }
+        });
+
+        rotLeftBtn.addEventListener('click', () => { 
+            const ids = Object.keys(AR_MODELS);
+            ids.forEach(id => {
+                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
+                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
+            });
+        });
+        rotRightBtn.addEventListener('click', () => { 
+            const ids = Object.keys(AR_MODELS);
+             ids.forEach(id => {
+                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
+                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y += 0.2; });
+            });
+        });
+
+        modelInfo.addEventListener('click', () => { if (activeLink) window.open(activeLink, '_blank'); });
+        
+        document.body.addEventListener('click', (event) => {
+            if (!camera) return;
+            const mouse = new THREE.Vector2();
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1; mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+            const raycaster = new THREE.Raycaster(); raycaster.setFromCamera(mouse, camera);
+            let objectsToCheck = [];
+            Object.values(loadedMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
+            Object.values(mindARMeshes).forEach(meshArray => {
+                if (Array.isArray(meshArray)) { meshArray.forEach(m => { if(m.visible) objectsToCheck.push(m); }); }
+            });
+            Object.values(gnssMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
+            
+            if(objectsToCheck.length === 0) return;
+            const intersects = raycaster.intersectObjects(objectsToCheck, true);
+            if (intersects.length > 0) {
+                let clickedObj = intersects[0].object;
+                while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
+                     for(let [key, val] of Object.entries(gnssMeshes)) {
+                         if(val === clickedObj) {
+                             activeLink = AR_MODELS[key].link;
+                             let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
+                             updateUIForModel(parseInt(key), label);
+                             window.open(activeLink, '_blank');
+                             return;
+                         }
+                     }
+                     for(let id in mindARMeshes) {
+                         if(mindARMeshes[id].includes(clickedObj)) {
+                             activeLink = AR_MODELS[id].link;
+                             updateUIForModel(parseInt(id), "MindAR");
+                             window.open(activeLink, '_blank');
+                             return;
+                         }
+                     }
+                     clickedObj = clickedObj.parent;
+                }
+                if (currentTrackingID !== -1 && activeLink) window.open(activeLink, '_blank');
+            }
+        });
+
+    </script>
+</body>
+</html>
