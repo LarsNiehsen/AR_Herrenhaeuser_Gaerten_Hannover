@@ -565,6 +565,10 @@
                     Object.keys(gnssMeshes).forEach(key => {
                         if (gnssMeshes[key]) gnssMeshes[key].visible = false;
                     });
+                    // Kamera-Rotation zurücksetzen damit MindAR sie korrekt verwaltet
+                    camera.rotation.order = 'YXZ';
+                    camera.rotation.set(0, 0, 0);
+                    camera.quaternion.set(0, 0, 0, 1);
                 }
 
                 // Partikel-Effekte synchronisieren
@@ -675,7 +679,7 @@
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
             simulatedCoords = { lat: lat, lon: lon };
             simulatedFromMindARTarget = mindARTarget; // Speichern des MINDAR-Targets
-            activeMindARId = -1; 
+            // activeMindARId wird NICHT zurückgesetzt - das MINDAR-Modell muss sichtbar bleiben!
             
             if (typeof targetHeading === 'number') {
                 compassOffset = (targetHeading - rawHeading + 360) % 360;
