@@ -610,15 +610,17 @@
                          if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
                      });
                 } 
-                else if (isMarkerTracking && activeMindARId !== -1) {
+                else if (isMarkerTracking && activeMindARId >= 0 && activeMindARId <= 6) {
+                     // Bei MINDAR: Suche nach sichtbaren Modellen die zu diesem Anchor gehören
                      Object.keys(mindARMeshes).forEach(idStr => {
-                         const id = parseInt(idStr);
-                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
-                             // Hier suchen wir nach dem *tatsächlich sichtbaren* Modell in der Liste der Modelle.
+
+                         // Hier suchen wir nach dem *tatsächlich sichtbaren* Modell in der Liste der Modelle.
                              // Da ein Modell (z.B. ID 1) mehreren Markern zugeordnet sein kann, gibt es mehrere Instanzen.
                              // Wir wollen den Rotationswert von der Instanz, die gerade sichtbar ist (visible === true).
-                             mindARMeshes[id].forEach(mesh => {
-                                 if (mesh.visible) {
+                            
+                         if (mindARMeshes[idStr]) {
+                             mindARMeshes[idStr].forEach(mesh => {
+                                 if (mesh.visible && mesh.userData.anchorIndex === activeMindARId) {
                                      currentRotY = mesh.rotation.y;
                                  }
                              });
@@ -626,6 +628,7 @@
                      });
                 }
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
+                     // Bei ArUco: rotation.z verwenden
                      currentRotY = loadedMeshes[currentTrackingID].rotation.z;
                 }
 
