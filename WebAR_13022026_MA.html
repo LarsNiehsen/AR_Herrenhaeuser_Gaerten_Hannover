@@ -371,6 +371,10 @@
         let hintTimeout = null; 
         let isMarkerTracking = false; 
         let closestObjForArrow = null;
+        
+        // Rotations-Tracking für korrekte Debug-Anzeige und Synchronisierung
+        let modelInitialRotations = {}; // Speicherung der initialen Rotation pro Modell
+        let modelCurrentRotations = {};  // Tracking der aktuellen Rotation pro Modell
 
         // Simulations-Variablen
         let isSimulatedPos = false;
@@ -597,31 +601,33 @@
                             }
                         });
                     });
+                                handleParticles(gnssMeshes, 'gnss');
+                                handleParticles(loadedMeshes, 'aruco'); 
+                                handleParticles(mindARMeshes, 'mindar');
                 };
 
-                handleParticles(gnssMeshes, 'gnss');
-                handleParticles(loadedMeshes, 'aruco'); 
-                handleParticles(mindARMeshes, 'mindar');
-
-                // Debug-Anzeige Ausrichtung
+                // Debug-Anzeige Ausrichtung - Korrekte Synchronisierung mit aktuellem Modell
                 let currentRotY = 0;
+                let displayingModelId = -1;
+                
                 if (gnssGroup.visible) {
                      Object.keys(gnssMeshes).forEach(id => {
-                         if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
+                         if(gnssMeshes[id].visible) {
+                             currentRotY = gnssMeshes[id].rotation.y;
+                             displayingModelId = id;
+                             modelCurrentRotations[id] = currentRotY;
+                         }
                      });
                 } 
                 else if (isMarkerTracking && activeMindARId >= 0 && activeMindARId <= 6) {
                      // Bei MINDAR: Suche nach sichtbaren Modellen die zu diesem Anchor gehören
                      Object.keys(mindARMeshes).forEach(idStr => {
-
-                         // Hier suchen wir nach dem *tatsächlich sichtbaren* Modell in der Liste der Modelle.
-                             // Da ein Modell (z.B. ID 1) mehreren Markern zugeordnet sein kann, gibt es mehrere Instanzen.
-                             // Wir wollen den Rotationswert von der Instanz, die gerade sichtbar ist (visible === true).
-                            
                          if (mindARMeshes[idStr]) {
                              mindARMeshes[idStr].forEach(mesh => {
                                  if (mesh.visible && mesh.userData.anchorIndex === activeMindARId) {
                                      currentRotY = mesh.rotation.y;
+                                     displayingModelId = parseInt(idStr);
+                                     modelCurrentRotations[displayingModelId] = currentRotY;
                                  }
                              });
                          }
@@ -630,6 +636,8 @@
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
                      // Bei ArUco: rotation.z verwenden
                      currentRotY = loadedMeshes[currentTrackingID].rotation.z;
+                     displayingModelId = currentTrackingID;
+                     modelCurrentRotations[currentTrackingID] = currentRotY;
                 }
 
                 let angleSpan = document.getElementById('debugAngle');
@@ -687,6 +695,32 @@
             if (typeof targetHeading === 'number') {
                 compassOffset = (targetHeading - rawHeading + 360) % 360;
                 console.log("Kompass kalibriert. Soll: " + targetHeading + ", Roh: " + rawHeading + ", Offset: " + compassOffset);
+                
+                // Synchronisierung der GNSS-Modelle mit der erkannten MindAR-Ausrichtung
+                // Die GNSS-Modelle werden so rotiert, dass ihre Ausrichtung der MindAR-Ausrichtung entspricht
+                Object.keys(gnssMeshes).forEach(id => {
+                    const config = AR_MODELS[id];
+                    if (config && config.mindTargetIndexes && config.mindTargetIndexes.includes(mindARTarget)) {
+                        // Suche das sichtbare MindAR-Modell für die Ausrichtung
+                        let mindARModel = null;
+                        if (mindARMeshes[id]) {
+                            for (let m of mindARMeshes[id]) {
+                                if (m.visible && m.userData.anchorIndex === mindARTarget) {
+                                    mindARModel = m;
+                                    break;
+                                }
+                            }
+                        }
+                        
+                        if (mindARModel) {
+                            // Übernehme die Rotation des MindAR-Modells auf das GNSS-Modell
+                            gnssMeshes[id].rotation.y = mindARModel.rotation.y;
+                            modelCurrentRotations[id] = mindARModel.rotation.y;
+                            modelInitialRotations[id] = THREE.MathUtils.degToRad(config.initRotation || 0);
+                            console.log("GNSS-Modell " + id + " mit MindAR-Ausrichtung synchronisiert");
+                        }
+                    }
+                });
             }
         }
 
@@ -715,6 +749,9 @@
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
+                    // Speichere die initiale Rotation für ArUco
+                    modelInitialRotations[id] = Math.PI / 2;
+                    modelCurrentRotations[id] = Math.PI / 2;
 
                     // GNSS-Version des Modells
                     if (config.lat && config.lon) {
@@ -724,7 +761,11 @@
                         
                         // Setzen der initialen Rotation aus der Konfiguration
                         const initRotDeg = config.initRotation || 0;
-                        modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
+                        const initRotRad = THREE.MathUtils.degToRad(initRotDeg);
+                        modelGNSS.rotation.y = initRotRad;
+                        // Speichere die initiale Rotation
+                        modelInitialRotations[id] = initRotRad;
+                        modelCurrentRotations[id] = initRotRad; 
 
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
@@ -758,7 +799,10 @@
                                 // Setzen der spezifischen Rotation für Target ID 3 auf 231 Grad
                                 if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(231);
 
-                                modelMind.rotation.y = rotationY; 
+                                modelMind.rotation.y = rotationY;
+                                // Speichere die Rotation für später
+                                if (!modelCurrentRotations[id]) modelCurrentRotations[id] = rotationY;
+                                if (!modelInitialRotations[id]) modelInitialRotations[id] = rotationY; 
                                 
                                 if (id === 1 || [4,5,6].includes(targetIndex)) {
                                      modelMind.position.y = -2.0; 
@@ -1140,6 +1184,10 @@
                 markerGroup.visible = true;
                 markerGroup.position.lerp(pos, 0.2);
                 markerGroup.quaternion.slerp(quat, 0.2);
+                // Speichere die aktuelle Rotation für die Debug-Anzeige
+                if (loadedMeshes[id]) {
+                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
+                }
             }
         }
 
@@ -1158,17 +1206,43 @@
         rotLeftBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
             ids.forEach(id => {
-                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
-                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
+                if(loadedMeshes[id] && loadedMeshes[id].visible) {
+                    loadedMeshes[id].rotation.z -= 0.2;
+                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
+                }
+                if(gnssMeshes[id] && gnssMeshes[id].visible) {
+                    gnssMeshes[id].rotation.y -= 0.2;
+                    modelCurrentRotations[id] = gnssMeshes[id].rotation.y;
+                }
+                if(mindARMeshes[id]) {
+                    mindARMeshes[id].forEach(m => {
+                        if(m.visible) {
+                            m.rotation.y -= 0.2;
+                            modelCurrentRotations[id] = m.rotation.y;
+                        }
+                    });
+                }
             });
         });
         rotRightBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
-             ids.forEach(id => {
-                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
-                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y += 0.2; });
+            ids.forEach(id => {
+                if(loadedMeshes[id] && loadedMeshes[id].visible) {
+                    loadedMeshes[id].rotation.z += 0.2;
+                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
+                }
+                if(gnssMeshes[id] && gnssMeshes[id].visible) {
+                    gnssMeshes[id].rotation.y += 0.2;
+                    modelCurrentRotations[id] = gnssMeshes[id].rotation.y;
+                }
+                if(mindARMeshes[id]) {
+                    mindARMeshes[id].forEach(m => {
+                        if(m.visible) {
+                            m.rotation.y += 0.2;
+                            modelCurrentRotations[id] = m.rotation.y;
+                        }
+                    });
+                }
             });
         });
 
