@@ -1,0 +1,341 @@
+
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <meta name="theme-color" content="#064e3b">
+    <title>Gartenbegleiter - Herrenhäuser Gärten</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;600&display=swap');
+
+        body { 
+            margin: 0; padding: 0; overflow: hidden; 
+            background-color: #000; color: white; user-select: none;
+            font-family: 'Inter', sans-serif;
+        }
+        h1, h2 { font-family: 'Playfair Display', serif; }
+        canvas { display: block; }
+        
+        .royal-glass { 
+            background: rgba(6, 78, 59, 0.85); 
+            backdrop-filter: blur(16px); 
+            -webkit-backdrop-filter: blur(16px);
+            border: 1px solid rgba(251, 191, 36, 0.3); 
+        }
+
+        @keyframes scan-line {
+            0% { top: 0%; opacity: 0; }
+            10% { opacity: 1; }
+            90% { opacity: 1; }
+            100% { top: 100%; opacity: 0; }
+        }
+        .animate-scan {
+            animation: scan-line 10s linear infinite;
+        }
+
+        .border-gold { border-color: #fbbf24; }
+        .text-gold { color: #fbbf24; }
+        .bg-gold { background-color: #fbbf24; }
+        
+        /* Custom scrollbar for target list if needed */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+    </style>
+    <script type="importmap">
+    {
+      "imports": {
+        "react": "https://esm.sh/react@19.0.0",
+        "react-dom": "https://esm.sh/react-dom@19.0.0/client",
+        "three": "https://esm.sh/three@0.170.0",
+        "tesseract.js": "https://esm.sh/tesseract.js@5.1.1",
+        "htm": "https://esm.sh/htm@3.1.1"
+      }
+    }
+    </script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="module">
+        import React, { useState, useEffect, useRef } from 'react';
+        import { createRoot } from 'react-dom';
+        import * as THREE from 'three';
+        import { createWorker } from 'tesseract.js';
+        import htm from 'htm';
+
+        const html = htm.bind(React.createElement);
+
+        // Die zu erkennenden Begriffe
+        const TARGET_PHRASES = [
+            "skulpturengarten",
+            "niederdeutscher blumengarten",
+            "große fontaine",
+            "gartentheater"
+        ];
+        
+        const PERSISTENCE_MS = 6000;
+
+        const App = () => {
+            const [status, setStatus] = useState('LOADING'); // LOADING, READY, SCANNING, ERROR
+            const [error, setError] = useState(null);
+            const [lastFound, setLastFound] = useState("");
+            
+            return html`
+                <div className="relative w-full h-screen overflow-hidden bg-emerald-950">
+                    <${ARScanner} 
+                        onStatus=${setStatus} 
+                        onError=${setError} 
+                        onFound=${setLastFound}
+                    />
+                    
+                    <!-- UI Overlay -->
+                    <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
+                        <header className="flex justify-between items-start pointer-events-auto">
+                            <div className="royal-glass px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg">
+                                <div className=${`w-2 h-2 rounded-full ${status === 'SCANNING' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
+                                <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-100">
+                                    ${status === 'SCANNING' ? 'Analysiere Tafel...' : 'Scanner Bereit'}
+                                </span>
+                            </div>
+                        </header>
+
+                        <!-- Fokus-Bereich -->
+                        <div className="flex-1 flex flex-col items-center justify-center">
+                            <div className="relative w-[85vw] h-[30vh] max-w-md border border-white/5 bg-emerald-900/5 rounded-3xl overflow-hidden">
+                                <!-- Ecken -->
+                                <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-gold rounded-tl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute top-0 right-0 w-12 h-12 border-t-2 border-r-2 border-gold rounded-tr-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute bottom-0 left-0 w-12 h-12 border-b-2 border-l-2 border-gold rounded-bl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-gold rounded-br-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                
+                                <!-- Scan-Linie -->
+                                <div className="absolute left-0 right-0 h-0.5 bg-red-500 shadow-[0_0_20px_rgba(239,68,68,1)] z-10 animate-scan" />
+                                
+                                <div className="absolute inset-0 flex flex-col items-center justify-center opacity-10">
+                                    <span className="text-[8px] uppercase tracking-[0.6em] font-bold text-amber-200">Informationstafel erfassen</span>
+                                </div>
+                            </div>
+                            
+                            ${lastFound && html`
+                                <div className="mt-6 royal-glass px-6 py-3 rounded-full border border-amber-400/50 flex items-center gap-3 animate-bounce">
+                                    <p className="text-xs text-amber-100 font-bold tracking-wider uppercase">
+                                        Gefunden: <span className="text-white underline decoration-amber-400">${lastFound}</span>
+                                    </p>
+                                </div>
+                            `}
+                        </div>
+
+                        <!-- Footer -->
+                        <footer className="royal-glass p-6 rounded-3xl border border-amber-400/20 pointer-events-auto shadow-2xl mb-4">
+                            <h1 className="text-xl font-bold tracking-tight text-amber-100 italic mb-3">
+                                Herrenhäuser Gärten
+                            </h1>
+                            <div className="flex flex-wrap gap-2 mb-4">
+                                ${TARGET_PHRASES.map(p => html`
+                                    <span key=${p} className="text-[9px] px-2 py-1 rounded bg-emerald-800/50 text-amber-100/70 border border-white/5 uppercase tracking-tighter">
+                                        ${p}
+                                    </span>
+                                `)}
+                            </div>
+                            <p className="text-[10px] text-amber-100/60 leading-relaxed italic">
+                                Scannen Sie Informationstafeln im Großen Garten für weitere Details.
+                            </p>
+                        </footer>
+                    </div>
+
+                    <!-- Ladebildschirm -->
+                    ${status === 'LOADING' && html`
+                        <div className="absolute inset-0 bg-[#064e3b] z-50 flex flex-col items-center justify-center text-center p-10">
+                            <div className="w-16 h-16 border-b-2 border-amber-400 rounded-full animate-spin mb-8" />
+                            <h2 className="text-2xl font-bold italic text-amber-100">Gartenbegleiter</h2>
+                            <p className="text-[10px] uppercase tracking-[0.4em] text-amber-100/40 mt-4 leading-loose">
+                                INITIALISIERUNG<br/>HERRENHÄUSER GÄRTEN
+                            </p>
+                        </div>
+                    `}
+
+                    <!-- Fehler -->
+                    ${status === 'ERROR' && html`
+                        <div className="absolute inset-0 bg-emerald-950 z-50 flex flex-col items-center justify-center p-12 text-center">
+                            <h2 className="text-2xl font-bold italic mb-4 text-red-200">Kamerafehler</h2>
+                            <p className="text-sm text-emerald-100/60 mb-8 leading-relaxed">${error || "Bitte erlauben Sie den Kamerazugriff in Ihren Browsereinstellungen."}</p>
+                            <button onClick=${() => window.location.reload()} className="bg-amber-400 text-emerald-950 px-10 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">
+                                Erneut versuchen
+                            </button>
+                        </div>
+                    `}
+                </div>
+            `;
+        };
+
+        const ARScanner = ({ onStatus, onError, onFound }) => {
+            const containerRef = useRef();
+            const lastFoundTimeRef = useRef(0);
+            const workerRef = useRef(null);
+
+            useEffect(() => {
+                let active = true;
+                let renderer, scene, camera, highlight, video, stream;
+
+                const start = async () => {
+                    try {
+                        stream = await navigator.mediaDevices.getUserMedia({
+                            video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
+                        });
+                        if (!active) return;
+
+                        video = document.createElement('video');
+                        video.srcObject = stream;
+                        video.setAttribute('playsinline', 'true');
+                        video.autoplay = true;
+                        await video.play();
+
+                        scene = new THREE.Scene();
+                        camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
+                        camera.position.z = 5;
+
+                        renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+                        renderer.setSize(window.innerWidth, window.innerHeight);
+                        renderer.setPixelRatio(window.devicePixelRatio);
+                        if (containerRef.current) containerRef.current.appendChild(renderer.domElement);
+
+                        const texture = new THREE.VideoTexture(video);
+                        scene.background = texture;
+
+                        // Rote Markierung
+                        const geo = new THREE.PlaneGeometry(1, 1);
+                        const mat = new THREE.MeshBasicMaterial({ 
+                            color: 0xff0000, 
+                            transparent: true, 
+                            opacity: 0.5, 
+                            side: THREE.DoubleSide 
+                        });
+                        highlight = new THREE.Mesh(geo, mat);
+                        highlight.visible = false;
+                        scene.add(highlight);
+
+                        const outline = new THREE.LineSegments(
+                            new THREE.EdgesGeometry(geo),
+                            new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 4 })
+                        );
+                        highlight.add(outline);
+
+                        // Tesseract Setup
+                        const worker = await createWorker('deu');
+                        if (!active) return;
+                        workerRef.current = worker;
+
+                        onStatus('READY');
+
+                        const animate = () => {
+                            if (!active) return;
+                            // Persistence Check
+                            if (highlight.visible && Date.now() - lastFoundTimeRef.current > PERSISTENCE_MS) {
+                                highlight.visible = false;
+                                onFound("");
+                            }
+                            renderer.render(scene, camera);
+                            requestAnimationFrame(animate);
+                        };
+                        animate();
+
+                        const ocrLoop = async () => {
+                            if (!active || !workerRef.current) return;
+                            onStatus('SCANNING');
+
+                            const canvas = document.createElement('canvas');
+                            // ROI: Etwas breiter und höher für Zeilenumbrüche
+                            const roiW = video.videoWidth * 0.8;
+                            const roiH = video.videoHeight * 0.5;
+                            const roiX = (video.videoWidth - roiW) / 2;
+                            const roiY = (video.videoHeight - roiH) / 2;
+                            
+                            canvas.width = roiW;
+                            canvas.height = roiH;
+                            const ctx = canvas.getContext('2d');
+                            if (ctx) {
+                                ctx.drawImage(video, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
+                                try {
+                                    const { data } = await workerRef.current.recognize(canvas);
+                                    // Text normalisieren: Zeilenumbrüche zu Leerzeichen, Kleinschreibung
+                                    const fullText = data.text.toLowerCase().replace(/\s+/g, ' ').trim();
+                                    
+                                    let bestMatch = null;
+                                    for(const phrase of TARGET_PHRASES) {
+                                        if (fullText.includes(phrase)) {
+                                            bestMatch = phrase;
+                                            break;
+                                        }
+                                    }
+
+                                    if (bestMatch && highlight) {
+                                        // Wörter finden, die Teil der Phrase sind
+                                        const phraseParts = bestMatch.split(' ');
+                                        const matchWords = data.words.filter(w => 
+                                            phraseParts.some(p => w.text.toLowerCase().includes(p))
+                                        );
+
+                                        if (matchWords.length > 0) {
+                                            let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
+                                            matchWords.forEach(w => {
+                                                minX = Math.min(minX, w.bbox.x0);
+                                                minY = Math.min(minY, w.bbox.y0);
+                                                maxX = Math.max(maxX, w.bbox.x1);
+                                                maxY = Math.max(maxY, w.bbox.y1);
+                                            });
+
+                                            // Koordination in Three.js NDC konvertieren
+                                            const cx = roiX + (minX + maxX) / 2;
+                                            const cy = roiY + (minY + maxY) / 2;
+                                            const ndcX = (cx / video.videoWidth) * 2 - 1;
+                                            const ndcY = -((cy / video.videoHeight) * 2 - 1);
+
+                                            highlight.position.set(ndcX * 4.4, ndcY * 2.6, 0.1);
+                                            highlight.scale.set(
+                                                ((maxX - minX) / video.videoWidth) * 9, 
+                                                ((maxY - minY) / video.videoHeight) * 6, 
+                                                1
+                                            );
+                                            highlight.visible = true;
+                                            lastFoundTimeRef.current = Date.now();
+                                            onFound(bestMatch.toUpperCase());
+                                        }
+                                    }
+                                } catch (e) { console.error("OCR Error:", e); }
+                            }
+                            onStatus('READY');
+                            // Schnellere Intervalle für flüssigere AR-Erfahrung
+                            setTimeout(ocrLoop, 800); 
+                        };
+                        ocrLoop();
+
+                    } catch (err) {
+                        console.error("Initialization Error:", err);
+                        onError(err.message);
+                        onStatus('ERROR');
+                    }
+                };
+
+                start();
+
+                return () => {
+                    active = false;
+                    if (workerRef.current) workerRef.current.terminate();
+                    if (renderer) renderer.dispose();
+                    if (stream) stream.getTracks().forEach(t => t.stop());
+                };
+            }, []);
+
+            return html`<div ref=${containerRef} className="absolute inset-0" />`;
+        };
+
+        const rootElement = document.getElementById('root');
+        if (rootElement) {
+            const root = createRoot(rootElement);
+            root.render(React.createElement(App));
+        }
+    </script>
+</body>
+</html>
