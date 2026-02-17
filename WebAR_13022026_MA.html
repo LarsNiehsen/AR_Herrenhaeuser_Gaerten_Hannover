@@ -433,31 +433,47 @@
         function createMeasureBar() {
             const group = new THREE.Group();
             
-            // Linie von 0 bis 70m Höhe (wird als 3.5 Units in Three.js Einheiten dargestellt: 70/20)
-            // Position: neben dem Modell bei x=2.5, damit es selbst bei 5%-GNSS-Skalierung sichtbar ist
+            // Linie von 0 bis 70m Höhe - BLAU (0x0000ff), mittig im Modell (x=0)
             const lineGeometry = new THREE.BufferGeometry();
             const positions = new Float32Array([
-                2.5, 0, 0,      // Unten
-                2.5, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
+                0, 0, 0,        // Unten
+                0, 3.5, 0       // Oben (70m / 20 Skalierungsfaktor)
             ]);
             lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
-            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 4, fog: false });
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 4, fog: false });
             const line = new THREE.Line(lineGeometry, lineMaterial);
             group.add(line);
             
-            // Markierungen oben und unten - größer für bessere Sichtbarkeit
+            // Markierungen oben und unten
             const markGeometry = new THREE.BufferGeometry();
             const markPositions = new Float32Array([
-                2.0, 0, 0,      // Unten Marke links
-                3.0, 0, 0,      // Unten Marke rechts
-                2.0, 3.5, 0,    // Oben Marke links
-                3.0, 3.5, 0     // Oben Marke rechts
+                -0.5, 0, 0,      // Unten Marke links
+                0.5, 0, 0,       // Unten Marke rechts
+                -0.5, 3.5, 0,    // Oben Marke links
+                0.5, 3.5, 0      // Oben Marke rechts
             ]);
             markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
-            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3, fog: false });
+            const markMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 3, fog: false });
             const marks = new THREE.LineSegments(markGeometry, markMaterial);
             group.add(marks);
+            
+            // Canvas-Text "70 m" oben auf der Linie
+            const canvas = document.createElement('canvas');
+            canvas.width = 256; canvas.height = 64;
+            const ctx = canvas.getContext('2d');
+            ctx.fillStyle = '#0000ff';
+            ctx.font = 'bold 48px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            ctx.fillText('70 m', 128, 32);
+            
+            const texture = new THREE.CanvasTexture(canvas);
+            const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
+            const sprite = new THREE.Sprite(spriteMaterial);
+            sprite.position.set(0, 3.8, 0);
+            sprite.scale.set(2, 0.5, 1);
+            group.add(sprite);
             
             group.userData.isMeasureBar = true;
             return group;
@@ -560,7 +576,16 @@
                             if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
-                                updateUIForModel(id, "MindAR (Image)");
+                                // updateUIForModel nur für ArUco und GNSS, nicht für MindAR um Timer-Problem zu vermeiden
+                                if (currentTrackingID !== id) {
+                                    currentTrackingID = id;
+                                    modelInfo.style.display = (id === 0 ? 'none' : 'block');
+                                    if (id === 3 || id === 33) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                                    objTitle.innerText = AR_MODELS[id].title;
+                                    objText.innerText = AR_MODELS[id].info;
+                                    activeLink = AR_MODELS[id].link;
+                                    // Kein triggerHint bei MindAR!
+                                }
                             } else {
                                 mesh.visible = false;
                             }
@@ -1181,7 +1206,10 @@
                 objTitle.innerText = AR_MODELS[id].title;
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
-                triggerHint();
+                // Nur bei ArUco und GNSS den Hint anzeigen (nicht bei MindAR)
+                if (sourceName === "ArUco" || (sourceName && sourceName.includes("Pos."))) {
+                    triggerHint();
+                }
             }
         }
 
