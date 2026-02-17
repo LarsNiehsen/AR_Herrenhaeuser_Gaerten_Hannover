@@ -1,73 +1,95 @@
-
 <!DOCTYPE html>
+<!-- Definiert das Dokument als HTML5 -->
 <html lang="de">
 <head>
+    <!-- Legt die Zeichenkodierung auf UTF-8 fest (für Umlaute etc.) -->
     <meta charset="UTF-8">
+    <!-- Wichtig für mobile Geräte: Passt die Breite an den Bildschirm an und verhindert Zoomen -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <!-- Färbt die Adressleiste in mobilen Browsern dunkelgrün -->
     <meta name="theme-color" content="#064e3b">
-    <title>Gartenbegleiter - Herrenhäuser Gärten</title>
+    <title>Texterkennung von  - Herrenhäuser Gärten</title>
+    
+    <!-- Lädt Tailwind CSS direkt (für schnelles Styling ohne CSS-Dateien schreiben zu müssen) -->
     <script src="https://cdn.tailwindcss.com"></script>
+    
     <style>
+        /* Importiert Schriftarten von Google Fonts (Playfair Display für Überschriften, Inter für Text) */
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;600&display=swap');
 
         body { 
-            margin: 0; padding: 0; overflow: hidden; 
-            background-color: #000; color: white; user-select: none;
+            margin: 0; padding: 0; overflow: hidden; /* Verhindert Scrollbalken */
+            background-color: #000; color: white; 
+            user-select: none; /* Verhindert Textmarkierung durch den Nutzer */
             font-family: 'Inter', sans-serif;
         }
+        /* Weist Überschriften die Serifenschrift zu */
         h1, h2 { font-family: 'Playfair Display', serif; }
+        
+        /* Sorgt dafür, dass Canvas-Elemente (für 3D/Kamera) keine Ränder haben */
         canvas { display: block; }
         
+        /* Benutzerdefinierte Klasse für den Glas-Effekt der UI-Elemente */
         .royal-glass { 
-            background: rgba(6, 78, 59, 0.85); 
-            backdrop-filter: blur(16px); 
-            -webkit-backdrop-filter: blur(16px);
-            border: 1px solid rgba(251, 191, 36, 0.3); 
+            background: rgba(6, 78, 59, 0.85); /* Halbtransparentes Dunkelgrün */
+            backdrop-filter: blur(16px);       /* Weichzeichner für den Hintergrund */
+            -webkit-backdrop-filter: blur(16px); /* Safari-Support */
+            border: 1px solid rgba(251, 191, 36, 0.3); /* Goldener Rand */
         }
 
+        /* Definition der Animation für den roten Scan-Balken */
         @keyframes scan-line {
             0% { top: 0%; opacity: 0; }
             10% { opacity: 1; }
             90% { opacity: 1; }
             100% { top: 100%; opacity: 0; }
         }
+        /* Wendet die Animation an: dauert 10 Sekunden, unendlich wiederholt */
         .animate-scan {
             animation: scan-line 10s linear infinite;
         }
 
+        /* Hilfsklassen für Gold-Farben, die Tailwind nicht standardmäßig hat */
         .border-gold { border-color: #fbbf24; }
         .text-gold { color: #fbbf24; }
         .bg-gold { background-color: #fbbf24; }
         
-        /* Custom scrollbar for target list if needed */
+        /* Versteckt Scrollbars in Webkit-Browsern (Chrome/Safari) */
         .no-scrollbar::-webkit-scrollbar { display: none; }
+        /* Versteckt Scrollbars in IE/Edge und Firefox */
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
+
+    <!-- Importmap definiert, woher der Browser die JavaScript-Bibliotheken lädt -->
     <script type="importmap">
     {
       "imports": {
-        "react": "https://esm.sh/react@19.0.0",
-        "react-dom": "https://esm.sh/react-dom@19.0.0/client",
-        "three": "https://esm.sh/three@0.170.0",
-        "tesseract.js": "https://esm.sh/tesseract.js@5.1.1",
-        "htm": "https://esm.sh/htm@3.1.1"
+        "react": "https://esm.sh/react@19.0.0",                 /* UI-Bibliothek */
+        "react-dom": "https://esm.sh/react-dom@19.0.0/client",  /* React für den Browser */
+        "three": "https://esm.sh/three@0.170.0",                /* 3D-Grafikbibliothek */
+        "tesseract.js": "https://esm.sh/tesseract.js@5.1.1",    /* Texterkennungs-Bibliothek (OCR) */
+        "htm": "https://esm.sh/htm@3.1.1"                       /* Ermöglicht HTML-Syntax in JS ohne Compiler */
       }
     }
     </script>
 </head>
 <body>
+    <!-- Hier wird die React-App später "eingehängt" -->
     <div id="root"></div>
 
     <script type="module">
+        // Importiert die notwendigen Funktionen aus den Bibliotheken
         import React, { useState, useEffect, useRef } from 'react';
         import { createRoot } from 'react-dom';
         import * as THREE from 'three';
         import { createWorker } from 'tesseract.js';
         import htm from 'htm';
 
+        // Bindet htm an React, damit wir html`<div>...</div>` schreiben können
         const html = htm.bind(React.createElement);
 
-        // Die zu erkennenden Begriffe
+        // Konstante Liste der Begriffe, die auf den Schildern erkannt werden sollen
+        // Alles kleingeschrieben für einfacheren Vergleich
         const TARGET_PHRASES = [
             "skulpturengarten",
             "niederdeutscher blumengarten",
@@ -75,42 +97,55 @@
             "gartentheater"
         ];
         
+        // Zeit in Millisekunden, wie lange der rote Rahmen angezeigt bleibt (6 Sekunden)
         const PERSISTENCE_MS = 6000;
 
+        // Hauptkomponente der Anwendung
         const App = () => {
-            const [status, setStatus] = useState('LOADING'); // LOADING, READY, SCANNING, ERROR
+            // State (Zustand) für den aktuellen App-Status (Laden, Bereit, Scannen, Fehler)
+            const [status, setStatus] = useState('LOADING'); 
+            // State für Fehlermeldungen
             const [error, setError] = useState(null);
+            // State für den zuletzt gefundenen Textbegriff
             const [lastFound, setLastFound] = useState("");
             
+            // Rendert das UI
             return html`
                 <div className="relative w-full h-screen overflow-hidden bg-emerald-950">
+                    <!-- Bindet die Scanner-Komponente ein und übergibt Funktionen zum Status-Update -->
                     <${ARScanner} 
                         onStatus=${setStatus} 
                         onError=${setError} 
                         onFound=${setLastFound}
                     />
                     
-                    <!-- UI Overlay -->
+                    <!-- UI Overlay (liegt über dem Kamerasichtfeld) -->
+                    <!-- pointer-events-none erlaubt Klicks "durch" das Layout auf Elemente dahinter -->
                     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
+                        
+                        <!-- Header mit Statusanzeige -->
                         <header className="flex justify-between items-start pointer-events-auto">
                             <div className="royal-glass px-4 py-2 rounded-xl flex items-center gap-3 shadow-lg">
+                                <!-- Kleiner Punkt, der pulsiert, wenn gescannt wird -->
                                 <div className=${`w-2 h-2 rounded-full ${status === 'SCANNING' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
                                 <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-100">
+                                    <!-- Zeigt Text abhängig vom Status an -->
                                     ${status === 'SCANNING' ? 'Analysiere Tafel...' : 'Scanner Bereit'}
                                 </span>
                             </div>
                         </header>
 
-                        <!-- Fokus-Bereich -->
+                        <!-- Mittlerer Bereich: Der Such-Rahmen (Visuelle Hilfe für Nutzer) -->
                         <div className="flex-1 flex flex-col items-center justify-center">
+                            <!-- Der eigentliche Rahmen -->
                             <div className="relative w-[85vw] h-[30vh] max-w-md border border-white/5 bg-emerald-900/5 rounded-3xl overflow-hidden">
-                                <!-- Ecken -->
+                                <!-- Dekorative Ecken in Gold -->
                                 <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-gold rounded-tl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
                                 <div className="absolute top-0 right-0 w-12 h-12 border-t-2 border-r-2 border-gold rounded-tr-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
                                 <div className="absolute bottom-0 left-0 w-12 h-12 border-b-2 border-l-2 border-gold rounded-bl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
                                 <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-gold rounded-br-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
                                 
-                                <!-- Scan-Linie -->
+                                <!-- Die rote Scan-Linie, die sich auf und ab bewegt -->
                                 <div className="absolute left-0 right-0 h-0.5 bg-red-500 shadow-[0_0_20px_rgba(239,68,68,1)] z-10 animate-scan" />
                                 
                                 <div className="absolute inset-0 flex flex-col items-center justify-center opacity-10">
@@ -118,6 +153,7 @@
                                 </div>
                             </div>
                             
+                            <!-- Wenn ein Text gefunden wurde, zeige diese Benachrichtigung an -->
                             ${lastFound && html`
                                 <div className="mt-6 royal-glass px-6 py-3 rounded-full border border-amber-400/50 flex items-center gap-3 animate-bounce">
                                     <p className="text-xs text-amber-100 font-bold tracking-wider uppercase">
@@ -127,12 +163,13 @@
                             `}
                         </div>
 
-                        <!-- Footer -->
+                        <!-- Footer: Liste der gesuchten Begriffe und Info -->
                         <footer className="royal-glass p-6 rounded-3xl border border-amber-400/20 pointer-events-auto shadow-2xl mb-4">
                             <h1 className="text-xl font-bold tracking-tight text-amber-100 italic mb-3">
                                 Herrenhäuser Gärten
                             </h1>
                             <div className="flex flex-wrap gap-2 mb-4">
+                                <!-- Generiert für jeden Suchbegriff ein kleines Label -->
                                 ${TARGET_PHRASES.map(p => html`
                                     <span key=${p} className="text-[9px] px-2 py-1 rounded bg-emerald-800/50 text-amber-100/70 border border-white/5 uppercase tracking-tighter">
                                         ${p}
@@ -140,27 +177,28 @@
                                 `)}
                             </div>
                             <p className="text-[10px] text-amber-100/60 leading-relaxed italic">
-                                Scannen Sie Informationstafeln im Großen Garten für weitere Details.
+                                Scannen Sie Informationstafeln im Großen Garten der Herrenhäuser Gärten Hannover für weitere Details.
                             </p>
                         </footer>
                     </div>
 
-                    <!-- Ladebildschirm -->
+                    <!-- Ladebildschirm: Wird angezeigt, solange status 'LOADING' ist -->
                     ${status === 'LOADING' && html`
                         <div className="absolute inset-0 bg-[#064e3b] z-50 flex flex-col items-center justify-center text-center p-10">
                             <div className="w-16 h-16 border-b-2 border-amber-400 rounded-full animate-spin mb-8" />
-                            <h2 className="text-2xl font-bold italic text-amber-100">Gartenbegleiter</h2>
+                            <h2 className="text-2xl font-bold italic text-amber-100">Texterkennung mit Web-AR für virtuelle Rundgänge</h2>
                             <p className="text-[10px] uppercase tracking-[0.4em] text-amber-100/40 mt-4 leading-loose">
                                 INITIALISIERUNG<br/>HERRENHÄUSER GÄRTEN
                             </p>
                         </div>
                     `}
 
-                    <!-- Fehler -->
+                    <!-- Fehlerbildschirm: Wird angezeigt, wenn z.B. kein Kamerazugriff besteht -->
                     ${status === 'ERROR' && html`
                         <div className="absolute inset-0 bg-emerald-950 z-50 flex flex-col items-center justify-center p-12 text-center">
                             <h2 className="text-2xl font-bold italic mb-4 text-red-200">Kamerafehler</h2>
                             <p className="text-sm text-emerald-100/60 mb-8 leading-relaxed">${error || "Bitte erlauben Sie den Kamerazugriff in Ihren Browsereinstellungen."}</p>
+                            <!-- Button zum Neuladen der Seite -->
                             <button onClick=${() => window.location.reload()} className="bg-amber-400 text-emerald-950 px-10 py-4 rounded-2xl font-bold uppercase text-xs tracking-widest shadow-xl active:scale-95 transition-all">
                                 Erneut versuchen
                             </button>
@@ -170,42 +208,56 @@
             `;
         };
 
+        // Die Logik-Komponente für Kamera und Erkennung
         const ARScanner = ({ onStatus, onError, onFound }) => {
+            // Referenz auf das HTML-Div, in das Three.js rendert
             const containerRef = useRef();
+            // Speichert den Zeitpunkt des letzten Fundes, um das Highlight nach 6s auszublenden
             const lastFoundTimeRef = useRef(0);
+            // Speichert die Tesseract-Instanz (den OCR Worker)
             const workerRef = useRef(null);
 
+            // useEffect mit leerem Array [] bedeutet: Führe dies nur einmal beim Start aus
             useEffect(() => {
-                let active = true;
+                let active = true; // Flag um zu prüfen, ob die Komponente noch läuft
                 let renderer, scene, camera, highlight, video, stream;
 
+                // Asynchrone Initialisierungsfunktion
                 const start = async () => {
                     try {
+                        // Fragt Zugriff auf die Kamera an (environment = Rückkamera)
                         stream = await navigator.mediaDevices.getUserMedia({
                             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
                         });
-                        if (!active) return;
+                        if (!active) return; // Abbruch, falls Komponente schon wieder entfernt wurde
 
+                        // Erstellt ein HTML-Video-Element im Speicher (nicht sichtbar)
                         video = document.createElement('video');
                         video.srcObject = stream;
-                        video.setAttribute('playsinline', 'true');
+                        video.setAttribute('playsinline', 'true'); // Wichtig für iOS
                         video.autoplay = true;
-                        await video.play();
+                        await video.play(); // Startet das Video
 
+                        // THREE.js Setup: Szene erstellen
                         scene = new THREE.Scene();
+                        // Kamera erstellen (Sichtfeld 75 Grad)
                         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
-                        camera.position.z = 5;
+                        camera.position.z = 5; // Kamera etwas zurückziehen
 
+                        // Renderer erstellen (zeichnet die 3D Szene auf den Bildschirm)
                         renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
                         renderer.setSize(window.innerWidth, window.innerHeight);
                         renderer.setPixelRatio(window.devicePixelRatio);
+                        // Fügt das Canvas in das DOM ein
                         if (containerRef.current) containerRef.current.appendChild(renderer.domElement);
 
+                        // Nutzt das Video als Hintergrundtextur für die 3D-Szene
                         const texture = new THREE.VideoTexture(video);
                         scene.background = texture;
 
-                        // Rote Markierung
+                        // Erstellt das rote Highlight-Rechteck (anfangs unsichtbar)
                         const geo = new THREE.PlaneGeometry(1, 1);
+                        // Halbtransparentes rotes Material
                         const mat = new THREE.MeshBasicMaterial({ 
                             color: 0xff0000, 
                             transparent: true, 
@@ -213,40 +265,47 @@
                             side: THREE.DoubleSide 
                         });
                         highlight = new THREE.Mesh(geo, mat);
-                        highlight.visible = false;
+                        highlight.visible = false; // Unsichtbar starten
                         scene.add(highlight);
 
+                        // Fügt dem Rechteck einen dickeren roten Rand hinzu
                         const outline = new THREE.LineSegments(
                             new THREE.EdgesGeometry(geo),
                             new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 4 })
                         );
                         highlight.add(outline);
 
-                        // Tesseract Setup
-                        const worker = await createWorker('deu');
+                        // Tesseract (OCR) initialisieren - lädt Sprachdaten herunter
+                        const worker = await createWorker('deu'); // 'deu' für Deutsch
                         if (!active) return;
                         workerRef.current = worker;
 
+                        // Status auf BEREIT setzen
                         onStatus('READY');
 
+                        // Animations-Schleife (Rendert die Szene ca. 60 mal pro Sekunde)
                         const animate = () => {
                             if (!active) return;
-                            // Persistence Check
+                            // Prüft, ob das Highlight ausgeblendet werden soll (Zeit abgelaufen)
                             if (highlight.visible && Date.now() - lastFoundTimeRef.current > PERSISTENCE_MS) {
                                 highlight.visible = false;
-                                onFound("");
+                                onFound(""); // Text zurücksetzen
                             }
                             renderer.render(scene, camera);
                             requestAnimationFrame(animate);
                         };
                         animate();
 
+                        // Schleife für die Texterkennung
                         const ocrLoop = async () => {
                             if (!active || !workerRef.current) return;
-                            onStatus('SCANNING');
+                            onStatus('SCANNING'); // UI Feedback geben
 
+                            // Temporäres Canvas für die Bildanalyse erstellen
                             const canvas = document.createElement('canvas');
-                            // ROI: Etwas breiter und höher für Zeilenumbrüche
+                            
+                            // Definiert den Bereich von Interesse (ROI - Region of Interest)
+                            // Wir analysieren nur die Mitte des Bildes (80% Breite, 50% Höhe) für Performance
                             const roiW = video.videoWidth * 0.8;
                             const roiH = video.videoHeight * 0.5;
                             const roiX = (video.videoWidth - roiW) / 2;
@@ -256,12 +315,15 @@
                             canvas.height = roiH;
                             const ctx = canvas.getContext('2d');
                             if (ctx) {
+                                // Zeichnet den aktuellen Videoframe auf das Canvas
                                 ctx.drawImage(video, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
                                 try {
+                                    // Startet die eigentliche Erkennung
                                     const { data } = await workerRef.current.recognize(canvas);
-                                    // Text normalisieren: Zeilenumbrüche zu Leerzeichen, Kleinschreibung
+                                    // Text bereinigen (alles klein, doppelte Leerzeichen weg)
                                     const fullText = data.text.toLowerCase().replace(/\s+/g, ' ').trim();
                                     
+                                    // Prüft, ob einer der gesuchten Begriffe im Text vorkommt
                                     let bestMatch = null;
                                     for(const phrase of TARGET_PHRASES) {
                                         if (fullText.includes(phrase)) {
@@ -270,14 +332,17 @@
                                         }
                                     }
 
+                                    // Wenn ein Treffer gefunden wurde
                                     if (bestMatch && highlight) {
-                                        // Wörter finden, die Teil der Phrase sind
+                                        // Zerlegt den Suchbegriff in einzelne Wörter
                                         const phraseParts = bestMatch.split(' ');
+                                        // Sucht die Koordinaten der passenden Wörter im Bild
                                         const matchWords = data.words.filter(w => 
                                             phraseParts.some(p => w.text.toLowerCase().includes(p))
                                         );
 
                                         if (matchWords.length > 0) {
+                                            // Berechnet die Bounding Box (den Rahmen) um alle gefundenen Wörter
                                             let minX = Infinity, minY = Infinity, maxX = -Infinity, maxY = -Infinity;
                                             matchWords.forEach(w => {
                                                 minX = Math.min(minX, w.bbox.x0);
@@ -286,53 +351,65 @@
                                                 maxY = Math.max(maxY, w.bbox.y1);
                                             });
 
-                                            // Koordination in Three.js NDC konvertieren
+                                            // Umrechnung von 2D-Bildkoordinaten in 3D-Weltkoordinaten für Three.js
+                                            // Das ist notwendig, um das rote Rechteck korrekt zu platzieren
                                             const cx = roiX + (minX + maxX) / 2;
                                             const cy = roiY + (minY + maxY) / 2;
+                                            // Normalisierte Gerätekoordinaten (NDC)
                                             const ndcX = (cx / video.videoWidth) * 2 - 1;
                                             const ndcY = -((cy / video.videoHeight) * 2 - 1);
 
+                                            // Positionierung des Highlights (Faktoren 4.4 und 2.6 sind empirische Werte für die Kameraentfernung z=5)
                                             highlight.position.set(ndcX * 4.4, ndcY * 2.6, 0.1);
+                                            // Skalierung des Rechtecks auf die Größe des gefundenen Wortes
                                             highlight.scale.set(
                                                 ((maxX - minX) / video.videoWidth) * 9, 
                                                 ((maxY - minY) / video.videoHeight) * 6, 
                                                 1
                                             );
-                                            highlight.visible = true;
-                                            lastFoundTimeRef.current = Date.now();
-                                            onFound(bestMatch.toUpperCase());
+                                            highlight.visible = true; // Zeigt das rote Rechteck
+                                            lastFoundTimeRef.current = Date.now(); // Zeit merken
+                                            onFound(bestMatch.toUpperCase()); // Text an UI übergeben
                                         }
                                     }
                                 } catch (e) { console.error("OCR Error:", e); }
                             }
                             onStatus('READY');
-                            // Schnellere Intervalle für flüssigere AR-Erfahrung
+                            // Startet den nächsten Erkennungslauf in 800ms
                             setTimeout(ocrLoop, 800); 
                         };
-                        ocrLoop();
+                        ocrLoop(); // Startet die erste Erkennung
 
                     } catch (err) {
+                        // Fehlerbehandlung (z.B. Kamera abgelehnt)
                         console.error("Initialization Error:", err);
                         onError(err.message);
                         onStatus('ERROR');
                     }
                 };
 
-                start();
+                start(); // Startet den gesamten Prozess
 
+                // Cleanup-Funktion: Wird ausgeführt, wenn die Komponente entfernt wird
                 return () => {
                     active = false;
+                    // Beendet den Tesseract Worker (spart Speicher)
                     if (workerRef.current) workerRef.current.terminate();
+                    // Räumt den Renderer auf
                     if (renderer) renderer.dispose();
+                    // Stoppt die Kamera
                     if (stream) stream.getTracks().forEach(t => t.stop());
                 };
-            }, []);
+            }, []); // Ende useEffect
 
+            // Gibt nur ein leeres Div zurück, in das Three.js das Canvas einfügt
             return html`<div ref=${containerRef} className="absolute inset-0" />`;
         };
 
+        // Sucht das Root-Element im HTML
         const rootElement = document.getElementById('root');
         if (rootElement) {
+            // Erstellt die React-App und startet sie
             const root = createRoot(rootElement);
             root.render(React.createElement(App));
         }
