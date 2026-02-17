@@ -306,7 +306,7 @@
                 lat: 52.386018, lon: 9.695975, initRotation: 0
             },
             33: { 
-                url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
+                url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0,
                 title: 'Große Fontäne', info: 'Große Fontäne',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true,
@@ -580,7 +580,8 @@
                                 if (currentTrackingID !== id) {
                                     currentTrackingID = id;
                                     modelInfo.style.display = (id === 0 ? 'none' : 'block');
-                                    if (id === 3 || id === 33) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                                    // Kupferstich nur bei simulierter Position (Target 0)
+                                    if ((id === 3 || id === 33) && isSimulatedPos) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
                                     objTitle.innerText = AR_MODELS[id].title;
                                     objText.innerText = AR_MODELS[id].info;
                                     activeLink = AR_MODELS[id].link;
@@ -1212,8 +1213,8 @@
                 objTitle.innerText = AR_MODELS[id].title;
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
-                // Nur bei ArUco und GNSS den Hint anzeigen (nicht bei MindAR)
-                if (sourceName === "ArUco" || (sourceName && sourceName.includes("Pos."))) {
+                // Nur bei ArUco den Hint anzeigen (2 Sekunden)
+                if (sourceName === "ArUco") {
                     triggerHint();
                 }
             }
