@@ -54,6 +54,10 @@
         .border-gold { border-color: #fbbf24; }
         .text-gold { color: #fbbf24; }
         .bg-gold { background-color: #fbbf24; }
+
+        /* Verstecken der Scrollleiste für die Begriffsliste */
+        .no-scrollbar::-webkit-scrollbar { display: none; }
+        .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
     <!-- Festlegung der Import-Quellen für JavaScript-Bibliotheken -->
     <script type="importmap">
@@ -135,10 +139,10 @@
                         <div className="flex-1 flex flex-col items-center justify-center">
                             <div className="relative w-[85vw] h-[30vh] max-w-md border border-white/5 bg-emerald-900/5 rounded-3xl overflow-hidden">
                                 <!-- Dekorative goldene Ecken -->
-                                <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-gold rounded-tl-3xl" />
-                                <div className="absolute top-0 right-0 w-12 h-12 border-t-2 border-r-2 border-gold rounded-tr-3xl" />
-                                <div className="absolute bottom-0 left-0 w-12 h-12 border-b-2 border-l-2 border-gold rounded-bl-3xl" />
-                                <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-gold rounded-br-3xl" />
+                                <div className="absolute top-0 left-0 w-12 h-12 border-t-2 border-l-2 border-gold rounded-tl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute top-0 right-0 w-12 h-12 border-t-2 border-r-2 border-gold rounded-tr-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute bottom-0 left-0 w-12 h-12 border-b-2 border-l-2 border-gold rounded-bl-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
+                                <div className="absolute bottom-0 right-0 w-12 h-12 border-b-2 border-r-2 border-gold rounded-br-3xl shadow-[0_0_10px_rgba(251,191,36,0.2)]" />
                                 
                                 <!-- Animierte rote Scan-Linie -->
                                 <div className="absolute left-0 right-0 h-0.5 bg-red-500 shadow-[0_0_20px_rgba(239,68,68,1)] z-10 animate-scan" />
@@ -178,7 +182,7 @@
                         </footer>
                     </div>
 
-                    <!-- Bildschirm, der während des Ladens der KI angezeigt wird -->
+                    <!-- Initialisierung -->
                     ${status === 'LOADING' && html`
                         <div className="absolute inset-0 bg-[#064e3b] z-50 flex flex-col items-center justify-center text-center p-10">
                             <div className="w-16 h-16 border-b-2 border-amber-400 rounded-full animate-spin mb-8" />
@@ -217,15 +221,28 @@
                 let active = true;
                 let renderer, scene, camera, highlight, video, stream;
 
+                /* OPTIMIERUNG: Vorzeitige Erstellung des Tesseract-Workers */
+                const workerPromise = createWorker('deu');
+
                 /* Funktion zum Starten der Kamera und Grafik-Engine */
                 const start = async () => {
                     try {
-                        /* Anforderung des Videostreams der rückseitigen Kamera */
-                        stream = await navigator.mediaDevices.getUserMedia({
+                        /* OPTIMIERUNG: Parallelisierung von Kamera-Anforderung und Worker-Initialisierung */
+                        const cameraPromise = navigator.mediaDevices.getUserMedia({
                             video: { facingMode: 'environment', width: { ideal: 1280 }, height: { ideal: 720 } }
                         });
+
+                        const [videoStream, workerInstance] = await Promise.all([cameraPromise, workerPromise]);
+                        
                         /* Abbruch, falls die Komponente bereits beendet wurde */
-                        if (!active) return;
+                        if (!active) {
+                            workerInstance.terminate();
+                            videoStream.getTracks().forEach(t => t.stop());
+                            return;
+                        }
+
+                        stream = videoStream;
+                        workerRef.current = workerInstance;
 
                         /* Erstellung eines unsichtbaren Video-Elements zur Bildverarbeitung */
                         video = document.createElement('video');
@@ -269,11 +286,6 @@
                             new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 4 })
                         );
                         highlight.add(outline);
-
-                        /* Vorbereitung der Texterkennung (Sprache: Deutsch) */
-                        const worker = await createWorker('deu');
-                        if (!active) return;
-                        workerRef.current = worker;
 
                         /* Meldung an die Haupt-App: Scanner ist bereit */
                         onStatus('READY');
