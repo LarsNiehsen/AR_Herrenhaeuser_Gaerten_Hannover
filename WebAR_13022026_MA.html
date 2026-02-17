@@ -10,10 +10,10 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Herrenhäuser Gärten Hannover - Augmented Reality (AR)</title>
     
-    <!-- Leaflet CSS: Lädt die Stilvorlagen für die 2D-Karte -->
+    <!-- Leaflet CSS: Die Stilvorlagen für die 2D-Karte werden geladen. -->
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
     
-    <!-- Importmap: Definiert Speicherorte für externe Module (Three.js und MindAR) -->
+    <!-- Importmap: Die Speicherorte für externe Module (Three.js und MindAR) werden definiert. -->
     <script type="importmap">
     {
       "imports": {
@@ -23,32 +23,35 @@
       }
     }
     </script>
+    
+    <!-- Tesseract.js: Bibliothek für optische Zeichenerkennung (OCR) wird eingebunden. -->
+    <script src='https://unpkg.com/tesseract.js@v2.1.0/dist/tesseract.min.js'></script>
 
-    <!-- CSS Styles: Visuelle Gestaltung der Benutzeroberfläche -->
+    <!-- CSS Styles: Die visuelle Gestaltung der Benutzeroberfläche wird festgelegt. -->
     <style>
-        /* Basis-Layout: Vollbild, schwarz, keine Scrollleisten */
+        /* Basis-Layout: Der Hintergrund wird schwarz gesetzt, Scrollleisten werden ausgeblendet. */
         body, html {
             margin: 0; padding: 0; width: 100%; height: 100%;
             overflow: hidden; background-color: #000;
             font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
         }
 
-        /* Video-Element wird von MindAR verwaltet, CSS blendet das Original aus */
+        /* Das Video-Element wird von MindAR verwaltet und hier ausgeblendet. */
         #videoElement { display: none; }
 
-        /* Canvas über dem Video für Debug-Linien (ArUco) */
+        /* Canvas über dem Video für Debug-Linien (ArUco Visualisierung). */
         #videoCanvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 30; pointer-events: none;
         }
 
-        /* Container für die 3D-Szene (Three.js) */
+        /* Container für die 3D-Szene (Three.js Layer). */
         #container {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 20; pointer-events: auto; overflow: hidden;
         }
 
-        /* Standard-Design für UI-Elemente (halbtransparent, abgerundet) */
+        /* Standard-Design für UI-Elemente (halbtransparentes Schwarz mit Unschärfe-Effekt). */
         .ui-panel {
             position: absolute; z-index: 100; background: rgba(0, 0, 0, 0.6);
             border: 1px solid rgba(255, 255, 255, 0.2); color: white;
@@ -56,7 +59,7 @@
             box-shadow: 0 4px 15px rgba(0,0,0,0.5); transition: all 0.3s ease;
         }
 
-        /* Debug-Informationen oben links */
+        /* Debug-Informationen werden oben links positioniert. */
         #debugInfo {
             top: 20px; left: 20px; padding: 15px; min-width: 200px;
             max-width: calc(100% - 100px); font-size: 13px; pointer-events: none;
@@ -69,7 +72,7 @@
             padding-bottom: 5px; line-height: 1.3;
         }
 
-        /* Schließen-Button oben rechts */
+        /* Der Schließen-Button wird oben rechts positioniert. */
         #closeBtn {
             top: 20px; right: 20px; width: 44px; height: 44px;
             display: flex; align-items: center; justify-content: center;
@@ -80,7 +83,7 @@
         }
         #closeBtn:active { transform: scale(0.95); }
 
-        /* Informationsfeld unten Mitte für 3D-Modelle */
+        /* Das Informationsfeld für 3D-Modelle wird unten mittig angezeigt. */
         #modelInfo {
             position: absolute; bottom: 90px; left: 50%; transform: translateX(-50%);
             width: 85%; max-width: 400px; text-align: center; display: none; cursor: pointer; z-index: 200; 
@@ -88,7 +91,7 @@
         #modelInfo h3 { color: #4f4; margin: 0 0 4px 0; font-size: 18px; font-weight: bold; }
         #modelInfo p { color: #eee; margin: 0; font-size: 14px; line-height: 1.3; }
 
-        /* Historisches Bild rechts Mitte */
+        /* Historisches Bild (Kupferstich) wird rechts mittig platziert. */
         #historicalInfo {
             display: none; top: 50%; right: 20px; left: auto;
             transform: translateY(-50%); width: 180px; padding: 10px; text-align: center; z-index: 250;
@@ -101,7 +104,7 @@
             width: 100%; border-radius: 4px; border: 1px solid rgba(255,255,255,0.3);
         }
 
-        /* Kartensteuerung unten rechts */
+        /* Container für die Kartensteuerung unten rechts. */
         #mapControls {
             position: absolute; bottom: 20px; right: 20px; z-index: 150;
             display: flex; flex-direction: column; align-items: flex-end; gap: 12px;
@@ -135,7 +138,7 @@
             padding: 0; line-height: 1;
         }
 
-        /* Rotationssteuerung unten links */
+        /* Steuerung für die manuelle Rotation unten links. */
         #rotationControls {
             position: absolute; bottom: 20px; left: 20px; z-index: 100; display: flex; gap: 12px;
         }
@@ -146,7 +149,7 @@
             padding: 0; line-height: 1;
         }
 
-        /* Tipp-Hinweis Mitte */
+        /* Hinweis-Text für Interaktionen in der Bildschirmmitte. */
         #clickHint {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
             color: #fff; text-shadow: 0 2px 4px rgba(0,0,0,0.8);
@@ -157,7 +160,7 @@
             text-align: center; border: 1px solid rgba(255,255,255,0.3);
         }
 
-        /* Richtungspfeil unten Mitte */
+        /* Richtungspfeil für GNSS-Navigation. */
         #direction-indicator {
             position: absolute; bottom: 40px; left: 50%; transform: translateX(-50%);
             width: 70px; height: 70px;
@@ -183,45 +186,45 @@
 </head>
 <body>
 
-    <!-- Video-Element mit Autofokus-Attribut -->
+    <!-- Video-Element für den Kamerazugriff -->
     <video id="videoElement" playsinline muted autoplay autofocus></video>
     
-    <!-- 3D-Container -->
+    <!-- 3D-Container für die Three.js Szene -->
     <div id="container"></div>
     
-    <!-- 2D-Overlay Canvas -->
+    <!-- 2D-Overlay Canvas für Debugging (ArUco Erkennung) -->
     <canvas id="videoCanvas"></canvas>
 
-    <!-- Debug-Panel -->
+    <!-- UI: Debug-Informationen -->
     <div id="debugInfo" class="ui-panel">
         <strong id="debugTitle">Herrenhäuser Gärten - Augmented Reality (AR)</strong>
         <div id="statusText">Starte System...<br><span style='color: #aaa;'>Initialisiere...</span></div>
     </div>
 
-    <!-- Schließen -->
+    <!-- UI: Schließen-Button -->
     <div id="closeBtn" class="ui-panel" title="Schließen" onclick="window.history.length > 1 ? window.history.back() : window.close()">✕</div>
 
-    <!-- Historisches Bild -->
+    <!-- UI: Historisches Bild (Kupferstich) -->
     <div id="historicalInfo" class="ui-panel">
         <h4>Kupferstich Große Fontäne um 1800</h4>
         <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
     </div>
 
-    <!-- Pfeil -->
+    <!-- UI: Richtungspfeil -->
     <div id="direction-indicator">
         <div id="arrow"></div>
     </div>
 
-    <!-- Modell-Info -->
+    <!-- UI: Modell-Informationen -->
     <div id="modelInfo" class="ui-panel">
         <h3 id="objTitle">Titel</h3>
         <p id="objText">Beschreibung</p>
     </div>
 
-    <!-- Klick-Hinweis -->
+    <!-- UI: Hinweis zum Antippen -->
     <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
 
-    <!-- Karten-Controls -->
+    <!-- UI: Kartensteuerung -->
     <div id="mapControls">
         <div id="mapContainer">
             <div id="mapStations"></div>
@@ -236,42 +239,41 @@
         </div>
     </div>
 
-    <!-- Rotations-Buttons -->
+    <!-- UI: Rotationssteuerung -->
     <div id="rotationControls">
         <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
     </div>
 
-    <!-- Externe Skripte -->
+    <!-- Externe Skripte für Mapping und AR-Funktionalität -->
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/cv.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/aruco.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/svd.js"></script>
     <script src="https://cdn.jsdelivr.net/gh/damianofalcioni/js-aruco2@master/src/posit1.js"></script>
     
-    <!-- Anwendungs-Logik -->
+    <!-- Hauptlogik der Anwendung -->
     <script type="module">
-        // Einbindung der Three.js Bibliothek für die Erstellung der 3D-Szene
+        // Import der Three.js Kernbibliothek
         import * as THREE from 'three';
-        // Einbindung des Loaders, um 3D-Modelle im GLB/GLTF Format laden zu können
+        // Import des GLTF-Loaders für 3D-Modelle
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-        // Einbindung der MindAR-Bibliothek, die das Kamerabild analysiert und Bild-Tracking ermöglicht
+        // Import der MindAR Bibliothek für bildbasiertes Tracking
         import { MindARThree } from 'mindar-image-three';
 
         // --- KONFIGURATION DER ANWENDUNG ---
-        const markerSize = 100.0; // Größe der ArUco-Marker in Millimetern für die Berechnung der Distanz
-        const selectedDictionary = 'ARUCO_MIP_36h12'; // Name des verwendeten Marker-Wörterbuchs
-        const VISIBILITY_DISTANCE = 75.0; // Radius in Metern, in dem GNSS-basierte Objekte sichtbar werden
+        const markerSize = 100.0; // Kantenlänge der ArUco-Marker in mm
+        const selectedDictionary = 'ARUCO_MIP_36h12'; // Verwendetes ArUco-Wörterbuch
+        const VISIBILITY_DISTANCE = 75.0; // Distanz in Metern für GNSS-Sichtbarkeit
         
-        // Magnetische Deklination: Korrekturwert zwischen magnetischem und geographischem Nordpol
-        // Dieser Wert ist standortabhängig (ca. 3.5° Ost für Hannover) und verbessert die Kompassgenauigkeit.
+        // Magnetische Deklination für Hannover (Korrekturwert zum geographischen Norden)
         const magDeclination = 3.5;
 
-        // Geographische Koordinaten, die als Auslöser (Trigger) für die Simulation dienen
-        const target0Lat = 52.386444;
+        // Koordinaten für die Simulations-Trigger
+        const target0Lat = 52.386444; // Fontäne
         const target0Lon = 9.695780;
 
-        const targetBlumengartenLat = 52.388029;
+        const targetBlumengartenLat = 52.388029; // Blumengarten
         const targetBlumengartenLon = 9.697794;
         
         // Definition der verfügbaren 3D-Modelle und ihrer Eigenschaften
@@ -314,7 +316,7 @@
             }
         };
 
-        // Liste der Stationen für die 2D-Kartenanzeige
+        // Liste der POIs für die Karte
         const stations = [
             { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -325,7 +327,7 @@
             { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
-        // Referenzen auf HTML-Elemente für die DOM-Manipulation
+        // Referenzierung der HTML-Elemente
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -345,25 +347,24 @@
         const locateBtn = document.getElementById('locateBtn');
         const orientBtn = document.getElementById('orientBtn');
 
-        // Erstellung des 2D-Zeichenkontextes für das Debugging-Overlay
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Globale Zustandsvariablen
+        // Globale Variablen
         let activeLink = null;
-        let loadedMeshes = {}; // Speichert ArUco-Objekte
-        let mindARMeshes = {}; // Speichert MindAR-Objekte
-        let gnssMeshes = {};   // Speichert GNSS-Objekte
+        let loadedMeshes = {}; // ArUco-Objekte
+        let mindARMeshes = {}; // MindAR-Objekte
+        let gnssMeshes = {};   // GNSS-Objekte
         let detector, posit;   
         let mindarThree, renderer, scene, camera;
         let mindarAnchors = [];
         let markerGroup, gnssGroup; 
         
-        let lastPos = null; // Aktuelle oder letzte bekannte GNSS-Position
-        let realPos = null; // Tatsächliche, vom Sensor gemessene GNSS-Position
-        let heading = 0;    // Berechnete Blickrichtung (inkl. Korrekturen)
-        let rawHeading = 0; // Rohdaten des Kompass-Sensors
-        let compassOffset = 0; // Kalibrierungsoffset durch visuelle Erkennung
-        let lastDeviceOrientation = null; // Speichert die letzten Sensordaten des Gyroskops
+        let lastPos = null; // Letzte bekannte GNSS-Position
+        let realPos = null; // Tatsächliche Sensor-Position
+        let heading = 0;    // Korrigierte Blickrichtung
+        let rawHeading = 0; // Rohdaten des Kompass
+        let compassOffset = 0; // Kalibrierungsoffset
+        let lastDeviceOrientation = null; 
         let mapStations, userLayer; 
         let currentTrackingID = -1; 
         let lossCounter = 0; 
@@ -372,18 +373,22 @@
         let isMarkerTracking = false; 
         let closestObjForArrow = null;
 
-        // Variablen für die Positions-Simulation
+        // Variablen für Simulation
         let isSimulatedPos = false;
         let simulationEndTime = 0;
         let simulatedCoords = null;
-        const SIMULATION_PERSISTENCE = 30000; // Dauer der Simulation in Millisekunden
+        const SIMULATION_PERSISTENCE = 30000; 
 
-        // MindAR-Tracking Variablen
+        // Variablen für MindAR Tracking Zeitfenster
         let activeMindARId = -1; 
         let activeMindAREndTime = 0; 
         const STANDARD_PERSISTENCE = 10000; 
 
-        // Funktion zur Erstellung eines Partikelsystems für Wassereffekte
+        // Variablen für OCR (Texterkennung)
+        let isOcrRunning = false;
+        let lastOcrTime = 0;
+
+        // Erstellung eines Partikelsystems (Wasserfontäne)
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -407,7 +412,7 @@
             return points;
         }
 
-        // Aktualisiert die Position der Wasserpartikel für die Animation
+        // Animation des Wassereffekts
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
@@ -495,7 +500,7 @@
             camera.far = 50000; camera.updateProjectionMatrix();
             renderer.setClearColor(0x000000, 0);
             
-            // Beleuchtung der Szene hinzufügen
+            // Beleuchtung hinzufügen
             scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
             const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
             dl.position.set(0, 500, 1000);
@@ -504,24 +509,21 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
-            // Definition der MindAR-Anker (Trigger-Events)
+            // Definition der MindAR-Anker
             for (let i = 0; i < 7; i++) {
                 const anchor = mindarThree.addAnchor(i);
                 anchor.onTargetFound = () => {
                     activeMindARId = i;
                     if (i === 0) {
-                        // Start der Simulation an Position 0 mit Kompassausrichtung 335°
+                        // Simulation Fontäne (Position 0)
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
-                        // Start der Simulation am Blumengarten mit Kompassausrichtung 22°
+                        // Simulation Blumengarten (Trigger 4-6)
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
                     } else if (i === 1 || i === 2 || i === 3) {
-                         // Standard-Timer verlängern
+                         // Standard-Timer für Image Tracking
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
-                };
-                anchor.onTargetLost = () => {
-                    // Kein direkter Abbruch beim Verlust, Timer übernimmt
                 };
                 mindarAnchors[i] = anchor;
             }
@@ -529,23 +531,27 @@
             loadModels();
             await mindarThree.start();
 
-            // Die Render-Schleife wird kontinuierlich für jeden Frame ausgeführt
+            // Render-Schleife
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 const arucoFound = processArucoFrame(video);
                 
+                // OCR-Prüfung periodisch ausführen, wenn kein Marker getrackt wird
+                if (!arucoFound && activeMindARId === -1 && !isOcrRunning && (Date.now() - lastOcrTime > 2000)) {
+                    runOcrCheck(videoCanvas);
+                }
+                
                 let showSimulation = false;
                 let showStandardMindAR = false;
 
-                // Prüfung, ob ein MindAR-Marker (ID 1-3) noch aktiv sein soll
+                // Logik für MindAR-Timer
                 if (activeMindARId >= 1 && activeMindARId <= 3) {
                     if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
-                        // Solange der Marker im Bild ist, wird der Timer zurückgesetzt
                         activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 }
                 
-                // Priorisierung der Tracking-Modi
+                // Entscheidung Tracking-Modus
                 if (arucoFound) {
                     activeMindARId = -1; 
                 } else {
@@ -568,7 +574,7 @@
                     }
                 }
 
-                // Steuerung der MindAR-Modelle
+                // Steuerung MindAR-Modelle
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
                     if (mindARMeshes[id]) {
@@ -576,16 +582,17 @@
                             if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
-                                // updateUIForModel nur für ArUco und GNSS, nicht für MindAR um Timer-Problem zu vermeiden
+                                
                                 if (currentTrackingID !== id) {
                                     currentTrackingID = id;
                                     modelInfo.style.display = (id === 0 ? 'none' : 'block');
-                                    // Kupferstich nur bei simulierter Position (Target 0)
-                                    if ((id === 3 || id === 33) && isSimulatedPos) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                                    // Bei MindAR Target 0 (Fontäne Simulation) wird dies später in updateGNSSObjects behandelt
+                                    // Falls hier spezifische Bilderkennung für Fontäne ohne Simulation greifen würde:
+                                    if (id === 3 || id === 33) historicalInfo.style.display = 'block'; else historicalInfo.style.display = 'none';
+                                    
                                     objTitle.innerText = AR_MODELS[id].title;
                                     objText.innerText = AR_MODELS[id].info;
                                     activeLink = AR_MODELS[id].link;
-                                    // Kein triggerHint bei MindAR!
                                 }
                             } else {
                                 mesh.visible = false;
@@ -597,12 +604,9 @@
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
                 // Bestimmen, ob GNSS-Modelle angezeigt werden sollen
-                // Ausblenden bei: ArUco aktiv ODER reines MINDAR ohne Simulation
-                // Anzeigen bei: Simulation aktiv ODER nur GNSS
                 let showGNSSModels = !arucoFound && !(showStandardMindAR && !isSimulatedPos);
 
                 // --- GNSS-LOGIK UND KAMERA-ROTATION ---
-                // Hier wird entschieden, ob Modelle positionsbasiert angezeigt werden.
                 if (showGNSSModels && (showSimulation || (!isMarkerTracking && gnssGroup))) {
                     gnssGroup.visible = true;
                     
@@ -619,10 +623,10 @@
                          gnssGroup.rotation.set(0, 0, 0);
                     }
 
-                    updateGNSSObjects(); // Berechnung der Modellpositionen
+                    updateGNSSObjects(); 
                     updateGNSSUI(); 
                 } else {
-                    // GNSS-Modelle ausblenden, Kamera zurücksetzen für ArUco/MINDAR
+                    // GNSS ausblenden, Kamera für Marker-Tracking zurücksetzen
                     gnssGroup.visible = false;
                     Object.keys(gnssMeshes).forEach(key => {
                         if (gnssMeshes[key]) gnssMeshes[key].visible = false;
@@ -633,7 +637,7 @@
                     camera.quaternion.set(0, 0, 0, 1);
                 }
 
-        // Aktualisierung aller Partikelsysteme
+                // Aktualisierung aller Partikelsysteme
                 const handleParticles = (meshList, listType) => {
                     Object.entries(meshList).forEach(([key, m]) => {
                         let id = parseInt(key);
@@ -667,7 +671,7 @@
                 handleParticles(loadedMeshes, 'aruco'); 
                 handleParticles(mindARMeshes, 'mindar');
 
-                // Debugging-Anzeige der aktuellen Rotation
+                // Debug Anzeige für Rotation
                 let currentRotY = 0;
                 if (gnssGroup.visible) {
                      // Im GNSS Modus ist die Objekt-Rotation statisch, aber zur Info zeigen wir sie an
@@ -680,9 +684,7 @@
                          const id = parseInt(idStr);
                          if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
                              mindARMeshes[id].forEach(mesh => {
-                                 if (mesh.visible) {
-                                     currentRotY = mesh.rotation.y;
-                                 }
+                                 if (mesh.visible) currentRotY = mesh.rotation.y;
                              });
                          }
                      });
@@ -712,7 +714,31 @@
             });
         }
 
-        // Berechnung der Quaternion aus den Gerätesensoren (Alpha, Beta, Gamma)
+        // Texterkennung (OCR) Logik
+        async function runOcrCheck(canvas) {
+            isOcrRunning = true;
+            lastOcrTime = Date.now();
+            try {
+                // OCR wird asynchron durchgeführt
+                const { data: { text } } = await Tesseract.recognize(canvas, 'deu', { 
+                    logger: m => {} 
+                });
+                
+                // Prüfung auf Schlüsselwörter für den Blumengarten
+                if (text && text.includes("Niederdeutscher") && text.includes("Blumengarten")) {
+                    console.log("Texterkennung erfolgreich: Niederdeutscher Blumengarten gefunden");
+                    statusText.innerHTML = "<span style='color:#4f4'>Text erkannt: Blumengarten!</span><br>Starte Modell-Anzeige...";
+                    
+                    // Simuliert die Erkennung von Target 1, indem die Simulation an dessen Koordinaten gestartet wird.
+                    // Das führt dazu, dass das Modell (ID 1) korrekt an der Position eingeblendet wird.
+                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                }
+            } catch (err) {
+                console.warn("OCR Fehler:", err);
+            }
+            isOcrRunning = false;
+        }
+
         function getDeviceQuaternion(orientData) {
             const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; 
             const beta = orientData.beta ? THREE.MathUtils.degToRad(orientData.beta) : 0;   
@@ -768,7 +794,7 @@
                         p.position.set(0, 4.0, 0); 
                         p.rotation.x = -Math.PI / 2;
                         modelAruco.userData.particles = p;
-                        // Maßband für Fontaine hinzufügen
+                        // Das Maßband wird hinzugefügt
                         const measureBar = createMeasureBar();
                         modelAruco.add(measureBar);
                         modelAruco.userData.measureBar = measureBar;
@@ -783,7 +809,6 @@
                         const gnssScale = config.scale * 0.05; 
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
-                        // Setzen der initialen Rotation aus der Konfiguration
                         const initRotDeg = config.initRotation || 0;
                         modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
 
@@ -791,7 +816,7 @@
                              const pG = createWaterEffect();
                              modelGNSS.userData.particles = pG;
                              gnssGroup.add(pG);
-                             // Maßband für GNSS-Fontaine hinzufügen
+                             // Das Maßband wird für GNSS hinzugefügt
                              const measureBar = createMeasureBar();
                              modelGNSS.add(measureBar);
                              modelGNSS.userData.measureBar = measureBar;
@@ -830,7 +855,7 @@
                                      const pM = createWaterEffect();
                                      modelMind.userData.particles = pM;
                                      mindarAnchors[targetIndex].group.add(pM);
-                                     // Maßband für MindAR-Fontaine hinzufügen
+                                     // Das Maßband wird für MindAR hinzugefügt
                                      const measureBar = createMeasureBar();
                                      modelMind.add(measureBar);
                                      modelMind.userData.measureBar = measureBar;
@@ -847,7 +872,6 @@
             });
         }
 
-        // Aktualisiert die Anzeige der GNSS-Informationstexte
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -875,11 +899,7 @@
                 const compassStr = Math.round(heading) + "°";
                 
                 let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
-
-                let offsetInfo = "";
-                if (isSimulatedPos && compassOffset !== 0) {
-                     offsetInfo = `<br><span class="label-small">Kompass-Korrektur</span> <span class="val-green">${Math.round(compassOffset)}°</span>`;
-                }
+                let offsetInfo = (isSimulatedPos && compassOffset !== 0) ? `<br><span class="label-small">Kompass-Korrektur</span> <span class="val-green">${Math.round(compassOffset)}°</span>` : "";
 
                 statusText.innerHTML = `
                     <span class="label-small">${sourceLabel}</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
@@ -892,7 +912,6 @@
             }
         }
         
-        // Dreht den Pfeil in Richtung des nächstgelegenen Ziels
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -930,12 +949,11 @@
                 const mesh = gnssMeshes[id];
                 const config = AR_MODELS[id];
 
-                // Nur das erste Element der sortierten Liste (das nächste) wird geprüft
                 if (!closestModelFound && item.dist < VISIBILITY_DISTANCE) {
                     mesh.visible = true;
                     closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
 
-                    // Anzeige von Zusatzinfos
+                    // Historischer Kupferstich wird angezeigt bei Fontäne (ID 3/33)
                     if (id === 3 || id === 33) {
                          historicalInfo.style.display = 'block';
                     } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
@@ -963,35 +981,30 @@
             });
         }
 
-        // Haversine-Formel zur Berechnung der Entfernung zwischen zwei Koordinaten auf der Erdkugel
         function haversineDist(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; // Erdradius in Metern
+            const R = 6371e3; 
             const rad = Math.PI/180;
             const dLat = (lat2-lat1)*rad; const dLon = (lon2-lon1)*rad;
             const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Umrechnung von GNSS-Koordinaten (Lat/Lon) in kartesische x/z Koordinaten relativ zum Nutzer (0,0,0)
         function calcOffset(lat1, lon1, lat2, lon2) {
-            const R = 6378137; // Erdradius
+            const R = 6378137; 
             const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
             const lat1Rad = lat1 * Math.PI / 180;
             const dx = dLon * Math.cos(lat1Rad) * R; const dz = dLat * R; 
             return { x: dx, z: dz };
         }
         
-        // Berechnung des Winkels (Bearing) von Startpunkt zu Zielpunkt
         function calculateBearing(startLat, startLng, destLat, destLng) {
             const startLatRad = startLat * (Math.PI / 180); const startLngRad = startLng * (Math.PI / 180);
             const destLatRad = destLat * (Math.PI / 180); const destLngRad = destLng * (Math.PI / 180);
             const y = Math.sin(destLngRad - startLngRad) * Math.cos(destLatRad);
             const x = Math.cos(startLatRad) * Math.sin(destLatRad) - Math.sin(startLatRad) * Math.cos(destLatRad) * Math.cos(destLngRad - startLngRad);
-            let brng = Math.atan2(y, x);
-            return ((brng * 180 / Math.PI) + 360) % 360;
+            return ((Math.atan2(y, x) * 180 / Math.PI) + 360) % 360;
         }
 
-        // Analyse des Videobildes auf ArUco-Marker
         function processArucoFrame(video) {
             if (!video || video.readyState < video.HAVE_METADATA) return false;
 
@@ -1040,6 +1053,11 @@
                             const euler = new THREE.Euler().setFromQuaternion(fullQuat, 'YXZ');
                             const uprightQuat = new THREE.Quaternion().setFromEuler(new THREE.Euler(0, euler.y, 0));
                             updateActiveModelArUco(id, targetPos, uprightQuat);
+                            
+                            // Anzeige des Kupferstichs für ArUco ID 3 (Fontäne)
+                            if (id === 3 || id === 33) {
+                                historicalInfo.style.display = 'block';
+                            }
                         }
                     }
                 });
@@ -1063,7 +1081,6 @@
             return found;
         }
 
-        // Initialisierung der 2D-Karte mit Leaflet
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
@@ -1093,7 +1110,6 @@
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        // Callback-Funktion bei neuer GNSS-Position
         function onPos(pos) {
             realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             if (!isSimulatedPos) {
@@ -1105,24 +1121,10 @@
             }
         }
 
-        // Callback-Funktion bei Änderung der Geräteausrichtung
         function onDeviceOrientation(e) {
-            lastDeviceOrientation = {
-                alpha: e.alpha,
-                beta: e.beta,
-                gamma: e.gamma
-            };
-
-            // Rohdaten extrahieren
-            if (e.webkitCompassHeading) {
-                rawHeading = e.webkitCompassHeading;
-            } else if (e.alpha !== null) {
-                rawHeading = (360 - e.alpha) % 360;
-            }
-
-            // Heading berechnen (inkl. Deklination und Offset)
+            lastDeviceOrientation = { alpha: e.alpha, beta: e.beta, gamma: e.gamma };
+            if (e.webkitCompassHeading) rawHeading = e.webkitCompassHeading; else if (e.alpha !== null) rawHeading = (360 - e.alpha) % 360;
             heading = (rawHeading + magDeclination + compassOffset) % 360;
-
             if (lastPos) drawUserOnMap(lastPos);
         }
 
@@ -1181,27 +1183,15 @@
             const pitch = THREE.MathUtils.radToDeg(euler.x).toFixed(0);
             const yaw   = THREE.MathUtils.radToDeg(euler.y).toFixed(0);
             const roll  = THREE.MathUtils.radToDeg(euler.z).toFixed(0);
-
-            statusText.innerHTML = `
-                <span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br>
-                <div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;">
-                    <span class="label-small">Position (Relativ zw. Smartphone - Marker)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm
-                </div>
-                <div style="margin-top:8px;">
-                    <span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°
-                </div>
-            `;
+            statusText.innerHTML = `<span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br><div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;"><span class="label-small">Position (Relativ)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm</div><div style="margin-top:8px;"><span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°</div>`;
         }
 
         function triggerHint() {
-            // Nur triggen wenn kein aktiver Timeout existiert
-            // Das verhindert dass bereits laufende Timer zurückgesetzt werden
             if (hintTimeout) return;
-            
             clickHint.style.opacity = 1;
             hintTimeout = setTimeout(() => { 
                 clickHint.style.opacity = 0;
-                hintTimeout = null; // Reset für nächsten Aufruf
+                hintTimeout = null; 
             }, 2000);
         }
         
@@ -1213,10 +1203,7 @@
                 objTitle.innerText = AR_MODELS[id].title;
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
-                // Nur bei ArUco den Hint anzeigen (2 Sekunden)
-                if (sourceName === "ArUco") {
-                    triggerHint();
-                }
+                if (sourceName === "ArUco") triggerHint();
             }
         }
 
@@ -1300,7 +1287,6 @@
                 if (currentTrackingID !== -1 && activeLink) window.open(activeLink, '_blank');
             }
         });
-
     </script>
 </body>
 </html>
