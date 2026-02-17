@@ -448,8 +448,8 @@
             // Markierungen oben und unten
             const markGeometry = new THREE.BufferGeometry();
             const markPositions = new Float32Array([
-                -0.2, 0, 0,      // Unten Marke links
-                0.2, 0, 0,       // Unten Marke rechts
+                -0.1, 0, 0,      // Unten Marke links
+                0.1, 0, 0,       // Unten Marke rechts
                 -0.5, 3.5, 0,    // Oben Marke links
                 0.5, 3.5, 0      // Oben Marke rechts
             ]);
@@ -1193,9 +1193,15 @@
         }
 
         function triggerHint() {
+            // Nur triggen wenn kein aktiver Timeout existiert
+            // Das verhindert dass bereits laufende Timer zurückgesetzt werden
+            if (hintTimeout) return;
+            
             clickHint.style.opacity = 1;
-            if (hintTimeout) clearTimeout(hintTimeout);
-            hintTimeout = setTimeout(() => { clickHint.style.opacity = 0; }, 2000);
+            hintTimeout = setTimeout(() => { 
+                clickHint.style.opacity = 0;
+                hintTimeout = null; // Reset für nächsten Aufruf
+            }, 2000);
         }
         
         function updateUIForModel(id, sourceName) {
