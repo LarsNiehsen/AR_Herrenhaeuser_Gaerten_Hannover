@@ -429,6 +429,39 @@
             points.geometry.attributes.position.needsUpdate = true; 
         }
 
+        // Erstellung eines Maßstabs neben der Fontaine (70m vertikal)
+        function createMeasureBar() {
+            const group = new THREE.Group();
+            
+            // Linie von 0 bis 70m Höhe (wird als 3.5 Units in Three.js Einheiten dargestellt: 70/20)
+            const lineGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array([
+                3.0, 0, 0,      // Unten
+                3.0, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
+            ]);
+            lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            group.add(line);
+            
+            // Markierungen oben und unten
+            const markGeometry = new THREE.BufferGeometry();
+            const markPositions = new Float32Array([
+                2.7, 0, 0,      // Unten Marke links
+                3.3, 0, 0,      // Unten Marke rechts
+                2.7, 3.5, 0,    // Oben Marke links
+                3.3, 3.5, 0     // Oben Marke rechts
+            ]);
+            markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
+            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            const marks = new THREE.LineSegments(markGeometry, markMaterial);
+            group.add(marks);
+            
+            group.userData.isMeasureBar = true;
+            return group;
+        }
+
         // Initialisierung und Start der AR-Engine
         const startAR = async () => {
             mindarThree = new MindARThree({
@@ -572,39 +605,6 @@
                     camera.rotation.set(0, 0, 0);
                     camera.quaternion.set(0, 0, 0, 1);
                 }
-
-                // Erstellung eines Maßstabs neben der Fontaine (70m vertikal)
-        function createMeasureBar() {
-            const group = new THREE.Group();
-            
-            // Linie von 0 bis 70m Höhe (wird als 3.5 Units in Three.js Einheiten dargestellt: 70/20)
-            const lineGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array([
-                3.0, 0, 0,      // Unten
-                3.0, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
-            ]);
-            lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
-            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
-            const line = new THREE.Line(lineGeometry, lineMaterial);
-            group.add(line);
-            
-            // Markierungen oben und unten
-            const markGeometry = new THREE.BufferGeometry();
-            const markPositions = new Float32Array([
-                2.7, 0, 0,      // Unten Marke links
-                3.3, 0, 0,      // Unten Marke rechts
-                2.7, 3.5, 0,    // Oben Marke links
-                3.3, 3.5, 0     // Oben Marke rechts
-            ]);
-            markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
-            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
-            const marks = new THREE.LineSegments(markGeometry, markMaterial);
-            group.add(marks);
-            
-            group.userData.isMeasureBar = true;
-            return group;
-        }
 
         // Aktualisierung aller Partikelsysteme
                 const handleParticles = (meshList, listType) => {
