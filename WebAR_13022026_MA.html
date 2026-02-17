@@ -698,7 +698,12 @@
                 loader.load(config.url, (gltf) => {
                     // 1. ArUco-Marker Version
                     const modelAruco = gltf.scene.clone();
-                    modelAruco.scale.set(config.scale, config.scale, config.scale);
+                    let arucoScale = config.scale;
+                    // Für Fontaine und sehr große Modelle: Scale reduzieren für bessere Sichtbarkeit bei ArUco
+                    if (id === 3 || id === 33) {
+                        arucoScale = config.scale * 0.1; // Fontaine um 90% kleiner für ArUco
+                    }
+                    modelAruco.scale.set(arucoScale, arucoScale, arucoScale);
                     modelAruco.rotation.x = Math.PI / 2; 
                     if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
                     
