@@ -573,7 +573,40 @@
                     camera.quaternion.set(0, 0, 0, 1);
                 }
 
-                // Aktualisierung aller Partikelsysteme
+                // Erstellung eines Maßstabs neben der Fontaine (70m vertikal)
+        function createMeasureBar() {
+            const group = new THREE.Group();
+            
+            // Linie von 0 bis 70m Höhe (wird als 3.5 Units in Three.js Einheiten dargestellt: 70/20)
+            const lineGeometry = new THREE.BufferGeometry();
+            const positions = new Float32Array([
+                3.0, 0, 0,      // Unten
+                3.0, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
+            ]);
+            lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
+            
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
+            const line = new THREE.Line(lineGeometry, lineMaterial);
+            group.add(line);
+            
+            // Markierungen oben und unten
+            const markGeometry = new THREE.BufferGeometry();
+            const markPositions = new Float32Array([
+                2.7, 0, 0,      // Unten Marke links
+                3.3, 0, 0,      // Unten Marke rechts
+                2.7, 3.5, 0,    // Oben Marke links
+                3.3, 3.5, 0     // Oben Marke rechts
+            ]);
+            markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
+            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            const marks = new THREE.LineSegments(markGeometry, markMaterial);
+            group.add(marks);
+            
+            group.userData.isMeasureBar = true;
+            return group;
+        }
+
+        // Aktualisierung aller Partikelsysteme
                 const handleParticles = (meshList, listType) => {
                     Object.entries(meshList).forEach(([key, m]) => {
                         let id = parseInt(key);
@@ -698,12 +731,7 @@
                 loader.load(config.url, (gltf) => {
                     // 1. ArUco-Marker Version
                     const modelAruco = gltf.scene.clone();
-                    let arucoScale = config.scale;
-                    // Für Fontaine und sehr große Modelle: Scale reduzieren für bessere Sichtbarkeit bei ArUco
-                    if (id === 3 || id === 33) {
-                        arucoScale = config.scale * 0.1; // Fontaine um 90% kleiner für ArUco
-                    }
-                    modelAruco.scale.set(arucoScale, arucoScale, arucoScale);
+                    modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2; 
                     if (id === 1 || id === 2 || id === 3 || id === 33) modelAruco.rotation.z += Math.PI;
                     
@@ -712,7 +740,11 @@
                         modelAruco.add(p); 
                         p.position.set(0, 4.0, 0); 
                         p.rotation.x = -Math.PI / 2;
-                        modelAruco.userData.particles = p; 
+                        modelAruco.userData.particles = p;
+                        // Maßband für Fontaine hinzufügen
+                        const measureBar = createMeasureBar();
+                        modelAruco.add(measureBar);
+                        modelAruco.userData.measureBar = measureBar;
                     }
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
@@ -731,7 +763,11 @@
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
                              modelGNSS.userData.particles = pG;
-                             gnssGroup.add(pG); 
+                             gnssGroup.add(pG);
+                             // Maßband für GNSS-Fontaine hinzufügen
+                             const measureBar = createMeasureBar();
+                             modelGNSS.add(measureBar);
+                             modelGNSS.userData.measureBar = measureBar;
                         }
                         modelGNSS.visible = false;
                         gnssGroup.add(modelGNSS);
@@ -767,6 +803,10 @@
                                      const pM = createWaterEffect();
                                      modelMind.userData.particles = pM;
                                      mindarAnchors[targetIndex].group.add(pM);
+                                     // Maßband für MindAR-Fontaine hinzufügen
+                                     const measureBar = createMeasureBar();
+                                     modelMind.add(measureBar);
+                                     modelMind.userData.measureBar = measureBar;
                                 }
 
                                 modelMind.userData.anchorIndex = targetIndex;
@@ -880,7 +920,10 @@
                     // das Modell hier automatisch relativ zum neuen Standpunkt.
                     const heightY = -2.0; 
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                    mesh.position.set(offset.x, heightY, -offset.z); 
+                    mesh.position.set(offset.x, heightY, -offset.z);
+                    
+                    // UI-Update für aktives Modell
+                    updateUIForModel(id, isSimulatedPos ? "Pos. Simulation" : "GNSS"); 
 
                 } else {
                     // Alle anderen Modelle werden ausgeblendet
