@@ -536,9 +536,14 @@
 
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
+                // Bestimmen, ob GNSS-Modelle angezeigt werden sollen
+                // Ausblenden bei: ArUco aktiv ODER reines MINDAR ohne Simulation
+                // Anzeigen bei: Simulation aktiv ODER nur GNSS
+                let showGNSSModels = !arucoFound && !(showStandardMindAR && !isSimulatedPos);
+
                 // --- GNSS-LOGIK UND KAMERA-ROTATION ---
                 // Hier wird entschieden, ob Modelle positionsbasiert angezeigt werden.
-                if (showSimulation || (!isMarkerTracking && gnssGroup)) {
+                if (showGNSSModels && (showSimulation || (!isMarkerTracking && gnssGroup))) {
                     gnssGroup.visible = true;
                     
                     // KAMERA-ROTATION ANSTATT SZENEN-ROTATION:
@@ -549,12 +554,23 @@
                          const q = getDeviceQuaternion(lastDeviceOrientation);
                          camera.quaternion.copy(q); // Kamera übernimmt die Rotation des Geräts
                          gnssGroup.rotation.set(0, 0, 0); // Die Welt bleibt starr
+                    } else {
+                         camera.rotation.set(0, THREE.MathUtils.degToRad(heading), 0, 'YXZ');
+                         gnssGroup.rotation.set(0, 0, 0);
                     }
 
                     updateGNSSObjects(); // Berechnung der Modellpositionen
                     updateGNSSUI(); 
                 } else {
+                    // GNSS-Modelle ausblenden, Kamera zurücksetzen für ArUco/MINDAR
                     gnssGroup.visible = false;
+                    Object.keys(gnssMeshes).forEach(key => {
+                        if (gnssMeshes[key]) gnssMeshes[key].visible = false;
+                    });
+                    // Kamera-Rotation zurücksetzen damit MindAR/ArUco sie korrekt verwaltet
+                    camera.rotation.order = 'YXZ';
+                    camera.rotation.set(0, 0, 0);
+                    camera.quaternion.set(0, 0, 0, 1);
                 }
 
                 // Aktualisierung aller Partikelsysteme
