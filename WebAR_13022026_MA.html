@@ -438,32 +438,63 @@
         function createMeasureBar() {
             const group = new THREE.Group();
             
-            // Linie von 0 bis 70m Höhe - BLAU (0x0000ff), mittig im Modell (x=0)
-            const lineGeometry = new THREE.BufferGeometry();
-            const positions = new Float32Array([
-                0, 0, 0,        // Unten
-                0, 3.5, 0       // Oben (70m / 20 Skalierungsfaktor)
+            // Horizontale Linie UNTEN (an der Unterkante des Modells)
+            const horizontalBottomGeometry = new THREE.BufferGeometry();
+            const horizontalBottomPositions = new Float32Array([
+                -1.75, 0, 0,    // Links
+                1.75, 0, 0      // Rechts
             ]);
-            lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
-            
+            horizontalBottomGeometry.setAttribute('position', new THREE.BufferAttribute(horizontalBottomPositions, 3));
             const lineMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 4, fog: false });
-            const line = new THREE.Line(lineGeometry, lineMaterial);
-            group.add(line);
+            const horizontalBottom = new THREE.Line(horizontalBottomGeometry, lineMaterial);
+            group.add(horizontalBottom);
             
-            // Markierungen oben und unten
-            const markGeometry = new THREE.BufferGeometry();
-            const markPositions = new Float32Array([
-                -0.1, 0, 0,      // Unten Marke links
-                0.1, 0, 0,       // Unten Marke rechts
-                -0.5, 3.5, 0,    // Oben Marke links
-                0.5, 3.5, 0      // Oben Marke rechts
+            // Vertikale Linie (70m = 3.5 Units)
+            const verticalGeometry = new THREE.BufferGeometry();
+            const verticalPositions = new Float32Array([
+                0, 0, 0,        // Unten
+                0, 3.5, 0       // Oben
             ]);
-            markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
-            const markMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 3, fog: false });
-            const marks = new THREE.LineSegments(markGeometry, markMaterial);
-            group.add(marks);
+            verticalGeometry.setAttribute('position', new THREE.BufferAttribute(verticalPositions, 3));
+            const vertical = new THREE.Line(verticalGeometry, lineMaterial);
+            group.add(vertical);
             
-            // Canvas-Text "70 m" oben auf der Linie
+            // Horizontale Linie OBEN (70m)
+            const horizontalTopGeometry = new THREE.BufferGeometry();
+            const horizontalTopPositions = new Float32Array([
+                -1.75, 3.5, 0,  // Links
+                1.75, 3.5, 0    // Rechts
+            ]);
+            horizontalTopGeometry.setAttribute('position', new THREE.BufferAttribute(horizontalTopPositions, 3));
+            const horizontalTop = new THREE.Line(horizontalTopGeometry, lineMaterial);
+            group.add(horizontalTop);
+            
+            // Kleine Markierungen unten
+            const markBottomGeometry = new THREE.BufferGeometry();
+            const markBottomPositions = new Float32Array([
+                -1.75, -0.2, 0,
+                -1.75, 0.2, 0,
+                1.75, -0.2, 0,
+                1.75, 0.2, 0
+            ]);
+            markBottomGeometry.setAttribute('position', new THREE.BufferAttribute(markBottomPositions, 3));
+            const markMaterial = new THREE.LineBasicMaterial({ color: 0x0000ff, linewidth: 2, fog: false });
+            const markBottom = new THREE.LineSegments(markBottomGeometry, markMaterial);
+            group.add(markBottom);
+            
+            // Kleine Markierungen oben
+            const markTopGeometry = new THREE.BufferGeometry();
+            const markTopPositions = new Float32Array([
+                -1.75, 3.3, 0,
+                -1.75, 3.7, 0,
+                1.75, 3.3, 0,
+                1.75, 3.7, 0
+            ]);
+            markTopGeometry.setAttribute('position', new THREE.BufferAttribute(markTopPositions, 3));
+            const markTop = new THREE.LineSegments(markTopGeometry, markMaterial);
+            group.add(markTop);
+            
+            // Canvas-Text "70 m" in der Mitte
             const canvas = document.createElement('canvas');
             canvas.width = 256; canvas.height = 64;
             const ctx = canvas.getContext('2d');
@@ -476,7 +507,7 @@
             const texture = new THREE.CanvasTexture(canvas);
             const spriteMaterial = new THREE.SpriteMaterial({ map: texture });
             const sprite = new THREE.Sprite(spriteMaterial);
-            sprite.position.set(0, 3.8, 0);
+            sprite.position.set(0, 1.75, 0);  // Mittig zwischen unten und oben
             sprite.scale.set(2, 0.5, 1);
             group.add(sprite);
             
@@ -718,19 +749,33 @@
         async function runOcrCheck(canvas) {
             isOcrRunning = true;
             lastOcrTime = Date.now();
+            
+            // Status-Update im UI (optional, damit man sieht, dass er arbeitet)
+            // statusText.innerHTML = "<span style='color:#aaa'>Scanne Text...</span>";
+
             try {
-                // OCR wird asynchron durchgeführt
+                // Tesseract scannt das Bild
                 const { data: { text } } = await Tesseract.recognize(canvas, 'deu', { 
-                    logger: m => {} 
+                    logger: m => {} // Logging deaktiviert lassen für Performance
                 });
                 
-                // Prüfung auf Schlüsselwörter für den Blumengarten
-                if (text && text.includes("Niederdeutscher") && text.includes("Blumengarten")) {
-                    console.log("Texterkennung erfolgreich: Niederdeutscher Blumengarten gefunden");
-                    statusText.innerHTML = "<span style='color:#4f4'>Text erkannt: Blumengarten!</span><br>Starte Modell-Anzeige...";
+                // 1. Text bereinigen: Alles klein schreiben, Zeilenumbrüche (\n) durch Leerzeichen ersetzen
+                const cleanText = text.toLowerCase().replace(/\s+/g, ' ');
+
+                // Debugging: Zeigt in der Konsole an, was erkannt wurde (WICHTIG für Tests!)
+                if(cleanText.length > 5) console.log("OCR Scan:", cleanText);
+
+                // 2. Robuste Prüfung: Wir prüfen auf charakteristische Wortteile statt ganze Sätze.
+                // Das hilft, wenn Tesseract z.B. "Blurnengarten" statt "Blumengarten" liest.
+                // Prüft auf: ("nieder" UND "deut") ODER ("blumen" UND "garten")
+                const matchNieder = cleanText.includes("nieder") && cleanText.includes("deut");
+                const matchBlumen = cleanText.includes("blumen") && cleanText.includes("garten");
+
+                if (matchNieder || matchBlumen) {
+                    console.log("Texterkennung erfolgreich!");
+                    statusText.innerHTML = "<span style='color:#4f4'>Text erkannt:<br>Niederdeutscher Blumengarten!</span>";
                     
-                    // Simuliert die Erkennung von Target 1, indem die Simulation an dessen Koordinaten gestartet wird.
-                    // Das führt dazu, dass das Modell (ID 1) korrekt an der Position eingeblendet wird.
+                    // Simulation starten
                     activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
                 }
             } catch (err) {
@@ -738,6 +783,8 @@
             }
             isOcrRunning = false;
         }
+
+
 
         function getDeviceQuaternion(orientData) {
             const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; 
