@@ -251,31 +251,31 @@
     
     <!-- Anwendungs-Logik -->
     <script type="module">
-        // Importieren der Three.js Bibliothek für 3D-Grafiken
+        // Einbindung der Three.js Bibliothek für die Erstellung der 3D-Szene
         import * as THREE from 'three';
-        // Importieren des GLTF-Loaders zum Laden von 3D-Modellen
+        // Einbindung des Loaders, um 3D-Modelle im GLB/GLTF Format laden zu können
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
-        // Importieren der MindAR-Bibliothek für Bilderkennung im Browser
+        // Einbindung der MindAR-Bibliothek, die das Kamerabild analysiert und Bild-Tracking ermöglicht
         import { MindARThree } from 'mindar-image-three';
 
         // --- KONFIGURATION DER ANWENDUNG ---
-        const markerSize = 100.0; // Definierte Größe der ArUco-Marker in mm
-        const selectedDictionary = 'ARUCO_MIP_36h12'; // Typ des verwendeten Markersets
-        const VISIBILITY_DISTANCE = 75.0; // Distanz (Meter), ab der GNSS-Objekte eingeblendet werden
+        const markerSize = 100.0; // Größe der ArUco-Marker in Millimetern für die Berechnung der Distanz
+        const selectedDictionary = 'ARUCO_MIP_36h12'; // Name des verwendeten Marker-Wörterbuchs
+        const VISIBILITY_DISTANCE = 75.0; // Radius in Metern, in dem GNSS-basierte Objekte sichtbar werden
         
-        // Magnetische Deklination: Korrekturwert zwischen magnetischem Nordpol und geographischem Nordpol
-        // Für Hannover beträgt dieser Wert ca. 3.5° Ost. Erhöht die Präzision des Richtungspfeils.
+        // Magnetische Deklination: Korrekturwert zwischen magnetischem und geographischem Nordpol
+        // Dieser Wert ist standortabhängig (ca. 3.5° Ost für Hannover) und verbessert die Kompassgenauigkeit.
         const magDeclination = 3.5;
 
-        // Koordinaten für Simulationstrigger (Starten der Simulation bei Erkennung)
+        // Geographische Koordinaten, die als Auslöser (Trigger) für die Simulation dienen
         const target0Lat = 52.386444;
         const target0Lon = 9.695780;
 
         const targetBlumengartenLat = 52.388029;
         const targetBlumengartenLon = 9.697794;
         
-        // Konfiguration der 3D-Modelle
-        // 'initRotation': Anfangsdrehung des Modells in Grad für die GNSS-Ansicht
+        // Definition der verfügbaren 3D-Modelle und ihrer Eigenschaften
+        // 'initRotation' bestimmt die initiale Drehung des Modells relativ zu Norden (in Grad)
         const AR_MODELS = {
             0: { 
                 url: '3D_models/Koenig.glb', scale: 150.0, 
@@ -289,7 +289,6 @@
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853,
-                // Initiale Drehung auf 1° festgelegt für GNSS-Positionsplatzierung
                 initRotation: 1 
             },
             2: { 
@@ -315,7 +314,7 @@
             }
         };
 
-        // Stationen für die Kartenanzeige (Leaflet)
+        // Liste der Stationen für die 2D-Kartenanzeige
         const stations = [
             { title: 'Große Fontaine', coords: [52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords: [52.390184, 9.699546] },
@@ -326,7 +325,7 @@
             { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
         ];
 
-        // Referenzen auf HTML-Elemente für den Zugriff im Code
+        // Referenzen auf HTML-Elemente für die DOM-Manipulation
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -346,24 +345,25 @@
         const locateBtn = document.getElementById('locateBtn');
         const orientBtn = document.getElementById('orientBtn');
 
+        // Erstellung des 2D-Zeichenkontextes für das Debugging-Overlay
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Globale Variablen
+        // Globale Zustandsvariablen
         let activeLink = null;
-        let loadedMeshes = {}; // ArUco-Objekte
-        let mindARMeshes = {}; // MindAR-Objekte
-        let gnssMeshes = {};   // GNSS-Objekte
+        let loadedMeshes = {}; // Speichert ArUco-Objekte
+        let mindARMeshes = {}; // Speichert MindAR-Objekte
+        let gnssMeshes = {};   // Speichert GNSS-Objekte
         let detector, posit;   
         let mindarThree, renderer, scene, camera;
         let mindarAnchors = [];
         let markerGroup, gnssGroup; 
         
-        let lastPos = null; // Letzte GNSS-Position
-        let realPos = null; // Reale GNSS-Position
-        let heading = 0;    // Blickrichtung (korrigiert)
-        let rawHeading = 0; // Sensor-Rohdaten
-        let compassOffset = 0; // Kalibrierungsoffset
-        let lastDeviceOrientation = null; 
+        let lastPos = null; // Aktuelle oder letzte bekannte GNSS-Position
+        let realPos = null; // Tatsächliche, vom Sensor gemessene GNSS-Position
+        let heading = 0;    // Berechnete Blickrichtung (inkl. Korrekturen)
+        let rawHeading = 0; // Rohdaten des Kompass-Sensors
+        let compassOffset = 0; // Kalibrierungsoffset durch visuelle Erkennung
+        let lastDeviceOrientation = null; // Speichert die letzten Sensordaten des Gyroskops
         let mapStations, userLayer; 
         let currentTrackingID = -1; 
         let lossCounter = 0; 
@@ -371,24 +371,19 @@
         let hintTimeout = null; 
         let isMarkerTracking = false; 
         let closestObjForArrow = null;
-        
-        // Rotations-Tracking für korrekte Debug-Anzeige und Synchronisierung
-        let modelInitialRotations = {}; // Speicherung der initialen Rotation pro Modell
-        let modelCurrentRotations = {};  // Tracking der aktuellen Rotation pro Modell
 
-        // Simulations-Variablen
+        // Variablen für die Positions-Simulation
         let isSimulatedPos = false;
         let simulationEndTime = 0;
         let simulatedCoords = null;
-        let simulatedFromMindARTarget = -1; // MINDAR-Target, das die Simulation gestartet hat
-        const SIMULATION_PERSISTENCE = 30000; 
+        const SIMULATION_PERSISTENCE = 30000; // Dauer der Simulation in Millisekunden
 
         // MindAR-Tracking Variablen
         let activeMindARId = -1; 
         let activeMindAREndTime = 0; 
         const STANDARD_PERSISTENCE = 10000; 
 
-        // Erstellung der Wasser-Partikel (Fontäne)
+        // Funktion zur Erstellung eines Partikelsystems für Wassereffekte
         function createWaterEffect() {
             const particleCount = 15000; 
             const geometry = new THREE.BufferGeometry();
@@ -412,7 +407,7 @@
             return points;
         }
 
-        // Animation der Wasser-Partikel
+        // Aktualisiert die Position der Wasserpartikel für die Animation
         function updateWaterEffect(points) {
             const pos = points.geometry.attributes.position.array;
             const vels = points.userData.vels;
@@ -434,7 +429,7 @@
             points.geometry.attributes.position.needsUpdate = true; 
         }
 
-        // Start der AR-Funktionen
+        // Initialisierung und Start der AR-Engine
         const startAR = async () => {
             mindarThree = new MindARThree({
                 container: document.querySelector("#container"),
@@ -447,9 +442,10 @@
             renderer = mindarThree.renderer;
             scene = mindarThree.scene;
             camera = mindarThree.camera;
-            camera.far = 100000; camera.updateProjectionMatrix();
+            camera.far = 50000; camera.updateProjectionMatrix();
             renderer.setClearColor(0x000000, 0);
             
+            // Beleuchtung der Szene hinzufügen
             scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
             const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
             dl.position.set(0, 500, 1000);
@@ -458,24 +454,24 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
             
-            // Einrichtung der MindAR-Anker
+            // Definition der MindAR-Anker (Trigger-Events)
             for (let i = 0; i < 7; i++) {
                 const anchor = mindarThree.addAnchor(i);
                 anchor.onTargetFound = () => {
                     activeMindARId = i;
                     if (i === 0) {
-                        // Bei Erkennung Target 0: Simulation starten, Kompass auf 335°
-                        activateSimulation(target0Lat, target0Lon, 335, i);
+                        // Start der Simulation an Position 0 mit Kompassausrichtung 335°
+                        activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
-                        // Bei Erkennung Target 4-6: Simulation starten, Kompass auf 22°
-                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22, i);
+                        // Start der Simulation am Blumengarten mit Kompassausrichtung 22°
+                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
                     } else if (i === 1 || i === 2 || i === 3) {
-                         // Initialer Timer-Start bei Erkennung
+                         // Standard-Timer verlängern
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 };
                 anchor.onTargetLost = () => {
-                    // Beim Verlust nicht sofort ausblenden, Timer läuft weiter
+                    // Kein direkter Abbruch beim Verlust, Timer übernimmt
                 };
                 mindarAnchors[i] = anchor;
             }
@@ -483,7 +479,7 @@
             loadModels();
             await mindarThree.start();
 
-            // Render-Schleife (wird kontinuierlich ausgeführt)
+            // Die Render-Schleife wird kontinuierlich für jeden Frame ausgeführt
             renderer.setAnimationLoop(() => {
                 const video = mindarThree.video;
                 const arucoFound = processArucoFrame(video);
@@ -491,47 +487,42 @@
                 let showSimulation = false;
                 let showStandardMindAR = false;
 
-                // Logik für MindAR-Persistenz (Timer verlängern, solange Marker sichtbar)
-                // Wenn ein Target (ID 1, 2 oder 3) aktiv ist, prüfen wir, ob es noch getrackt wird.
-                // 'visible' ist true, solange MindAR das Bild erkennt.
+                // Prüfung, ob ein MindAR-Marker (ID 1-3) noch aktiv sein soll
                 if (activeMindARId >= 1 && activeMindARId <= 3) {
                     if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
-                        // Solange sichtbar: Timer immer wieder auf "jetzt + 10s" setzen (schiebendes Fenster)
+                        // Solange der Marker im Bild ist, wird der Timer zurückgesetzt
                         activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 }
                 
+                // Priorisierung der Tracking-Modi
                 if (arucoFound) {
                     activeMindARId = -1; 
                 } else {
                     if (isSimulatedPos) {
+                        // Simulationsmodus aktiv
                         if (Date.now() < simulationEndTime) {
                             showSimulation = true;
+                            // Im Simulationsmodus wird die GNSS-Position temporär überschrieben
                             if (simulatedCoords) lastPos = { latitude: simulatedCoords.lat, longitude: simulatedCoords.lon, accuracy: 1.5 };
                         } else {
                             isSimulatedPos = false;
-                            simulatedFromMindARTarget = -1;
+                            // Zurückfallen auf reale GNSS-Daten
                             if (realPos) lastPos = realPos;
                         }
                     } 
                     else if (activeMindARId >= 1 && activeMindARId <= 3) {
-                        // Anzeigen, solange die Zeit noch nicht abgelaufen ist
+                        // Standard MindAR Anzeige aktiv
                         if (Date.now() < activeMindAREndTime) showStandardMindAR = true;
                         else activeMindARId = -1;
                     }
                 }
 
-                // Sichtbarkeit und Skalierung der MindAR-Modelle
+                // Steuerung der MindAR-Modelle
                 Object.keys(mindARMeshes).forEach(idStr => {
                     const id = parseInt(idStr);
-                    // Der Aufruf wird hier nicht mehr benötigt, da wir unten eine spezifischere Prüfung auf den Anker-Index machen
-                    // const isRelevantForActiveTarget = AR_MODELS[id].mindTargetIndexes.includes(activeMindARId);
-                    
                     if (mindARMeshes[id]) {
                         mindARMeshes[id].forEach(mesh => {
-                            // WICHTIG: Wir prüfen hier, ob das Modell zu dem AKTUELL ERKANNTEN Marker (activeMindARId) gehört.
-                            // Wir nutzen dafür 'userData.anchorIndex', das wir beim Laden gespeichert haben.
-                            // So verhindern wir, dass das Modell von Marker 1 sichtbar wird, wenn eigentlich Marker 3 erkannt wurde.
                             if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
@@ -545,37 +536,28 @@
 
                 isMarkerTracking = arucoFound || showStandardMindAR;
 
-                // Bestimmen, ob GNSS-Modelle angezeigt werden sollen
-                // Ausblenden bei: ArUco aktiv ODER reines MINDAR ohne Simulation
-                // Anzeigen bei: Simulation aktiv ODER nur GNSS
-                let showGNSSModels = !arucoFound && !(showStandardMindAR && !isSimulatedPos);
-
-                // GNSS-Gruppe (Positionsbasiert)
-                if (showGNSSModels && (showSimulation || (!isMarkerTracking && gnssGroup))) {
-                    // Modelle bleiben an ihren geografischen Positionen verankert (gnssGroup wird NICHT gedreht)
-                    gnssGroup.rotation.set(0, 0, 0);
-                    // Stattdessen wird die Kamera rotiert, um die Benutzer-Perspektive zu simulieren
+                // --- GNSS-LOGIK UND KAMERA-ROTATION ---
+                // Hier wird entschieden, ob Modelle positionsbasiert angezeigt werden.
+                if (showSimulation || (!isMarkerTracking && gnssGroup)) {
+                    gnssGroup.visible = true;
+                    
+                    // KAMERA-ROTATION ANSTATT SZENEN-ROTATION:
+                    // Um zu ermöglichen, dass der Nutzer um GNSS-Modelle herumgehen kann,
+                    // wird hier die Orientierung der Kamera angepasst. Die 'gnssGroup' bleibt 
+                    // statisch auf (0,0,0) Rotation, während sich die Kamera dreht.
                     if (lastDeviceOrientation) {
                          const q = getDeviceQuaternion(lastDeviceOrientation);
-                         camera.quaternion.copy(q);
-                    } else {
-                         camera.rotation.set(0, THREE.MathUtils.degToRad(heading), 0, 'YXZ');
+                         camera.quaternion.copy(q); // Kamera übernimmt die Rotation des Geräts
+                         gnssGroup.rotation.set(0, 0, 0); // Die Welt bleibt starr
                     }
-                    updateGNSSObjects();
+
+                    updateGNSSObjects(); // Berechnung der Modellpositionen
                     updateGNSSUI(); 
                 } else {
-                    // GNSS-Modelle ausblenden
-                    gnssGroup.rotation.set(0, 0, 0);
-                    Object.keys(gnssMeshes).forEach(key => {
-                        if (gnssMeshes[key]) gnssMeshes[key].visible = false;
-                    });
-                    // Kamera-Rotation zurücksetzen damit MindAR sie korrekt verwaltet
-                    camera.rotation.order = 'YXZ';
-                    camera.rotation.set(0, 0, 0);
-                    camera.quaternion.set(0, 0, 0, 1);
+                    gnssGroup.visible = false;
                 }
 
-                // Partikel-Effekte synchronisieren
+                // Aktualisierung aller Partikelsysteme
                 const handleParticles = (meshList, listType) => {
                     Object.entries(meshList).forEach(([key, m]) => {
                         let id = parseInt(key);
@@ -586,7 +568,9 @@
                                 if (mesh.visible) {
                                     updateWaterEffect(mesh.userData.particles);
                                     if (listType === 'aruco' && (id === 3 || id === 33)) {
+                                        // Spezifische Behandlung für ArUco
                                     } else {
+                                        // Partikel folgen dem Mesh
                                         const worldPos = new THREE.Vector3();
                                         mesh.getWorldPosition(worldPos);
                                         let yOffset = 0;
@@ -601,43 +585,34 @@
                             }
                         });
                     });
-                                handleParticles(gnssMeshes, 'gnss');
-                                handleParticles(loadedMeshes, 'aruco'); 
-                                handleParticles(mindARMeshes, 'mindar');
                 };
 
-                // Debug-Anzeige Ausrichtung - Korrekte Synchronisierung mit aktuellem Modell
+                handleParticles(gnssMeshes, 'gnss');
+                handleParticles(loadedMeshes, 'aruco'); 
+                handleParticles(mindARMeshes, 'mindar');
+
+                // Debugging-Anzeige der aktuellen Rotation
                 let currentRotY = 0;
-                let displayingModelId = -1;
-                
                 if (gnssGroup.visible) {
+                     // Im GNSS Modus ist die Objekt-Rotation statisch, aber zur Info zeigen wir sie an
                      Object.keys(gnssMeshes).forEach(id => {
-                         if(gnssMeshes[id].visible) {
-                             currentRotY = gnssMeshes[id].rotation.y;
-                             displayingModelId = id;
-                             modelCurrentRotations[id] = currentRotY;
-                         }
+                         if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
                      });
                 } 
-                else if (isMarkerTracking && activeMindARId >= 0 && activeMindARId <= 6) {
-                     // Bei MINDAR: Suche nach sichtbaren Modellen die zu diesem Anchor gehören
+                else if (isMarkerTracking && activeMindARId !== -1) {
                      Object.keys(mindARMeshes).forEach(idStr => {
-                         if (mindARMeshes[idStr]) {
-                             mindARMeshes[idStr].forEach(mesh => {
-                                 if (mesh.visible && mesh.userData.anchorIndex === activeMindARId) {
+                         const id = parseInt(idStr);
+                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
+                             mindARMeshes[id].forEach(mesh => {
+                                 if (mesh.visible) {
                                      currentRotY = mesh.rotation.y;
-                                     displayingModelId = parseInt(idStr);
-                                     modelCurrentRotations[displayingModelId] = currentRotY;
                                  }
                              });
                          }
                      });
                 }
                 else if (isMarkerTracking && currentTrackingID !== -1 && loadedMeshes[currentTrackingID]?.visible) {
-                     // Bei ArUco: rotation.z verwenden
                      currentRotY = loadedMeshes[currentTrackingID].rotation.z;
-                     displayingModelId = currentTrackingID;
-                     modelCurrentRotations[currentTrackingID] = currentRotY;
                 }
 
                 let angleSpan = document.getElementById('debugAngle');
@@ -653,6 +628,7 @@
                     angleSpan.innerText = finalDeg + "°";
                 }
 
+                // Aktualisierung des Richtungspfeils
                 if (closestObjForArrow) updateArrow();
                 else arrowContainer.style.opacity = 0;
 
@@ -660,7 +636,7 @@
             });
         }
 
-        // Berechnung der Geräte-Rotation
+        // Berechnung der Quaternion aus den Gerätesensoren (Alpha, Beta, Gamma)
         function getDeviceQuaternion(orientData) {
             const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; 
             const beta = orientData.beta ? THREE.MathUtils.degToRad(orientData.beta) : 0;   
@@ -671,6 +647,7 @@
             const q = new THREE.Quaternion();
             q.setFromEuler(euler);
             
+            // Anpassung der Rotation an das Three.js Koordinatensystem
             const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
             q.multiply(q1);
             const q2 = new THREE.Quaternion();
@@ -679,52 +656,21 @@
             return q;
         }
 
-        // Aktivierung der Simulation und Berechnung des Kompass-Offsets
-        // Berechnung des finalen Kompasswertes 'heading'.
-            // Dieser setzt sich zusammen aus:
-            // 1. Dem Sensor-Rohwert (rawHeading)
-            // 2. Der magnetischen Deklination (magDeclination), um Nordabweichung zu korrigieren.
-            // 3. Dem manuellen Offset (compassOffset), falls eine Bilderkennung stattgefunden hat.
-        function activateSimulation(lat, lon, targetHeading, mindARTarget) {
+        // Startet die Simulation einer GNSS-Position für eine definierte Zeit
+        function activateSimulation(lat, lon, targetHeading) {
             isSimulatedPos = true;
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
             simulatedCoords = { lat: lat, lon: lon };
-            simulatedFromMindARTarget = mindARTarget; // Speichern des MINDAR-Targets
-            // activeMindARId wird NICHT zurückgesetzt - das MINDAR-Modell muss sichtbar bleiben!
+            activeMindARId = -1; 
             
+            // Berechnung des Kompass-Offsets zur Kalibrierung
             if (typeof targetHeading === 'number') {
                 compassOffset = (targetHeading - rawHeading + 360) % 360;
                 console.log("Kompass kalibriert. Soll: " + targetHeading + ", Roh: " + rawHeading + ", Offset: " + compassOffset);
-                
-                // Synchronisierung der GNSS-Modelle mit der erkannten MindAR-Ausrichtung
-                // Die GNSS-Modelle werden so rotiert, dass ihre Ausrichtung der MindAR-Ausrichtung entspricht
-                Object.keys(gnssMeshes).forEach(id => {
-                    const config = AR_MODELS[id];
-                    if (config && config.mindTargetIndexes && config.mindTargetIndexes.includes(mindARTarget)) {
-                        // Suche das sichtbare MindAR-Modell für die Ausrichtung
-                        let mindARModel = null;
-                        if (mindARMeshes[id]) {
-                            for (let m of mindARMeshes[id]) {
-                                if (m.visible && m.userData.anchorIndex === mindARTarget) {
-                                    mindARModel = m;
-                                    break;
-                                }
-                            }
-                        }
-                        
-                        if (mindARModel) {
-                            // Übernehme die Rotation des MindAR-Modells auf das GNSS-Modell
-                            gnssMeshes[id].rotation.y = mindARModel.rotation.y;
-                            modelCurrentRotations[id] = mindARModel.rotation.y;
-                            modelInitialRotations[id] = THREE.MathUtils.degToRad(config.initRotation || 0);
-                            console.log("GNSS-Modell " + id + " mit MindAR-Ausrichtung synchronisiert");
-                        }
-                    }
-                });
             }
         }
 
-        // Laden und Konfigurieren der 3D-Modelle
+        // Laden aller definierten 3D-Modelle
         function loadModels() {
             const loader = new GLTFLoader();
             const ids = Object.keys(AR_MODELS);
@@ -734,6 +680,7 @@
                 const config = AR_MODELS[id];
                 
                 loader.load(config.url, (gltf) => {
+                    // 1. ArUco-Marker Version
                     const modelAruco = gltf.scene.clone();
                     modelAruco.scale.set(config.scale, config.scale, config.scale);
                     modelAruco.rotation.x = Math.PI / 2; 
@@ -749,11 +696,8 @@
                     modelAruco.visible = false;
                     markerGroup.add(modelAruco);
                     loadedMeshes[id] = modelAruco;
-                    // Speichere die initiale Rotation für ArUco
-                    modelInitialRotations[id] = Math.PI / 2;
-                    modelCurrentRotations[id] = Math.PI / 2;
 
-                    // GNSS-Version des Modells
+                    // 2. GNSS Version (Positionsbasiert)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
                         const gnssScale = config.scale * 0.05; 
@@ -761,11 +705,7 @@
                         
                         // Setzen der initialen Rotation aus der Konfiguration
                         const initRotDeg = config.initRotation || 0;
-                        const initRotRad = THREE.MathUtils.degToRad(initRotDeg);
-                        modelGNSS.rotation.y = initRotRad;
-                        // Speichere die initiale Rotation
-                        modelInitialRotations[id] = initRotRad;
-                        modelCurrentRotations[id] = initRotRad; 
+                        modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
 
                         if (id === 3 || id === 33) {
                              const pG = createWaterEffect();
@@ -773,12 +713,11 @@
                              gnssGroup.add(pG); 
                         }
                         modelGNSS.visible = false;
-                        modelGNSS.frustumCulled = false;
                         gnssGroup.add(modelGNSS);
                         gnssMeshes[id] = modelGNSS;
                     }
 
-                    // MindAR-Version des Modells
+                    // 3. MindAR Version (Bildbasiert)
                     if (config.mindTargetIndexes) {
                         if (!mindARMeshes[id]) mindARMeshes[id] = [];
 
@@ -787,7 +726,6 @@
                                 const modelMind = gltf.scene.clone();
                                 let mindScale = config.scale * 0.015;
 
-                                // Reduzierung der Größe auf 50% für Targets 1-3
                                 if (targetIndex >= 1 && targetIndex <= 3) {
                                     mindScale = mindScale * 0.5;
                                 }
@@ -796,13 +734,9 @@
                                 
                                 let rotationY = Math.PI;
                                 if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
-                                // Setzen der spezifischen Rotation für Target ID 3 auf 231 Grad
                                 if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(231);
 
-                                modelMind.rotation.y = rotationY;
-                                // Speichere die Rotation für später
-                                if (!modelCurrentRotations[id]) modelCurrentRotations[id] = rotationY;
-                                if (!modelInitialRotations[id]) modelInitialRotations[id] = rotationY; 
+                                modelMind.rotation.y = rotationY; 
                                 
                                 if (id === 1 || [4,5,6].includes(targetIndex)) {
                                      modelMind.position.y = -2.0; 
@@ -814,11 +748,7 @@
                                      mindarAnchors[targetIndex].group.add(pM);
                                 }
 
-                                // WICHTIG: Speichern des Index in den User-Daten des Modells.
-                                // Dies ermöglicht uns später beim Rendern zu unterscheiden, welches der Modelle
-                                // zu welchem Marker gehört, auch wenn sie die gleiche ID haben.
                                 modelMind.userData.anchorIndex = targetIndex;
-
                                 mindarAnchors[targetIndex].group.add(modelMind);
                                 mindARMeshes[id].push(modelMind);
                                 modelMind.visible = false;
@@ -829,7 +759,7 @@
             });
         }
 
-        // Anzeige der GNSS-Informationen
+        // Aktualisiert die Anzeige der GNSS-Informationstexte
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -874,7 +804,7 @@
             }
         }
         
-        // Aktualisierung des Richtungspfeils
+        // Dreht den Pfeil in Richtung des nächstgelegenen Ziels
         function updateArrow() {
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0;
@@ -882,72 +812,85 @@
             }
             arrowContainer.style.opacity = 1;
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
-            // Berechnung der Differenz zwischen Zielrichtung und Blickrichtung.
-            // Sowohl 'heading' als auch der Pfeil basieren auf derselben Kompass-Information (inkl. Deklination und Offset).
             const relativeAngle = (bearing - heading + 360) % 360;
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
         }
 
-        // Aktualisierung der Positionen der GNSS-Modelle
+        // Berechnung und Platzierung der GNSS-Modelle in der 3D-Szene
         function updateGNSSObjects() {
             if (!lastPos) return;
-            
+
+            // SCHRITT 1: Zuerst werden die Distanzen zu allen Modellen berechnet
+            let modelsWithDistance = [];
             Object.keys(gnssMeshes).forEach(key => {
                 const id = parseInt(key);
-                const mesh = gnssMeshes[id];
                 const config = AR_MODELS[id];
                 if (config.lat && config.lon) {
                     const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                    
-                    // Bei Simulation: Nur das Modell anzeigen, das zum erkannten MINDAR-Target gehört
-                    let shouldShow = false;
-                    if (isSimulatedPos && simulatedFromMindARTarget >= 0) {
-                        // Nur anzeigen wenn Model zu diesem Target gehört
-                        shouldShow = config.mindTargetIndexes && config.mindTargetIndexes.includes(simulatedFromMindARTarget) && dist < VISIBILITY_DISTANCE;
-                    } else {
-                        // Ohne Simulation: Normal anzeigen wenn in Reichweite
-                        shouldShow = dist < VISIBILITY_DISTANCE;
+                    modelsWithDistance.push({ id: id, dist: dist });
+                }
+            });
+
+            // SCHRITT 2: Sortierung der Modelle nach Distanz (das nächste zuerst)
+            modelsWithDistance.sort((a, b) => a.dist - b.dist);
+
+            // SCHRITT 3: Nur das allernächste Modell wird angezeigt, sofern es nah genug ist
+            let closestModelFound = false;
+
+            modelsWithDistance.forEach((item) => {
+                const id = item.id;
+                const mesh = gnssMeshes[id];
+                const config = AR_MODELS[id];
+
+                // Nur das erste Element der sortierten Liste (das nächste) wird geprüft
+                if (!closestModelFound && item.dist < VISIBILITY_DISTANCE) {
+                    mesh.visible = true;
+                    closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
+
+                    // Anzeige von Zusatzinfos
+                    if (id === 3 || id === 33) {
+                         historicalInfo.style.display = 'block';
+                    } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
+                         historicalInfo.style.display = 'none';
                     }
                     
-                    if (shouldShow) {
-                        mesh.visible = true;
-                        
-                        if (id === 3 || id === 33) {
-                             historicalInfo.style.display = 'block';
-                        } else if ((currentTrackingID === 3 || currentTrackingID === 33) && (id !== 3 && id !== 33)) {
-                             historicalInfo.style.display = 'none';
-                        }
-                        
-                        const heightY = -2.0; 
-                        const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                        mesh.position.set(offset.x, heightY, -offset.z); 
-                    } else {
-                        mesh.visible = false;
-                        if (id === 3 || id === 33) historicalInfo.style.display = 'none';
+                    // WICHTIG: Berechnung des Offsets relativ zur aktuellen 'lastPos'.
+                    // Wenn 'lastPos' durch eine Simulation aktualisiert wurde, verschiebt sich
+                    // das Modell hier automatisch relativ zum neuen Standpunkt.
+                    const heightY = -2.0; 
+                    const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    mesh.position.set(offset.x, heightY, -offset.z); 
+
+                } else {
+                    // Alle anderen Modelle werden ausgeblendet
+                    mesh.visible = false;
+                    if ((id === 3 || id === 33) && mesh.visible === false && historicalInfo.style.display === 'block') {
+                        // Wenn das spezifische Info-Modell ausgeblendet wird, Info verstecken
+                         historicalInfo.style.display = 'none';
                     }
                 }
             });
         }
 
-        // Haversine-Formel zur Abstandsberechnung
+        // Haversine-Formel zur Berechnung der Entfernung zwischen zwei Koordinaten auf der Erdkugel
         function haversineDist(lat1, lon1, lat2, lon2) {
-            const R = 6371e3; 
+            const R = 6371e3; // Erdradius in Metern
             const rad = Math.PI/180;
             const dLat = (lat2-lat1)*rad; const dLon = (lon2-lon1)*rad;
             const a = Math.sin(dLat/2)*Math.sin(dLat/2) + Math.cos(lat1*rad)*Math.cos(lat2*rad) * Math.sin(dLon/2)*Math.sin(dLon/2);
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
         }
 
-        // Berechnung des 3D-Versatzes aus GPS-Koordinaten
+        // Umrechnung von GNSS-Koordinaten (Lat/Lon) in kartesische x/z Koordinaten relativ zum Nutzer (0,0,0)
         function calcOffset(lat1, lon1, lat2, lon2) {
-            const R = 6378137; 
+            const R = 6378137; // Erdradius
             const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
             const lat1Rad = lat1 * Math.PI / 180;
             const dx = dLon * Math.cos(lat1Rad) * R; const dz = dLat * R; 
             return { x: dx, z: dz };
         }
         
-        // Berechnung des Winkels zum Ziel
+        // Berechnung des Winkels (Bearing) von Startpunkt zu Zielpunkt
         function calculateBearing(startLat, startLng, destLat, destLng) {
             const startLatRad = startLat * (Math.PI / 180); const startLngRad = startLng * (Math.PI / 180);
             const destLatRad = destLat * (Math.PI / 180); const destLngRad = destLng * (Math.PI / 180);
@@ -957,7 +900,7 @@
             return ((brng * 180 / Math.PI) + 360) % 360;
         }
 
-        // Verarbeitung des Kamerabildes für ArUco-Marker
+        // Analyse des Videobildes auf ArUco-Marker
         function processArucoFrame(video) {
             if (!video || video.readyState < video.HAVE_METADATA) return false;
 
@@ -1029,7 +972,7 @@
             return found;
         }
 
-        // Initialisierung der 2D-Karte
+        // Initialisierung der 2D-Karte mit Leaflet
         function initMap() {
             mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
             L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', { maxZoom: 19, attribution: '&copy; OSM' }).addTo(mapStations);
@@ -1059,7 +1002,7 @@
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        // Verarbeitung der GNSS-Position
+        // Callback-Funktion bei neuer GNSS-Position
         function onPos(pos) {
             realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             if (!isSimulatedPos) {
@@ -1071,7 +1014,7 @@
             }
         }
 
-        // Verarbeitung der Geräteausrichtung (Kompass)
+        // Callback-Funktion bei Änderung der Geräteausrichtung
         function onDeviceOrientation(e) {
             lastDeviceOrientation = {
                 alpha: e.alpha,
@@ -1079,14 +1022,14 @@
                 gamma: e.gamma
             };
 
-            // Auslesen der Rohdaten je nach Betriebssystem
+            // Rohdaten extrahieren
             if (e.webkitCompassHeading) {
                 rawHeading = e.webkitCompassHeading;
             } else if (e.alpha !== null) {
                 rawHeading = (360 - e.alpha) % 360;
             }
 
-            // Berechnung des korrigierten Kompass-Wertes (inkl. Deklination und Offset)
+            // Heading berechnen (inkl. Deklination und Offset)
             heading = (rawHeading + magDeclination + compassOffset) % 360;
 
             if (lastPos) drawUserOnMap(lastPos);
@@ -1184,10 +1127,6 @@
                 markerGroup.visible = true;
                 markerGroup.position.lerp(pos, 0.2);
                 markerGroup.quaternion.slerp(quat, 0.2);
-                // Speichere die aktuelle Rotation für die Debug-Anzeige
-                if (loadedMeshes[id]) {
-                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
-                }
             }
         }
 
@@ -1206,43 +1145,17 @@
         rotLeftBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
             ids.forEach(id => {
-                if(loadedMeshes[id] && loadedMeshes[id].visible) {
-                    loadedMeshes[id].rotation.z -= 0.2;
-                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
-                }
-                if(gnssMeshes[id] && gnssMeshes[id].visible) {
-                    gnssMeshes[id].rotation.y -= 0.2;
-                    modelCurrentRotations[id] = gnssMeshes[id].rotation.y;
-                }
-                if(mindARMeshes[id]) {
-                    mindARMeshes[id].forEach(m => {
-                        if(m.visible) {
-                            m.rotation.y -= 0.2;
-                            modelCurrentRotations[id] = m.rotation.y;
-                        }
-                    });
-                }
+                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
+                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y -= 0.2; });
             });
         });
         rotRightBtn.addEventListener('click', () => { 
             const ids = Object.keys(AR_MODELS);
-            ids.forEach(id => {
-                if(loadedMeshes[id] && loadedMeshes[id].visible) {
-                    loadedMeshes[id].rotation.z += 0.2;
-                    modelCurrentRotations[id] = loadedMeshes[id].rotation.z;
-                }
-                if(gnssMeshes[id] && gnssMeshes[id].visible) {
-                    gnssMeshes[id].rotation.y += 0.2;
-                    modelCurrentRotations[id] = gnssMeshes[id].rotation.y;
-                }
-                if(mindARMeshes[id]) {
-                    mindARMeshes[id].forEach(m => {
-                        if(m.visible) {
-                            m.rotation.y += 0.2;
-                            modelCurrentRotations[id] = m.rotation.y;
-                        }
-                    });
-                }
+             ids.forEach(id => {
+                if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
+                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
+                if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { if(m.visible) m.rotation.y += 0.2; });
             });
         });
 
