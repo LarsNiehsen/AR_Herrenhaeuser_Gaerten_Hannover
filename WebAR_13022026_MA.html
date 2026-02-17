@@ -307,7 +307,7 @@
             },
             33: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0,
-                title: 'Große Fontäne', info: 'Große Fontäne (Standort 2)',
+                title: 'Große Fontäne', info: 'Große Fontäne',
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Wasserkunst/Die-Geschichte-der-Wasserkunst',
                 isAnimated: true,
                 lat: 52.388778, lon: 9.817775, initRotation: 0
@@ -434,27 +434,28 @@
             const group = new THREE.Group();
             
             // Linie von 0 bis 70m Höhe (wird als 3.5 Units in Three.js Einheiten dargestellt: 70/20)
+            // Position: neben dem Modell bei x=2.5, damit es selbst bei 5%-GNSS-Skalierung sichtbar ist
             const lineGeometry = new THREE.BufferGeometry();
             const positions = new Float32Array([
-                3.0, 0, 0,      // Unten
-                3.0, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
+                2.5, 0, 0,      // Unten
+                2.5, 3.5, 0     // Oben (70m / 20 Skalierungsfaktor)
             ]);
             lineGeometry.setAttribute('position', new THREE.BufferAttribute(positions, 3));
             
-            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3 });
+            const lineMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 4, fog: false });
             const line = new THREE.Line(lineGeometry, lineMaterial);
             group.add(line);
             
-            // Markierungen oben und unten
+            // Markierungen oben und unten - größer für bessere Sichtbarkeit
             const markGeometry = new THREE.BufferGeometry();
             const markPositions = new Float32Array([
-                2.7, 0, 0,      // Unten Marke links
-                3.3, 0, 0,      // Unten Marke rechts
-                2.7, 3.5, 0,    // Oben Marke links
-                3.3, 3.5, 0     // Oben Marke rechts
+                2.0, 0, 0,      // Unten Marke links
+                3.0, 0, 0,      // Unten Marke rechts
+                2.0, 3.5, 0,    // Oben Marke links
+                3.0, 3.5, 0     // Oben Marke rechts
             ]);
             markGeometry.setAttribute('position', new THREE.BufferAttribute(markPositions, 3));
-            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 2 });
+            const markMaterial = new THREE.LineBasicMaterial({ color: 0x00ff00, linewidth: 3, fog: false });
             const marks = new THREE.LineSegments(markGeometry, markMaterial);
             group.add(marks);
             
@@ -1169,9 +1170,9 @@
         function triggerHint() {
             clickHint.style.opacity = 1;
             if (hintTimeout) clearTimeout(hintTimeout);
-            hintTimeout = setTimeout(() => { clickHint.style.opacity = 0; }, 3000);
+            hintTimeout = setTimeout(() => { clickHint.style.opacity = 0; }, 2000);
         }
-
+        
         function updateUIForModel(id, sourceName) {
             if (currentTrackingID !== id) {
                 currentTrackingID = id;
