@@ -660,7 +660,15 @@
                     // wird hier die Orientierung der Kamera angepasst. Die 'gnssGroup' bleibt 
                     // statisch auf (0,0,0) Rotation, während sich die Kamera dreht.
                     if (lastDeviceOrientation) {
-                         const q = getDeviceQuaternion(lastDeviceOrientation);
+                         /* 
+                          * ANPASSUNG FÜR DIE 3D-KAMERA:
+                          * Die Kameraausrichtung benötigt zur Orientierung nicht nur die rohen Neigungsdaten,
+                          * sondern auch den exakt berechneten und kalibrierten Kompasswert (heading).
+                          * Durch die Übergabe der Variablen "heading" an die Rotationsberechnung 
+                          * richten sich alle 3D-Modelle exakt am realen geografischen Norden aus,
+                          * wodurch Kalibrierungen und Deklinationen auch in der 3D-Welt korrekt sichtbar werden.
+                          */
+                         const q = getDeviceQuaternion(lastDeviceOrientation, heading);
                          camera.quaternion.copy(q); // Kamera übernimmt die Rotation des Geräts
                          gnssGroup.rotation.set(0, 0, 0); // Die Welt bleibt starr
                     } else {
@@ -799,23 +807,77 @@
         }
 
 
-
-        function getDeviceQuaternion(orientData) {
-            const alpha = orientData.alpha ? THREE.MathUtils.degToRad(orientData.alpha) : 0; 
+        /*
+         * Funktion zur Berechnung der 3D-Kamera-Rotation (Quaternion) anhand der Smartphone-Sensoren.
+         * Ein Quaternion ist ein mathematisches Konstrukt, das Drehungen im dreidimensionalen Raum 
+         * berechnet, ohne Probleme durch blockierende Rotationsachsen (Gimbal Lock) zu verursachen.
+         * 
+         * Parameter:
+         * - orientData: Enthält die rohen Neigungswerte des Smartphones (Beta für die Längsachse, 
+         *   Gamma für die Querachse).
+         * - correctedHeading: Der vollständig berechnete und bei Bedarf kalibrierte Kompasswert 
+         *   in Grad (0-360), der immer verlässlich den geografischen Norden anzeigt.
+         */
+        function getDeviceQuaternion(orientData, correctedHeading) {
+            /* 
+             * Kompasswerte (correctedHeading) laufen auf der Kompassrose immer im Uhrzeigersinn 
+             * (0 Grad = Nord, 90 Grad = Ost). Das mathematische System der 3D-Engine erwartet 
+             * die Drehung um die sogenannte Hochachse (Z-Achse bzw. Alpha) jedoch gegen den Uhrzeigersinn.
+             * Aus diesem Grund wird der Winkel umgedreht, indem der Wert von 360 subtrahiert wird. 
+             * Der Modulo-Operator (% 360) stellt zusätzlich sicher, dass der errechnete Wert 
+             * sicher im Rahmen von 0 bis 359 Grad bleibt.
+             */
+            const absoluteAlpha = (360 - correctedHeading) % 360;
+            const alpha = THREE.MathUtils.degToRad(absoluteAlpha); 
+            
+            /* 
+             * Beta beschreibt die Neigung nach vorne und hinten (Nicken des Smartphones).
+             * Gamma beschreibt die Neigung nach links und rechts (Rollen des Smartphones).
+             * Sensoren liefern diese Werte in Grad. Da 3D-Engines für ihre Berechnungen stets das 
+             * Bogenmaß (Radiant) verwenden, werden die Variablen hier entsprechend umgerechnet.
+             */
             const beta = orientData.beta ? THREE.MathUtils.degToRad(orientData.beta) : 0;   
             const gamma = orientData.gamma ? THREE.MathUtils.degToRad(orientData.gamma) : 0; 
+            
+            /*
+             * Abfrage der Bildschirmorientierung (Hochformat oder Querformat).
+             * Dies ist wichtig, damit die gerenderte 3D-Welt nicht versehentlich zur Seite kippt, 
+             * wenn das Gerät vom Nutzer gedreht wird.
+             */
             const orient = window.screen.orientation ? THREE.MathUtils.degToRad(window.screen.orientation.angle) : 0;
 
+            /*
+             * Ein Euler-Winkel führt die drei Rotationsachsen (Nicken, Gieren, Rollen) in einem 
+             * Objekt zusammen. Das Minus vor dem Gammawert (-gamma) ist erforderlich, um die Richtung 
+             * der Sensordaten an das zugrunde liegende Koordinatensystem der 3D-Engine anzugleichen.
+             * Die Angabe 'YXZ' bestimmt die exakte Reihenfolge, in der die drei Drehungen ausgeführt werden.
+             */
             const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
+            
+            /*
+             * Das Quaternion (q) wird initialisiert und aus den kombinierten Euler-Winkeln erstellt.
+             */
             const q = new THREE.Quaternion();
             q.setFromEuler(euler);
             
-            // Anpassung der Rotation an das Three.js Koordinatensystem
+            /*
+             * Anpassung der berechneten Rotation an den Standard-Blickwinkel der verwendeten Three.js Engine.
+             * Die Multiplikation mit dem Quaternion q1 dreht die Achsen so, dass die Ansicht der Smartphone-Kamera 
+             * korrekt mit der Blickrichtung der virtuellen 3D-Kamera übereinstimmt (welche normalerweise 
+             * entlang einer negativen Z-Achse schaut).
+             */
             const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
             q.multiply(q1);
+            
+            /*
+             * Die finale Multiplikation mit q2 sorgt dafür, dass die weiter oben ermittelte Korrektur für 
+             * das Bildschirmformat (Hoch- oder Querformat) angewendet wird.
+             */
             const q2 = new THREE.Quaternion();
             q2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -orient);
             q.multiply(q2);
+            
+            // Das vollständig berechnete Rotationsobjekt wird für die Anwendung zurückgegeben.
             return q;
         }
 
