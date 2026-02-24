@@ -305,7 +305,7 @@
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 mindTargetIndexes: [1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853,
-                initRotation: 1 
+                initRotation: 5
             },
             2: { 
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
@@ -903,8 +903,8 @@
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
                                 
                                 let rotationY = Math.PI;
-                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(346); 
-                                if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(231);
+                                if (targetIndex === 1) rotationY = THREE.MathUtils.degToRad(357); 
+                                if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(265);
 
                                 modelMind.rotation.y = rotationY; 
                                 
