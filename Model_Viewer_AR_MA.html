@@ -49,24 +49,16 @@
         
         <model-viewer 
             id="fechter-modell"
-            
-            <!-- 3D Modell für Android / Browser -->
             src="3D_models/BorghesischerFechter_WebAR.glb" 
-            
-            <!-- 3D Modell für Apple inkl. Titel und Link -->
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
-            
-            <!-- Titel, der bei Android oben im Scene Viewer eingeblendet wird -->
             title="Borghesischer Fechter"
-            
-            <!-- HIER GEÄNDERT: Nur noch native Viewer! Kein manuelles Tippen mehr nötig. -->
             ar 
             ar-modes="scene-viewer quick-look" 
             ar-placement="floor" 
-            
             camera-controls 
             scale="1 1 1" 
-            orientation="0deg 96deg 0deg">
+            orientation="0deg 96deg 0deg"
+            alt="Borghesischer Fechter">
             
             <button slot="ar-button" class="ar-button">
                 AR Modus starten
