@@ -20,9 +20,11 @@
             width: 100%;
             max-width: 800px;
             margin: 20px auto;
+            border-radius: 12px;
+            overflow: hidden; /* Sorgt dafür, dass nichts über die Ecken hinausragt */
         }
 
-        /* --- NEU: Die Beschriftung OBERHALB des Modells --- */
+        /* --- Die Beschriftung OBERHALB des Modells --- */
         .model-title {
             position: absolute;
             top: 20px;
@@ -36,7 +38,36 @@
             color: #333;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
             z-index: 10;
-            pointer-events: none; /* Wichtig: Verhindert, dass die Box das Drehen des Modells blockiert */
+            pointer-events: none; /* Blockiert keine Berührungen für das 3D-Modell */
+            text-align: center;
+        }
+
+        /* --- NEU: Schließen Button oben rechts mit rotem Ring --- */
+        .close-button {
+            position: absolute;
+            top: 20px;
+            right: 20px;
+            width: 36px;
+            height: 36px;
+            border: 2px solid red;
+            border-radius: 50%;
+            background: rgba(255, 255, 255, 0.9);
+            color: red;
+            font-size: 24px;
+            font-weight: bold;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            cursor: pointer;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            z-index: 10;
+            text-decoration: none;
+        }
+
+        /* Leichtes Feedback beim Antippen */
+        .close-button:active {
+            background: red;
+            color: white;
         }
 
         model-viewer {
@@ -66,6 +97,17 @@
         .ar-button:focus {
             outline: none;
         }
+
+        /* --- NEU: Erklärungstext unter dem Viewer --- */
+        .explanation-text {
+            max-width: 800px;
+            margin: 15px auto;
+            padding: 0 15px;
+            text-align: center;
+            font-size: 15px;
+            line-height: 1.5;
+            color: #555;
+        }
     </style>
 </head>
 <body>
@@ -74,6 +116,10 @@
         
         <!-- Die sichtbare Beschriftung für den Browser -->
         <div class="model-title">Niederdeutscher Blumengarten</div>
+
+        <!-- Der Schließen-Button (Roter Ring) -->
+        <!-- "onclick='window.close()'" schließt den Tab. Alternativ "history.back()" verwenden -->
+        <a href="javascript:window.close();" class="close-button" title="Schließen">&times;</a>
 
         <model-viewer 
             id="Veritas-modell"
@@ -85,7 +131,10 @@
             ar-placement="floor" 
             camera-controls 
             scale="1 1 1" 
-            orientation="0deg 96deg 0deg"
+            
+            /* HIER GEÄNDERT: X-Achse auf -90deg aufgerichtet, damit es in Android richtig steht */
+            orientation="-90deg 96deg 0deg"
+            
             alt="Niederdeutscher Blumengarten">
 
             <!-- Der HTML Button, der den AR-Modus startet -->
@@ -96,6 +145,12 @@
         </model-viewer>
         
     </div>
+
+    <!-- Die Erklärung unter der Vorschau -->
+    <p class="explanation-text">
+        <strong>Tipp:</strong> Klicke auf "AR Modus starten". Dein Handy erkennt den Fußboden automatisch 
+        und projiziert das 3D-Modell lebensgroß direkt in deinen virtuellen Raum!
+    </p>
 
     <script>
         const modelViewer = document.getElementById('Veritas-modell');
