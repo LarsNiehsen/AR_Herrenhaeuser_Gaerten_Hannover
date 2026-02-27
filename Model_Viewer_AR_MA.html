@@ -5,11 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>AR Borghesischer Fechter</title>
     
-    <!-- Model-Viewer Bibliothek einbinden -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
     
     <style>
-        /* Container, um den Titel relativ zum 3D-Fenster zu positionieren */
         .viewer-container {
             position: relative;
             width: 100%;
@@ -17,7 +15,6 @@
             margin: 0 auto;
         }
 
-        /* Name OBERHALB des Modells in der Browser-Ansicht */
         .model-title {
             position: absolute;
             top: 20px;
@@ -32,10 +29,9 @@
             color: #333;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
             z-index: 10;
-            pointer-events: none; /* Klicks gehen durch den Text hindurch auf das 3D-Modell */
+            pointer-events: none; 
         }
 
-        /* Styling für die 3D-Ansicht im Browser */
         model-viewer {
             width: 100%;
             height: 600px;
@@ -44,7 +40,6 @@
             border-radius: 12px;
         }
 
-        /* Styling für den "AR Starten"-Button */
         .ar-button {
             position: absolute;
             bottom: 20px;
@@ -63,27 +58,22 @@
 <body>
 
     <div class="viewer-container">
-        <!-- Titel im Browser über dem Modell -->
         <div class="model-title">Borghesischer Fechter</div>
 
         <model-viewer 
             id="fechter-modell"
             
-            <!-- Android / Browser Modell (GLB) -->
             src="3D_models/BorghesischerFechter_WebAR.glb" 
-            
-            <!-- Apple Modell (USDZ) + Native Parameter für Titel & Link -->
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
-            
-            <!-- Titel für den Android Scene Viewer (wird oben in AR eingeblendet) -->
             title="Borghesischer Fechter"
             
-            <!-- AR aktivieren OHNE WebXR. Erzwingt den nativen Viewer ("Neuer Tab" Gefühl) -->
+            /* HIER GEÄNDERT: webxr muss an erster Stelle stehen für den Kamera-Stream im Browser! */
             ar 
-            ar-modes="scene-viewer quick-look" 
+            ar-modes="webxr scene-viewer quick-look" 
+            
+            /* ar-placement="floor" erzwingt das Erkennen des Bodens, bevor man klicken kann */
             ar-placement="floor" 
             
-            <!-- Steuerung und Skalierung -->
             camera-controls 
             scale="26000 26000 26000" 
             orientation="0deg 96deg 0deg" 
@@ -96,12 +86,10 @@
         </model-viewer>
     </div>
 
-    <!-- JavaScript für den Apple-Link -->
     <script>
         const modelViewer = document.getElementById('fechter-modell');
         const externerLink = 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen';
 
-        // Event-Listener für Apple "AR Quick Look" Button
         modelViewer.addEventListener('message', function(event) {
             if (event.data === '_apple_ar_quicklook_button_tapped') {
                 window.open(externerLink, '_blank');
