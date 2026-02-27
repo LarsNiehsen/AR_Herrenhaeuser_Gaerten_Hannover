@@ -67,15 +67,16 @@
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
             title="Borghesischer Fechter"
             
-            /* HIER GEÄNDERT: webxr muss an erster Stelle stehen für den Kamera-Stream im Browser! */
+            <!-- WebXR ist vorne, Hit-Test wird durch ar-placement="floor" erzwungen -->
             ar 
             ar-modes="webxr scene-viewer quick-look" 
-            
-            /* ar-placement="floor" erzwingt das Erkennen des Bodens, bevor man klicken kann */
             ar-placement="floor" 
             
             camera-controls 
-            scale="26000 26000 26000" 
+            
+            <!-- FEHLER BEHOBEN: Scale auf reale Werte zurückgesetzt -->
+            scale="1 1 1" 
+            
             orientation="0deg 96deg 0deg" 
             alt="Borghesischer Fechter">
             
