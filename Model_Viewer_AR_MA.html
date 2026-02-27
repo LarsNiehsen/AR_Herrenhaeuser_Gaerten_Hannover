@@ -9,7 +9,11 @@
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
     
     <style>
-        body { margin: 0; font-family: sans-serif; background: #fff; }
+        body { 
+            margin: 0; 
+            font-family: sans-serif; 
+            background: #fff; 
+        }
         
         .viewer-container {
             position: relative;
@@ -41,6 +45,11 @@
             cursor: pointer;
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
+
+        /* Versteckt den Button nicht sofort ganz, falls AR noch lädt */
+        .ar-button:focus {
+            outline: none;
+        }
     </style>
 </head>
 <body>
@@ -53,13 +62,14 @@
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
             title="Borghesischer Fechter"
             ar 
-            ar-modes="scene-viewer quick-look" 
+            ar-modes="scene-viewer webxr quick-look" 
             ar-placement="floor" 
             camera-controls 
             scale="1 1 1" 
             orientation="0deg 96deg 0deg"
             alt="Borghesischer Fechter">
             
+            <!-- Der HTML Button, der den AR-Modus startet -->
             <button slot="ar-button" class="ar-button">
                 AR Modus starten
             </button>
@@ -71,7 +81,7 @@
     <script>
         const modelViewer = document.getElementById('fechter-modell');
         
-        // Link-Klick für iOS Quick-Look abfangen
+        // Link-Klick für iOS Quick-Look (den "Mehr erfahren" Button) abfangen
         modelViewer.addEventListener('message', function(event) {
             if (event.data === '_apple_ar_quicklook_button_tapped') {
                 window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
