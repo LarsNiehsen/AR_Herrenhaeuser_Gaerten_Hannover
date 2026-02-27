@@ -3,97 +3,103 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Borghesischer Fechter</title>
+    <title>AR Fechter WebXR</title>
     
+    <!-- Model-Viewer Bibliothek -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
     
     <style>
+        body { margin: 0; font-family: sans-serif; background: #fff; }
+        
         .viewer-container {
             position: relative;
             width: 100%;
             max-width: 800px;
-            margin: 0 auto;
-        }
-
-        .model-title {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 255, 255, 0.85);
-            padding: 10px 20px;
-            border-radius: 8px;
-            font-family: sans-serif;
-            font-size: 18px;
-            font-weight: bold;
-            color: #333;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            z-index: 10;
-            pointer-events: none; 
+            margin: 20px auto;
         }
 
         model-viewer {
             width: 100%;
-            height: 600px;
+            height: 700px;
             background-color: #f4f4f4;
-            --poster-color: transparent;
             border-radius: 12px;
         }
 
+        /* Der Button, um in den AR-Modus zu wechseln */
         .ar-button {
             position: absolute;
             bottom: 20px;
-            right: 20px;
-            padding: 12px 24px;
+            left: 50%;
+            transform: translateX(-50%);
+            padding: 15px 30px;
             background-color: #007bff;
             color: white;
             font-size: 16px;
+            font-weight: bold;
             border: none;
             border-radius: 8px;
             cursor: pointer;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.2);
+        }
+
+        /* Animation: Aufforderung das Handy zu bewegen (wird im AR-Modus gezeigt) */
+        #ar-prompt {
+            position: absolute;
+            left: 50%;
+            bottom: 100px;
+            transform: translateX(-50%);
+            display: none;
+            color: white;
+            background: rgba(0,0,0,0.6);
+            padding: 10px 20px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        
+        /* Wird nur eingeblendet, wenn das Gerät den Raum scannt */
+        model-viewer[ar-status="session-started"] > #ar-prompt {
+            display: block;
         }
     </style>
 </head>
 <body>
 
     <div class="viewer-container">
-        <div class="model-title">Borghesischer Fechter</div>
-
+        
         <model-viewer 
             id="fechter-modell"
-            
             src="3D_models/BorghesischerFechter_WebAR.glb" 
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
-            title="Borghesischer Fechter"
             
-            <!-- WebXR ist vorne, Hit-Test wird durch ar-placement="floor" erzwungen -->
             ar 
             ar-modes="webxr scene-viewer quick-look" 
             ar-placement="floor" 
             
             camera-controls 
-            
-            <!-- FEHLER BEHOBEN: Scale auf reale Werte zurückgesetzt -->
             scale="1 1 1" 
+            orientation="0deg 96deg 0deg">
             
-            orientation="0deg 96deg 0deg" 
-            alt="Borghesischer Fechter">
-            
+            <!-- Der HTML Button, der den Kamera-Modus startet -->
             <button slot="ar-button" class="ar-button">
-                In deinem Raum ansehen (AR)
+                AR Modus starten
             </button>
+
+            <!-- Einblendung im Kamerabild: Hilft dem Nutzer bei der Bodensuche -->
+            <div id="ar-prompt" slot="ar-prompt">
+                Handy leicht kreisen lassen,<br>um den Boden zu scannen.
+            </div>
             
         </model-viewer>
+        
     </div>
 
     <script>
         const modelViewer = document.getElementById('fechter-modell');
-        const externerLink = 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen';
-
+        
+        // Link für iOS Quick-Look
         modelViewer.addEventListener('message', function(event) {
             if (event.data === '_apple_ar_quicklook_button_tapped') {
-                window.open(externerLink, '_blank');
+                window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
             }
         });
     </script>
