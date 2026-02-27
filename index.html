@@ -99,6 +99,7 @@
 
         <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_WebXR)</button>
         <button id="startARBtSL" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_GNSS)</button>
+        <button id="startARBmv" class="btn-primary" style="margin: 5px;">Start AR (ModelViewer_WebAR)</button>
         <button id="startARBtm" class="btn-primary" style="margin: 5px;">Start AR (Markerbasiert)</button>
         <button id="startARBtIT" class="btn-primary" style="margin: 5px;">Start AR (Image-Tracking & Markerbasiert)</button>
         <!-- auskommentieren -->
@@ -155,6 +156,20 @@
           return;
         }
         newWin.location.href = 'AR_HitTest_Positionsbasiert.html';
+      });
+    })();
+  </script>
+
+    <script>
+    (function () {
+      const startBtn = document.getElementById('startARBmv');
+      startBtn.addEventListener('click', (ev) => {
+        const newWin = window.open('', '_blank');
+        if (!newWin) {
+          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne ModelViewer_WebAR.html manuell.');
+          return;
+        }
+        newWin.location.href = 'Model_Viewer_AR_MA.html';
       });
     })();
   </script>
