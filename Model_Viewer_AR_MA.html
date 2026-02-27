@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>AR Fechter</title>
+    <title>WebAR - Model-Viewer (Android & IOS)</title>
     
     <!-- Model-Viewer Bibliothek -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
@@ -20,6 +20,23 @@
             width: 100%;
             max-width: 800px;
             margin: 20px auto;
+        }
+
+        /* --- NEU: Die Beschriftung OBERHALB des Modells --- */
+        .model-title {
+            position: absolute;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(255, 255, 255, 0.9);
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
+            z-index: 10;
+            pointer-events: none; /* Wichtig: Verhindert, dass die Box das Drehen des Modells blockiert */
         }
 
         model-viewer {
@@ -46,7 +63,6 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
 
-        /* Versteckt den Button nicht sofort ganz, falls AR noch lädt */
         .ar-button:focus {
             outline: none;
         }
@@ -56,19 +72,22 @@
 
     <div class="viewer-container">
         
+        <!-- Die sichtbare Beschriftung für den Browser -->
+        <div class="model-title">Niederdeutscher Blumengarten</div>
+
         <model-viewer 
-            id="fechter-modell"
-            src="3D_models/BorghesischerFechter_WebAR.glb" 
-            ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Borghesischer%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
-            title="Borghesischer Fechter"
+            id="Veritas-modell"
+            src="3D_models/Statue_3D.glb" 
+            ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Kybele/Erde%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
+            title="Sandsteinstatue &quot;Veritas&quot; von 1730"
             ar 
             ar-modes="scene-viewer webxr quick-look" 
             ar-placement="floor" 
             camera-controls 
             scale="1 1 1" 
             orientation="0deg 96deg 0deg"
-            alt="Borghesischer Fechter">
-            
+            alt="Niederdeutscher Blumengarten">
+
             <!-- Der HTML Button, der den AR-Modus startet -->
             <button slot="ar-button" class="ar-button">
                 AR Modus starten
@@ -79,7 +98,7 @@
     </div>
 
     <script>
-        const modelViewer = document.getElementById('fechter-modell');
+        const modelViewer = document.getElementById('Veritas-modell');
         
         // Link-Klick für iOS Quick-Look (den "Mehr erfahren" Button) abfangen
         modelViewer.addEventListener('message', function(event) {
