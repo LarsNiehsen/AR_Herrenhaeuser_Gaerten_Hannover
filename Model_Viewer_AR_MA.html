@@ -1,88 +1,148 @@
 <!DOCTYPE html>
+<!-- Teilt dem Browser mit, dass es sich um eine moderne HTML5-Webseite handelt -->
 <html lang="de">
 <head>
+    <!-- Gibt an, dass wir den Zeichensatz UTF-8 nutzen (wichtig für Umlaute wie ä, ö, ü) -->
     <meta charset="UTF-8">
+    
+    <!-- Sehr wichtig für Handys: Sorgt dafür, dass die Webseite nicht verkleinert wird, 
+         sondern sich an die Breite des Handybildschirms anpasst. -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    
+    <!-- Der Text, der oben im Browser-Tab steht -->
     <title>WebAR - Model-Viewer (Android & IOS)</title>
     
-    <!-- Model-Viewer Bibliothek -->
+    <!-- ==========================================
+         EXTERNE SKRIPTE EINBINDEN
+         ========================================== -->
+    <!-- Hier laden wir die "model-viewer" Bibliothek von Google herunter. 
+         Diese Bibliothek nimmt uns die ganze komplizierte 3D- und AR-Programmierung ab. -->
     <script type="module" src="https://ajax.googleapis.com/ajax/libs/model-viewer/4.0.0/model-viewer.min.js"></script>
     
+    <!-- ==========================================
+         CSS-BEREICH (DESIGN & LAYOUT)
+         Hier wird das Aussehen der Webseite bestimmt
+         ========================================== -->
     <style>
+        /* Grundeinstellungen für die gesamte Seite */
         body { 
-            margin: 0; 
-            font-family: sans-serif; 
-            background: #fff; 
+            margin: 0; /* Entfernt die Standard-Ränder des Browsers */
+            font-family: sans-serif; /* Eine gut lesbare, schnörkellose Schriftart */
+            background: #fff; /* Weißer Hintergrund */
         }
         
+        /* --- NEU: Das Vollbild-Startfenster (Overlay) --- */
+        /* Dieses Fenster legt sich beim Start über die gesamte Webseite */
+        #start-overlay {
+            position: fixed; /* Bleibt immer an der gleichen Stelle, auch beim Scrollen */
+            top: 0; left: 0; right: 0; bottom: 0; /* Dehnt sich in alle Richtungen bis zum Rand aus */
+            background: rgba(0, 0, 0, 0.85); /* Schwarzer Hintergrund mit 85% Deckkraft (leicht durchsichtig) */
+            z-index: 9999; /* Eine sehr hohe Zahl stellt sicher, dass es ÜBER allen anderen Dingen liegt */
+            display: flex; /* Flexbox hilft uns, den Inhalt perfekt in der Mitte zu zentrieren */
+            align-items: center; /* Zentriert den Inhalt vertikal (oben/unten) */
+            justify-content: center; /* Zentriert den Inhalt horizontal (links/rechts) */
+        }
+
+        /* Die weiße Box im Inneren des Startfensters */
+        .overlay-content {
+            background: white; /* Weißer Kasten */
+            padding: 30px; /* Innenabstand zum Text */
+            border-radius: 12px; /* Abgerundete Ecken */
+            max-width: 80%; /* Die Box darf maximal 80% der Bildschirmbreite einnehmen */
+            text-align: center; /* Text wird mittig ausgerichtet */
+            box-shadow: 0 4px 15px rgba(0,0,0,0.5); /* Ein leichter Schatten unter der Box */
+        }
+
+        /* Der Text im Startfenster */
+        .overlay-text {
+            font-size: 18px; /* Schriftgröße */
+            line-height: 1.5; /* Zeilenabstand für bessere Lesbarkeit */
+            color: #333; /* Dunkelgraue Schrift */
+            margin-bottom: 20px; /* Abstand nach unten zum Button */
+        }
+
+        /* Der Button, um das Startfenster zu schließen */
+        .start-btn {
+            padding: 15px 30px; /* Innenabstand (Höhe und Breite des Buttons) */
+            background-color: #007bff; /* Blaue Farbe */
+            color: white; /* Weiße Schrift */
+            font-size: 16px; /* Schriftgröße */
+            font-weight: bold; /* Fettdruck */
+            border: none; /* Kein Rahmen um den Button */
+            border-radius: 8px; /* Abgerundete Ecken */
+            cursor: pointer; /* Ändert den Mauszeiger zu einer Hand (am PC) */
+        }
+
+        /* Container, in dem das 3D-Modell liegt */
         .viewer-container {
-            position: relative;
-            width: 100%;
-            max-width: 800px;
-            margin: 20px auto;
-            border-radius: 12px;
+            position: relative; /* Wichtig, damit Elemente im Inneren (wie Buttons) absolut dazu positioniert werden können */
+            width: 100%; /* Nimmt die volle Breite ein... */
+            max-width: 800px; /* ...aber höchstens 800 Pixel (damit es am PC nicht riesig wird) */
+            margin: 20px auto; /* 20px Abstand nach oben/unten, 'auto' zentriert den Container in der Mitte */
+            border-radius: 12px; /* Abgerundete Ecken */
             overflow: hidden; /* Sorgt dafür, dass nichts über die Ecken hinausragt */
         }
 
         /* --- Die Beschriftung OBERHALB des Modells --- */
         .model-title {
-            position: absolute;
-            top: 20px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: rgba(255, 255, 255, 0.9);
-            padding: 10px 20px;
-            border-radius: 8px;
+            position: absolute; /* Löst den Text aus dem normalen Fluss und erlaubt genaue Platzierung */
+            top: 20px; /* 20 Pixel von oben */
+            left: 50%; /* Schiebt die linke Kante genau in die Mitte... */
+            transform: translateX(-50%); /* ...und zieht sie um die halbe eigene Breite zurück (perfekte Zentrierung) */
+            background: rgba(255, 255, 255, 0.9); /* Fast weißer Hintergrund */
+            padding: 10px 20px; /* Innenabstand */
+            border-radius: 8px; /* Abgerundete Ecken */
             font-size: 18px;
             font-weight: bold;
             color: #333;
-            box-shadow: 0 2px 6px rgba(0,0,0,0.15);
-            z-index: 10;
-            pointer-events: none; /* Blockiert keine Berührungen für das 3D-Modell */
+            box-shadow: 0 2px 6px rgba(0,0,0,0.15); /* Leichter Schatten */
+            z-index: 10; /* Liegt über dem 3D-Modell */
+            pointer-events: none; /* Blockiert keine Berührungen für das 3D-Modell (man kann durchklicken) */
             text-align: center;
         }
 
-        /* --- NEU: Schließen Button oben rechts mit rotem Ring --- */
+        /* --- Schließen Button oben rechts mit rotem Ring --- */
         .close-button {
-            position: absolute;
-            top: 20px;
-            right: 20px;
-            width: 36px;
-            height: 36px;
-            border: 2px solid red;
-            border-radius: 50%;
+            position: absolute; /* Frei positionierbar innerhalb des viewer-containers */
+            top: 20px; /* 20 Pixel von oben */
+            right: 20px; /* 20 Pixel von rechts */
+            width: 36px; /* Breite des Buttons */
+            height: 36px; /* Höhe des Buttons */
+            border: 2px solid red; /* Roter Rand mit 2 Pixel Dicke */
+            border-radius: 50%; /* Macht das Element komplett rund (ein Kreis) */
             background: rgba(255, 255, 255, 0.9);
-            color: red;
+            color: red; /* Rotes 'X' */
             font-size: 24px;
             font-weight: bold;
-            display: flex;
-            align-items: center;
-            justify-content: center;
+            display: flex; /* Flexbox für perfekte Zentrierung des 'X' */
+            align-items: center; /* Vertikal zentrieren */
+            justify-content: center; /* Horizontal zentrieren */
             cursor: pointer;
             box-shadow: 0 2px 6px rgba(0,0,0,0.15);
             z-index: 10;
-            text-decoration: none;
+            text-decoration: none; /* Verhindert das Unterstreichen des Links */
         }
 
-        /* Leichtes Feedback beim Antippen */
+        /* Leichtes Feedback beim Antippen (wenn man auf den Button klickt) */
         .close-button:active {
-            background: red;
-            color: white;
+            background: red; /* Hintergrund wird rot */
+            color: white; /* Das 'X' wird weiß */
         }
 
+        /* Das eigentliche Element, das das 3D-Modell anzeigt */
         model-viewer {
-            width: 100%;
-            height: 700px;
-            background-color: #f4f4f4;
+            width: 100%; /* Nimmt die ganze Breite des Containers ein */
+            height: 700px; /* Das Fenster für das 3D-Modell ist 700 Pixel hoch */
+            background-color: #f4f4f4; /* Hellgrauer Hintergrund */
             border-radius: 12px;
         }
 
         /* Der Button, um in den AR-Modus zu wechseln */
         .ar-button {
             position: absolute;
-            bottom: 20px;
+            bottom: 20px; /* 20 Pixel vom unteren Rand entfernt */
             left: 50%;
-            transform: translateX(-50%);
+            transform: translateX(-50%); /* Zentriert den Button (gleicher Trick wie oben) */
             padding: 15px 30px;
             background-color: #007bff;
             color: white;
@@ -94,24 +154,66 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
 
+        /* Entfernt den blauen Rahmen, wenn man auf den Button klickt (Fokus) */
         .ar-button:focus {
             outline: none;
         }
 
-        /* --- NEU: Erklärungstext unter dem Viewer --- */
+        /* --- NEU: Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
+        .speech-bubble {
+            background: #ffffff; /* Weißer Hintergrund */
+            border-radius: 8px; /* Abgerundete Ecken */
+            border: none; /* Kein Rand */
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2); /* Schatten für Tiefe */
+            color: #333; /* Dunkelgraue Schrift */
+            font-family: sans-serif;
+            font-size: 14px;
+            font-weight: bold;
+            padding: 8px 12px; /* Innenabstand */
+            position: relative; /* Wichtig, um das kleine Dreieck der Sprechblase unten anzuhängen */
+        }
+
+        /* Das kleine Dreieck unter der Sprechblase, das auf das Modell zeigt */
+        .speech-bubble::after {
+            content: ""; /* Ein leeres Element erzeugen */
+            position: absolute; 
+            top: 100%; /* Positioniert das Dreieck genau am unteren Rand der Sprechblase */
+            left: 50%; /* Zentriert es */
+            margin-left: -6px; /* Verschiebt es um die halbe Breite nach links, um es perfekt mittig zu haben */
+            border-width: 6px; /* Größe des Dreiecks */
+            border-style: solid;
+            /* Ein CSS-Trick, um ein Dreieck zu zeichnen: Nur der obere Rand bekommt eine Farbe (Weiß), der Rest ist durchsichtig */
+            border-color: #ffffff transparent transparent transparent; 
+        }
+
+        /* Erklärungstext unter dem Viewer */
         .explanation-text {
-            max-width: 800px;
-            margin: 15px auto;
-            padding: 0 15px;
-            text-align: center;
+            max-width: 800px; /* Nicht breiter als das Modell */
+            margin: 15px auto; /* Mittig positionieren mit Abstand nach oben/unten */
+            padding: 0 15px; /* Etwas Platz am linken und rechten Rand */
+            text-align: center; /* Mittiger Text */
             font-size: 15px;
             line-height: 1.5;
-            color: #555;
+            color: #555; /* Etwas helleres Grau für Erklärungen */
         }
     </style>
 </head>
 <body>
 
+    <!-- ==========================================
+         STARTFENSTER (OVERLAY) BEREICH
+         ========================================== -->
+    <div id="start-overlay">
+        <div class="overlay-content">
+            <p class="overlay-text">Mit der AR-Funktion "model-viewer" haben Sie die Möglichkeit die 3D-Modelle aus den Herrenhäuser Gärten, Hannover bei sich in der realen Welt zu projizieren.</p>
+            <!-- Dieser Button wird über JavaScript weiter unten so programmiert, dass er dieses Fenster schließt -->
+            <button id="close-overlay-btn" class="start-btn">Verstanden</button>
+        </div>
+    </div>
+
+    <!-- ==========================================
+         HAUPT-INHALT BEREICH (3D-Viewer)
+         ========================================== -->
     <div class="viewer-container">
         
         <!-- Die sichtbare Beschriftung für den Browser -->
@@ -121,6 +223,16 @@
         <!-- "onclick='window.close()'" schließt den Tab. Alternativ "history.back()" verwenden -->
         <a href="javascript:window.close();" class="close-button" title="Schließen">&times;</a>
 
+        <!-- 
+            Der <model-viewer> ist das Herzstück. Hier wird das Modell geladen und angezeigt.
+            WICHTIGE EINSTELLUNGEN:
+            - id: Der Name, mit dem wir das Element im JavaScript ansprechen können.
+            - src: Die Datei für Android-Geräte und Webbrowser (.glb)
+            - ios-src: Die spezielle Datei für Apple Geräte (.usdz) inkl. QuickLook-Buttons
+            - ar: Aktiviert die Augmented Reality Funktion
+            - camera-controls: Erlaubt das Drehen und Zoomen mit dem Finger/Maus
+            - orientation: Dreht das Modell beim Start (hier korrigiert auf -90deg auf der X-Achse)
+        -->
         <model-viewer 
             id="Veritas-modell"
             src="3D_models/Statue_3D.glb" 
@@ -137,6 +249,18 @@
             
             alt="Niederdeutscher Blumengarten">
 
+            <!-- 
+                NEU: Die Sprechblase am Modell (Hotspot).
+                'slot="hotspot-name"' sagt dem model-viewer, dass dies ein Ankerpunkt ist.
+                'data-position' gibt die X, Y und Z Koordinaten im 3D-Raum an. 
+                TIPP FÜR ANFÄNGER: Die mittlere Zahl ("2.2") ist die Höhe. 
+                Wenn die Sprechblase zu hoch oder zu niedrig über der Statue schwebt, 
+                verändere diese Zahl (z.B. "1.5" für niedriger oder "3.0" für höher).
+            -->
+            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
+                Sandsteinstatue "Veritas"
+            </button>
+
             <!-- Der HTML Button, der den AR-Modus startet -->
             <button slot="ar-button" class="ar-button">
                 AR Modus starten
@@ -152,12 +276,34 @@
         und projiziert das 3D-Modell lebensgroß direkt in deinen virtuellen Raum!
     </p>
 
+    <!-- ==========================================
+         JAVASCRIPT-BEREICH (INTERAKTIVITÄT)
+         Hier werden Funktionen programmiert, die auf Klicks reagieren
+         ========================================== -->
     <script>
+        // === 1. Logik für das Startfenster (Overlay) ===
+        // Wir suchen den Button "Verstanden" anhand seiner ID
+        const closeOverlayBtn = document.getElementById('close-overlay-btn');
+        // Wir suchen das gesamte Startfenster anhand seiner ID
+        const startOverlay = document.getElementById('start-overlay');
+
+        // Wir sagen dem Browser: "Wenn jemand auf den Button klickt..."
+        closeOverlayBtn.addEventListener('click', function() {
+            // "...dann ändere die Anzeige des Startfensters auf 'none' (unsichtbar machen)"
+            startOverlay.style.display = 'none';
+        });
+
+        // === 2. Logik für Apple AR Quick-Look (vorhandener Code) ===
+        // Wir suchen den <model-viewer> anhand seiner ID
         const modelViewer = document.getElementById('Veritas-modell');
         
-        // Link-Klick für iOS Quick-Look (den "Mehr erfahren" Button) abfangen
+        // Link-Klick für iOS Quick-Look (den "Mehr erfahren" Button) abfangen.
+        // Apple Geräte rufen eine eigene App (Quick-Look) für AR auf. Dieser Code
+        // "lauscht" darauf, ob der Nutzer dort auf den Button geklickt hat.
         modelViewer.addEventListener('message', function(event) {
+            // Wenn die Nachricht von Apple "Button gedrückt" lautet...
             if (event.data === '_apple_ar_quicklook_button_tapped') {
+                // ...öffne diese Webseite in einem neuen Tab ('_blank')
                 window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
             }
         });
