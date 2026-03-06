@@ -282,19 +282,18 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT - Die korrekte Aufrichtung:
-               Die dritte Zahl (Z-Achse) wurde jetzt auf 90deg gesetzt. Da du vorher direkt auf den 
-               Kopf geschaut hast, hebt diese Drehung den Kopf nun nach oben an.
-               (Tipp: Falls die Statue nun auf dem Kopf steht, ändere es einfach in -90deg!) */
-            orientation="0deg 90deg 90deg"
+            /* HIER GEÄNDERT - Die finale Ausrichtung:
+               Zahl 1 (X-Achse): 90deg kippt die Figur so, dass das Gesicht zu uns zeigt.
+               Zahl 2 (Y-Achse): 0deg bleibt neutral.
+               Zahl 3 (Z-Achse): -90deg rotiert die Figur nun auf dem Bildschirm im Uhrzeigersinn aufrecht. */
+            orientation="90deg 0deg -90deg"
             
             alt="Statue aus dem Niederdeutschen Blumengarten">
 
             <!-- 
-                HIER GEÄNDERT: Die Sprechblase (Hotspot).
-                Da dein 3D-Modell in seiner Originaldatei "liegt", ist die Höhe zum Kopf nun
-                die ERSTE Zahl (X-Achse). Daher steht die 2.2 jetzt vorne: "2.2 0 0". 
-                (Tipp: Falls die Blase jetzt an den Füßen schwebt, ändere sie in "-2.2 0 0").
+                SPRECHBLASE BLEIBT UNVERÄNDERT! 
+                Da sie am Kopf deines Modells auf der lokalen X-Achse (2.2) liegt und super sitzt, 
+                ist hier keine Änderung mehr nötig.
             -->
             <button slot="hotspot-name" class="speech-bubble" data-position="2.2 0 0" data-normal="1 0 0">
                 Sandsteinstatue "Veritas"
