@@ -282,18 +282,17 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT - Die finale Ausrichtung:
-               Zahl 1 (X-Achse): 90deg kippt die Figur so, dass das Gesicht zu uns zeigt.
-               Zahl 2 (Y-Achse): 0deg bleibt neutral.
-               Zahl 3 (Z-Achse): -90deg rotiert die Figur nun auf dem Bildschirm im Uhrzeigersinn aufrecht. */
-            orientation="90deg 0deg -90deg"
+            /* HIER GEÄNDERT - Die korrekte Logik kombiniert:
+               Wir nehmen die Werte, bei denen die Figur richtig herum nach vorne geschaut hat 
+               (-90deg 90deg) und nutzen nun die Z-Achse (-90deg), um die liegende Figur wie 
+               einen Uhrzeiger in die Senkrechte zu drehen! */
+            orientation="-90deg 90deg -90deg"
             
             alt="Statue aus dem Niederdeutschen Blumengarten">
 
             <!-- 
                 SPRECHBLASE BLEIBT UNVERÄNDERT! 
-                Da sie am Kopf deines Modells auf der lokalen X-Achse (2.2) liegt und super sitzt, 
-                ist hier keine Änderung mehr nötig.
+                Sie sitzt mittig am Kopf und ist perfekt so.
             -->
             <button slot="hotspot-name" class="speech-bubble" data-position="2.2 0 0" data-normal="1 0 0">
                 Sandsteinstatue "Veritas"
