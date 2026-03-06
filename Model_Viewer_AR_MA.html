@@ -261,7 +261,7 @@
          ========================================== -->
     <div class="viewer-container">
         
-        <!-- HIER GEÄNDERT: Die sichtbare Beschriftung für den Browser -->
+        <!-- Die sichtbare Beschriftung für den Browser -->
         <div class="model-title">Statue aus dem Niederdeutschen Blumengarten der Herrenhäuser Gärten</div>
 
         <!-- Der Schließen-Button (Roter Ring) -->
@@ -282,21 +282,21 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT - WICHTIGE ERKLÄRUNG ZUR AUSRICHTUNG:
-               Zahl 1 (X-Achse): Kippt die Figur vor oder zurück. 0deg bedeutet: Sie wird nicht mehr gekippt und steht aufrecht!
-               Zahl 2 (Y-Achse): Dreht die Figur um den eigenen Mittelpunkt (wie ein Brummkreisel). 90deg dreht sie zur Seite.
-               Zahl 3 (Z-Achse): Kippt die Figur seitlich weg. Bleibt auf 0deg. */
-            orientation="0deg 90deg 0deg"
+            /* HIER GEÄNDERT - Die korrekte Aufrichtung:
+               Die dritte Zahl (Z-Achse) wurde jetzt auf 90deg gesetzt. Da du vorher direkt auf den 
+               Kopf geschaut hast, hebt diese Drehung den Kopf nun nach oben an.
+               (Tipp: Falls die Statue nun auf dem Kopf steht, ändere es einfach in -90deg!) */
+            orientation="0deg 90deg 90deg"
             
             alt="Statue aus dem Niederdeutschen Blumengarten">
 
             <!-- 
                 HIER GEÄNDERT: Die Sprechblase (Hotspot).
-                Da die X-Achse wieder auf 0 steht und die Statue aufrecht ist, bestimmt nun wieder 
-                die ZWEITE Zahl (Y-Achse) die Höhe der Blase. "0 2.2 0" setzt die Blase 
-                exakt mittig oben über den Kopf. 
+                Da dein 3D-Modell in seiner Originaldatei "liegt", ist die Höhe zum Kopf nun
+                die ERSTE Zahl (X-Achse). Daher steht die 2.2 jetzt vorne: "2.2 0 0". 
+                (Tipp: Falls die Blase jetzt an den Füßen schwebt, ändere sie in "-2.2 0 0").
             -->
-            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
+            <button slot="hotspot-name" class="speech-bubble" data-position="2.2 0 0" data-normal="1 0 0">
                 Sandsteinstatue "Veritas"
             </button>
 
@@ -317,7 +317,6 @@
 
     <!-- ==========================================
          JAVASCRIPT-BEREICH (INTERAKTIVITÄT)
-         Hier werden Funktionen programmiert, die auf Klicks reagieren
          ========================================== -->
     <script>
         // === 1. Logik für das Startfenster (Overlay) ===
