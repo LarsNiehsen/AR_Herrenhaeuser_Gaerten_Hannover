@@ -282,19 +282,20 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT - Die korrekte Logik kombiniert:
-               Wir nehmen die Werte, bei denen die Figur richtig herum nach vorne geschaut hat 
-               (-90deg 90deg) und nutzen nun die Z-Achse (-90deg), um die liegende Figur wie 
-               einen Uhrzeiger in die Senkrechte zu drehen! */
-            orientation="-90deg 90deg -90deg"
+            /* HIER GEÄNDERT - Alles auf Null gesetzt!:
+               Da das 3D-Modell in der Datei bereits richtig steht, verzichten wir auf 
+               jegliche künstliche Drehung. Alles ist jetzt wieder im Originalzustand. */
+            orientation="0deg 0deg 0deg"
             
             alt="Statue aus dem Niederdeutschen Blumengarten">
 
             <!-- 
-                SPRECHBLASE BLEIBT UNVERÄNDERT! 
-                Sie sitzt mittig am Kopf und ist perfekt so.
+                HIER GEÄNDERT: Die Sprechblase (Hotspot).
+                Da das Modell nun NICHT mehr künstlich verdreht wird, ist "Oben" wieder 
+                ganz normal die mittlere Zahl (die Y-Achse). Daher sitzt die Blase jetzt 
+                wieder bei "0 2.2 0" sicher über dem Kopf!
             -->
-            <button slot="hotspot-name" class="speech-bubble" data-position="2.2 0 0" data-normal="1 0 0">
+            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
                 Sandsteinstatue "Veritas"
             </button>
 
