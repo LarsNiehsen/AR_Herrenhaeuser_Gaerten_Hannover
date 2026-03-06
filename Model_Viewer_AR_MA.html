@@ -159,7 +159,7 @@
             outline: none;
         }
 
-        /* --- NEU: Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
+        /* --- Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
         .speech-bubble {
             background: #ffffff; /* Weißer Hintergrund */
             border-radius: 8px; /* Abgerundete Ecken */
@@ -196,6 +196,41 @@
             line-height: 1.5;
             color: #555; /* Etwas helleres Grau für Erklärungen */
         }
+
+        /* --- NEU: Design für den iOS Ladebildschirm --- */
+        #ios-loading-overlay {
+            position: fixed;
+            top: 0; left: 0; right: 0; bottom: 0;
+            background: rgba(255, 255, 255, 0.95);
+            z-index: 10000; /* Noch über dem Startbildschirm */
+            display: none; /* Standardmäßig unsichtbar */
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+        }
+
+        /* Lade-Kreis (Spinner) Animation */
+        .spinner {
+            border: 6px solid #f3f3f3; /* Hellgrauer Ring */
+            border-top: 6px solid #007bff; /* Blauer animierter Teil */
+            border-radius: 50%;
+            width: 50px;
+            height: 50px;
+            animation: spin 1s linear infinite; /* Dreht sich unendlich */
+        }
+
+        /* Definiert die Dreh-Animation für den Lade-Kreis */
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+
+        .loading-text {
+            margin-top: 20px;
+            font-size: 18px;
+            font-weight: bold;
+            color: #333;
+        }
     </style>
 </head>
 <body>
@@ -212,6 +247,14 @@
     </div>
 
     <!-- ==========================================
+         NEU: LADEBILDSCHIRM FÜR IOS AR-START
+         ========================================== -->
+    <div id="ios-loading-overlay">
+        <div class="spinner"></div>
+        <p class="loading-text">AR-Modus wird geladen...</p>
+    </div>
+
+    <!-- ==========================================
          HAUPT-INHALT BEREICH (3D-Viewer)
          ========================================== -->
     <div class="viewer-container">
@@ -225,13 +268,6 @@
 
         <!-- 
             Der <model-viewer> ist das Herzstück. Hier wird das Modell geladen und angezeigt.
-            WICHTIGE EINSTELLUNGEN:
-            - id: Der Name, mit dem wir das Element im JavaScript ansprechen können.
-            - src: Die Datei für Android-Geräte und Webbrowser (.glb)
-            - ios-src: Die spezielle Datei für Apple Geräte (.usdz) inkl. QuickLook-Buttons
-            - ar: Aktiviert die Augmented Reality Funktion
-            - camera-controls: Erlaubt das Drehen und Zoomen mit dem Finger/Maus
-            - orientation: Dreht das Modell beim Start (hier korrigiert auf -90deg auf der X-Achse)
         -->
         <model-viewer 
             id="Veritas-modell"
@@ -244,25 +280,22 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT: X-Achse auf -90deg aufgerichtet, damit es in Android richtig steht */
-            orientation="-90deg 96deg 0deg"
+            /* HIER GEÄNDERT: X-Achse auf 90deg angepasst, damit die Statue aufgerichtet wird */
+            orientation="90deg 0deg 0deg"
             
             alt="Niederdeutscher Blumengarten">
 
             <!-- 
-                NEU: Die Sprechblase am Modell (Hotspot).
-                'slot="hotspot-name"' sagt dem model-viewer, dass dies ein Ankerpunkt ist.
-                'data-position' gibt die X, Y und Z Koordinaten im 3D-Raum an. 
-                TIPP FÜR ANFÄNGER: Die mittlere Zahl ("2.2") ist die Höhe. 
-                Wenn die Sprechblase zu hoch oder zu niedrig über der Statue schwebt, 
-                verändere diese Zahl (z.B. "1.5" für niedriger oder "3.0" für höher).
+                HIER GEÄNDERT: Da das Modell um 90 Grad gedreht wurde, hat sich auch die Achse für 
+                "Oben/Unten" verschoben. Die Höhe ist nun die letzte Zahl (Z-Achse) anstatt die 
+                mittlere (Y-Achse). Daher wandert die 2.2 an die 3. Stelle: "0 0 2.2".
             -->
-            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
+            <button slot="hotspot-name" class="speech-bubble" data-position="0 0 2.2" data-normal="0 0 1">
                 Sandsteinstatue "Veritas"
             </button>
 
             <!-- Der HTML Button, der den AR-Modus startet -->
-            <button slot="ar-button" class="ar-button">
+            <button slot="ar-button" class="ar-button" id="ar-start-btn">
                 AR Modus starten
             </button>
             
@@ -306,6 +339,27 @@
                 // ...öffne diese Webseite in einem neuen Tab ('_blank')
                 window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
             }
+        });
+
+        // === 3. NEU: Lade-Animation für iOS überbrücken ===
+        const arStartBtn = document.getElementById('ar-start-btn');
+        const iosLoadingOverlay = document.getElementById('ios-loading-overlay');
+
+        arStartBtn.addEventListener('click', function() {
+            // Zeige den Ladebildschirm sofort beim Klick auf den Button
+            iosLoadingOverlay.style.display = 'flex';
+
+            // Fallback: Verstecke den Ladebildschirm nach 4 Sekunden automatisch wieder.
+            // (Nützlich falls Quick Look abbricht oder auf Android, das eh extrem schnell lädt)
+            setTimeout(function() {
+                iosLoadingOverlay.style.display = 'none';
+            }, 4000);
+        });
+
+        // Wenn AR Quick Look sich auf iOS öffnet, verliert das Browserfenster den "Fokus" (blur).
+        // Sobald das passiert, wissen wir: Das Modell hat geladen. Wir schalten das Overlay ab.
+        window.addEventListener('blur', function() {
+            iosLoadingOverlay.style.display = 'none';
         });
     </script>
 </body>
