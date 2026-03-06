@@ -32,7 +32,6 @@
         }
         
         /* Das Vollbild-Startfenster (Overlay) */
-        /* Dieses Fenster legt sich beim Start über die gesamte Webseite */
         #start-overlay {
             position: fixed; /* Bleibt immer an der gleichen Stelle, auch beim Scrollen */
             top: 0; left: 0; right: 0; bottom: 0; /* Dehnt sich in alle Richtungen bis zum Rand aus */
@@ -99,6 +98,9 @@
             z-index: 10; /* Liegt über dem 3D-Modell */
             pointer-events: none; /* Blockiert keine Berührungen für das 3D-Modell (man kann durchklicken) */
             text-align: center;
+            /* Sorgt dafür, dass ein langer Text auf dem Handy gut umbricht */
+            width: 80%;
+            max-width: 400px;
         }
 
         /* --- Schließen Button oben rechts mit rotem Ring --- */
@@ -259,8 +261,8 @@
          ========================================== -->
     <div class="viewer-container">
         
-        <!-- Die sichtbare Beschriftung für den Browser -->
-        <div class="model-title">Niederdeutscher Blumengarten</div>
+        <!-- HIER GEÄNDERT: Die sichtbare Beschriftung für den Browser -->
+        <div class="model-title">Statue aus dem Niederdeutschen Blumengarten der Herrenhäuser Gärten</div>
 
         <!-- Der Schließen-Button (Roter Ring) -->
         <!-- "onclick='window.close()'" schließt den Tab. Alternativ "history.back()" verwenden -->
@@ -280,20 +282,19 @@
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT: 
-               1. Zahl (-90deg): Richtet die Statue vom Boden auf, damit sie steht.
-               2. Zahl (90deg): Dreht die Statue um 90 Grad um ihren eigenen Mittelpunkt. 
-                  (Tipp: Falls sie genau in die falsche Richtung gedreht wurde, mach ein "-90deg" aus der mittleren Zahl)
-               3. Zahl (0deg): Bleibt unangetastet. */
-            orientation="-90deg 90deg 0deg"
+            /* HIER GEÄNDERT - WICHTIGE ERKLÄRUNG ZUR AUSRICHTUNG:
+               Zahl 1 (X-Achse): Kippt die Figur vor oder zurück. 0deg bedeutet: Sie wird nicht mehr gekippt und steht aufrecht!
+               Zahl 2 (Y-Achse): Dreht die Figur um den eigenen Mittelpunkt (wie ein Brummkreisel). 90deg dreht sie zur Seite.
+               Zahl 3 (Z-Achse): Kippt die Figur seitlich weg. Bleibt auf 0deg. */
+            orientation="0deg 90deg 0deg"
             
-            alt="Niederdeutscher Blumengarten">
+            alt="Statue aus dem Niederdeutschen Blumengarten">
 
             <!-- 
                 HIER GEÄNDERT: Die Sprechblase (Hotspot).
-                Da das Modell nun richtig aufgerichtet ist, konnte die Position wieder auf 
-                "0 2.2 0" (X, Y, Z) gesetzt werden. Die 2.2 ist die Höhe. 
-                Somit sitzt die Blase nun wieder schön mittig oben und nicht mehr am Rand!
+                Da die X-Achse wieder auf 0 steht und die Statue aufrecht ist, bestimmt nun wieder 
+                die ZWEITE Zahl (Y-Achse) die Höhe der Blase. "0 2.2 0" setzt die Blase 
+                exakt mittig oben über den Kopf. 
             -->
             <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
                 Sandsteinstatue "Veritas"
@@ -320,12 +321,10 @@
          ========================================== -->
     <script>
         // === 1. Logik für das Startfenster (Overlay) ===
-        // Wir suchen den Button "Verstanden" anhand seiner ID
         const closeOverlayBtn = document.getElementById('close-overlay-btn');
-        // Wir suchen das gesamte Startfenster anhand seiner ID
         const startOverlay = document.getElementById('start-overlay');
 
-        // NEU: Automatisches Schließen des Startfensters nach 3 Sekunden (3000 Millisekunden)
+        // Automatisches Schließen des Startfensters nach 3 Sekunden (3000 Millisekunden)
         setTimeout(function() {
             startOverlay.style.display = 'none';
         }, 3000);
@@ -335,17 +334,12 @@
             startOverlay.style.display = 'none';
         });
 
-        // === 2. Logik für Apple AR Quick-Look (vorhandener Code) ===
-        // Wir suchen den <model-viewer> anhand seiner ID
+        // === 2. Logik für Apple AR Quick-Look ===
         const modelViewer = document.getElementById('Veritas-modell');
         
-        // Link-Klick für iOS Quick-Look (den "Mehr erfahren" Button) abfangen.
-        // Apple Geräte rufen eine eigene App (Quick-Look) für AR auf. Dieser Code
-        // "lauscht" darauf, ob der Nutzer dort auf den Button geklickt hat.
+        // Link-Klick für iOS Quick-Look abfangen
         modelViewer.addEventListener('message', function(event) {
-            // Wenn die Nachricht von Apple "Button gedrückt" lautet...
             if (event.data === '_apple_ar_quicklook_button_tapped') {
-                // ...öffne diese Webseite in einem neuen Tab ('_blank')
                 window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
             }
         });
@@ -359,13 +353,12 @@
             iosLoadingOverlay.style.display = 'flex';
 
             // Fallback: Verstecke den Ladebildschirm nach 4 Sekunden automatisch wieder.
-            // (Nützlich falls Quick Look abbricht oder auf Android, das eh extrem schnell lädt)
             setTimeout(function() {
                 iosLoadingOverlay.style.display = 'none';
             }, 4000);
         });
 
-        // Wenn AR Quick Look sich auf iOS öffnet, verliert das Browserfenster den "Fokus" (blur).
+        // Wenn AR Quick Look sich auf iOS öffnet, verliert das Browserfenster den Fokus (blur).
         // Sobald das passiert, wissen wir: Das Modell hat geladen. Wir schalten das Overlay ab.
         window.addEventListener('blur', function() {
             iosLoadingOverlay.style.display = 'none';
