@@ -31,7 +31,7 @@
             background: #fff; /* Weißer Hintergrund */
         }
         
-        /* --- NEU: Das Vollbild-Startfenster (Overlay) --- */
+        /* Das Vollbild-Startfenster (Overlay) */
         /* Dieses Fenster legt sich beim Start über die gesamte Webseite */
         #start-overlay {
             position: fixed; /* Bleibt immer an der gleichen Stelle, auch beim Scrollen */
@@ -197,7 +197,7 @@
             color: #555; /* Etwas helleres Grau für Erklärungen */
         }
 
-        /* --- NEU: Design für den iOS Ladebildschirm --- */
+        /* --- Design für den iOS Ladebildschirm --- */
         #ios-loading-overlay {
             position: fixed;
             top: 0; left: 0; right: 0; bottom: 0;
@@ -247,7 +247,7 @@
     </div>
 
     <!-- ==========================================
-         NEU: LADEBILDSCHIRM FÜR IOS AR-START
+         LADEBILDSCHIRM FÜR IOS AR-START
          ========================================== -->
     <div id="ios-loading-overlay">
         <div class="spinner"></div>
@@ -275,22 +275,27 @@
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Kybele/Erde%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
             title="Sandsteinstatue &quot;Veritas&quot; von 1730"
             ar 
-            ar-modes="scene-viewer webxr quick-look" 
+            ar-modes="webxr scene-viewer quick-look" 
             ar-placement="floor" 
             camera-controls 
             scale="1 1 1" 
             
-            /* HIER GEÄNDERT: X-Achse auf 90deg angepasst, damit die Statue aufgerichtet wird */
-            orientation="90deg 0deg 0deg"
+            /* HIER GEÄNDERT: 
+               1. Zahl (-90deg): Richtet die Statue vom Boden auf, damit sie steht.
+               2. Zahl (90deg): Dreht die Statue um 90 Grad um ihren eigenen Mittelpunkt. 
+                  (Tipp: Falls sie genau in die falsche Richtung gedreht wurde, mach ein "-90deg" aus der mittleren Zahl)
+               3. Zahl (0deg): Bleibt unangetastet. */
+            orientation="-90deg 90deg 0deg"
             
             alt="Niederdeutscher Blumengarten">
 
             <!-- 
-                HIER GEÄNDERT: Da das Modell um 90 Grad gedreht wurde, hat sich auch die Achse für 
-                "Oben/Unten" verschoben. Die Höhe ist nun die letzte Zahl (Z-Achse) anstatt die 
-                mittlere (Y-Achse). Daher wandert die 2.2 an die 3. Stelle: "0 0 2.2".
+                HIER GEÄNDERT: Die Sprechblase (Hotspot).
+                Da das Modell nun richtig aufgerichtet ist, konnte die Position wieder auf 
+                "0 2.2 0" (X, Y, Z) gesetzt werden. Die 2.2 ist die Höhe. 
+                Somit sitzt die Blase nun wieder schön mittig oben und nicht mehr am Rand!
             -->
-            <button slot="hotspot-name" class="speech-bubble" data-position="0 0 2.2" data-normal="0 0 1">
+            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
                 Sandsteinstatue "Veritas"
             </button>
 
@@ -320,9 +325,13 @@
         // Wir suchen das gesamte Startfenster anhand seiner ID
         const startOverlay = document.getElementById('start-overlay');
 
-        // Wir sagen dem Browser: "Wenn jemand auf den Button klickt..."
+        // NEU: Automatisches Schließen des Startfensters nach 3 Sekunden (3000 Millisekunden)
+        setTimeout(function() {
+            startOverlay.style.display = 'none';
+        }, 3000);
+
+        // Falls der Nutzer schneller ist und auf den Button klickt, schließt es sich sofort
         closeOverlayBtn.addEventListener('click', function() {
-            // "...dann ändere die Anzeige des Startfensters auf 'none' (unsichtbar machen)"
             startOverlay.style.display = 'none';
         });
 
@@ -341,7 +350,7 @@
             }
         });
 
-        // === 3. NEU: Lade-Animation für iOS überbrücken ===
+        // === 3. Lade-Animation für iOS überbrücken ===
         const arStartBtn = document.getElementById('ar-start-btn');
         const iosLoadingOverlay = document.getElementById('ios-loading-overlay');
 
