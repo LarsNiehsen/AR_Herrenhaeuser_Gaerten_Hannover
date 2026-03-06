@@ -72,6 +72,17 @@
             cursor: pointer; /* Ändert den Mauszeiger zu einer Hand (am PC) */
         }
 
+        /* Container für den Android AR-Modus Umschalter */
+        .ar-mode-switcher {
+            text-align: center;
+            margin: 20px auto;
+            padding: 15px;
+            background: #f0f0f0;
+            border-radius: 8px;
+            max-width: 400px;
+            font-size: 14px;
+        }
+
         /* Container, in dem das 3D-Modell liegt */
         .viewer-container {
             position: relative; /* Wichtig, damit Elemente im Inneren (wie Buttons) absolut dazu positioniert werden können */
@@ -98,7 +109,6 @@
             z-index: 10; /* Liegt über dem 3D-Modell */
             pointer-events: none; /* Blockiert keine Berührungen für das 3D-Modell (man kann durchklicken) */
             text-align: center;
-            /* Sorgt dafür, dass ein langer Text auf dem Handy gut umbricht */
             width: 80%;
             max-width: 400px;
         }
@@ -156,11 +166,6 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.2);
         }
 
-        /* Entfernt den blauen Rahmen, wenn man auf den Button klickt (Fokus) */
-        .ar-button:focus {
-            outline: none;
-        }
-
         /* --- Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
         .speech-bubble {
             background: #ffffff; /* Weißer Hintergrund */
@@ -184,7 +189,6 @@
             margin-left: -6px; /* Verschiebt es um die halbe Breite nach links, um es perfekt mittig zu haben */
             border-width: 6px; /* Größe des Dreiecks */
             border-style: solid;
-            /* Ein CSS-Trick, um ein Dreieck zu zeichnen: Nur der obere Rand bekommt eine Farbe (Weiß), der Rest ist durchsichtig */
             border-color: #ffffff transparent transparent transparent; 
         }
 
@@ -243,7 +247,6 @@
     <div id="start-overlay">
         <div class="overlay-content">
             <p class="overlay-text">Mit der AR-Funktion "model-viewer" haben Sie die Möglichkeit die 3D-Modelle aus den Herrenhäuser Gärten, Hannover bei sich in der realen Welt zu projizieren.</p>
-            <!-- Dieser Button wird über JavaScript weiter unten so programmiert, dass er dieses Fenster schließt -->
             <button id="close-overlay-btn" class="start-btn">Verstanden</button>
         </div>
     </div>
@@ -257,49 +260,39 @@
     </div>
 
     <!-- ==========================================
+         AR-MODUS UMSCHALTER FÜR ANDROID
+         ========================================== -->
+    <div class="ar-mode-switcher">
+        <strong>Android AR-Modus wählen:</strong><br>
+        <label><input type="radio" name="ar-mode" value="webxr scene-viewer" checked> WebXR (mit Text)</label>
+        <label style="margin-left: 15px;"><input type="radio" name="ar-mode" value="scene-viewer"> Scene Viewer (Pur)</label>
+    </div>
+
+    <!-- ==========================================
          HAUPT-INHALT BEREICH (3D-Viewer)
          ========================================== -->
     <div class="viewer-container">
         
-        <!-- Die sichtbare Beschriftung für den Browser -->
         <div class="model-title">Statue aus dem Niederdeutschen Blumengarten der Herrenhäuser Gärten</div>
 
-        <!-- Der Schließen-Button (Roter Ring) -->
-        <!-- "onclick='window.close()'" schließt den Tab. Alternativ "history.back()" verwenden -->
         <a href="javascript:window.close();" class="close-button" title="Schließen">&times;</a>
 
-        <!-- 
-            Der <model-viewer> ist das Herzstück. Hier wird das Modell geladen und angezeigt.
-        -->
         <model-viewer 
             id="Veritas-modell"
             src="3D_models/Statue_3D.glb" 
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Kybele/Erde%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
             title="Sandsteinstatue &quot;Veritas&quot; von 1730"
             ar 
-            ar-modes="webxr scene-viewer quick-look" 
+            ar-modes="webxr scene-viewer" 
             ar-placement="floor" 
             camera-controls 
-            scale="1 1 1" 
-            
-            /* HIER GEÄNDERT - Alles auf Null gesetzt!:
-               Da das 3D-Modell in der Datei bereits richtig steht, verzichten wir auf 
-               jegliche künstliche Drehung. Alles ist jetzt wieder im Originalzustand. */
             orientation="0deg 0deg 0deg"
-            
             alt="Statue aus dem Niederdeutschen Blumengarten">
 
-            <!-- 
-                HIER GEÄNDERT: Die Sprechblase (Hotspot).
-                Da das Modell nun NICHT mehr künstlich verdreht wird, ist "Oben" wieder 
-                ganz normal die mittlere Zahl (die Y-Achse). Daher sitzt die Blase jetzt 
-                wieder bei "0 2.2 0" sicher über dem Kopf!
-            -->
             <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
                 Sandsteinstatue "Veritas"
             </button>
 
-            <!-- Der HTML Button, der den AR-Modus startet -->
             <button slot="ar-button" class="ar-button" id="ar-start-btn">
                 AR Modus starten
             </button>
@@ -308,10 +301,8 @@
         
     </div>
 
-    <!-- Die Erklärung unter der Vorschau -->
     <p class="explanation-text">
-        <strong>Tipp:</strong> Klicke auf "AR Modus starten". Dein Handy erkennt den Fußboden automatisch 
-        und projiziert das 3D-Modell lebensgroß direkt in deinen virtuellen Raum!
+        <strong>Tipp:</strong> Klicke auf "AR Modus starten". Nutze oben den Schalter, um das Verhalten auf Android zu wählen.
     </p>
 
     <!-- ==========================================
@@ -322,42 +313,40 @@
         const closeOverlayBtn = document.getElementById('close-overlay-btn');
         const startOverlay = document.getElementById('start-overlay');
 
-        // Automatisches Schließen des Startfensters nach 3 Sekunden (3000 Millisekunden)
         setTimeout(function() {
             startOverlay.style.display = 'none';
         }, 3000);
 
-        // Falls der Nutzer schneller ist und auf den Button klickt, schließt es sich sofort
         closeOverlayBtn.addEventListener('click', function() {
             startOverlay.style.display = 'none';
         });
 
-        // === 2. Logik für Apple AR Quick-Look ===
+        // === 2. Logik für den AR-Modus Umschalter (Android) ===
         const modelViewer = document.getElementById('Veritas-modell');
-        
-        // Link-Klick für iOS Quick-Look abfangen
+        document.querySelectorAll('input[name="ar-mode"]').forEach(radio => {
+            radio.addEventListener('change', (e) => {
+                modelViewer.setAttribute('ar-modes', e.target.value);
+            });
+        });
+
+        // === 3. Logik für Apple AR Quick-Look ===
         modelViewer.addEventListener('message', function(event) {
             if (event.data === '_apple_ar_quicklook_button_tapped') {
                 window.open('https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen', '_blank');
             }
         });
 
-        // === 3. Lade-Animation für iOS überbrücken ===
+        // === 4. Lade-Animation für iOS überbrücken ===
         const arStartBtn = document.getElementById('ar-start-btn');
         const iosLoadingOverlay = document.getElementById('ios-loading-overlay');
 
         arStartBtn.addEventListener('click', function() {
-            // Zeige den Ladebildschirm sofort beim Klick auf den Button
             iosLoadingOverlay.style.display = 'flex';
-
-            // Fallback: Verstecke den Ladebildschirm nach 4 Sekunden automatisch wieder.
             setTimeout(function() {
                 iosLoadingOverlay.style.display = 'none';
             }, 4000);
         });
 
-        // Wenn AR Quick Look sich auf iOS öffnet, verliert das Browserfenster den Fokus (blur).
-        // Sobald das passiert, wissen wir: Das Modell hat geladen. Wir schalten das Overlay ab.
         window.addEventListener('blur', function() {
             iosLoadingOverlay.style.display = 'none';
         });
