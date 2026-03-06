@@ -31,7 +31,7 @@
             background: #fff; /* Weißer Hintergrund */
         }
         
-        /* Das Vollbild-Startfenster (Overlay) */
+        /* --- NEU: Das Vollbild-Startfenster (Overlay) --- */
         /* Dieses Fenster legt sich beim Start über die gesamte Webseite */
         #start-overlay {
             position: fixed; /* Bleibt immer an der gleichen Stelle, auch beim Scrollen */
@@ -159,7 +159,7 @@
             outline: none;
         }
 
-        /* --- Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
+        /* --- NEU: Design für die Sprechblase (Hotspot) direkt am 3D-Modell --- */
         .speech-bubble {
             background: #ffffff; /* Weißer Hintergrund */
             border-radius: 8px; /* Abgerundete Ecken */
@@ -225,6 +225,13 @@
 
         <!-- 
             Der <model-viewer> ist das Herzstück. Hier wird das Modell geladen und angezeigt.
+            WICHTIGE EINSTELLUNGEN:
+            - id: Der Name, mit dem wir das Element im JavaScript ansprechen können.
+            - src: Die Datei für Android-Geräte und Webbrowser (.glb)
+            - ios-src: Die spezielle Datei für Apple Geräte (.usdz) inkl. QuickLook-Buttons
+            - ar: Aktiviert die Augmented Reality Funktion
+            - camera-controls: Erlaubt das Drehen und Zoomen mit dem Finger/Maus
+            - orientation: Dreht das Modell beim Start (hier korrigiert auf -90deg auf der X-Achse)
         -->
         <model-viewer 
             id="Veritas-modell"
@@ -232,12 +239,7 @@
             ios-src="3D_models/Erde_Kybele.usdz#checkoutTitle=Kybele/Erde%20Fechter&checkoutSubtitle=Borghesischer%20Fechter%20am%20Gartentheater&callToAction=Mehr%20erfahren"
             title="Sandsteinstatue &quot;Veritas&quot; von 1730"
             ar 
-            
-            /* HIER GEÄNDERT: "webxr" steht nun GANZ VORNE! 
-               Das zwingt Android-Geräte, den AR-Modus im Browser auszuführen. Nur so 
-               können HTML-Sprechblasen auch im AR-Modus angezeigt werden. */
-            ar-modes="webxr scene-viewer quick-look" 
-            
+            ar-modes="scene-viewer webxr quick-look" 
             ar-placement="floor" 
             camera-controls 
             scale="1 1 1" 
@@ -248,13 +250,14 @@
             alt="Niederdeutscher Blumengarten">
 
             <!-- 
-                HIER GEÄNDERT: Die Position der Sprechblase. 
-                Da das 3D-Modell gedreht wurde (X-Achse -90 Grad), ist "Oben/Unten" jetzt die Z-Achse 
-                (die 3. Zahl) und nicht mehr die Y-Achse (die 2. Zahl). 
-                data-position="X Y Z". Ändere die 3. Zahl (hier "2.2"), falls die Blase noch 
-                etwas höher oder tiefer schweben soll (z.B. "2.5" für höher).
+                NEU: Die Sprechblase am Modell (Hotspot).
+                'slot="hotspot-name"' sagt dem model-viewer, dass dies ein Ankerpunkt ist.
+                'data-position' gibt die X, Y und Z Koordinaten im 3D-Raum an. 
+                TIPP FÜR ANFÄNGER: Die mittlere Zahl ("2.2") ist die Höhe. 
+                Wenn die Sprechblase zu hoch oder zu niedrig über der Statue schwebt, 
+                verändere diese Zahl (z.B. "1.5" für niedriger oder "3.0" für höher).
             -->
-            <button slot="hotspot-name" class="speech-bubble" data-position="0 0 2.2" data-normal="0 0 1">
+            <button slot="hotspot-name" class="speech-bubble" data-position="0 2.2 0" data-normal="0 1 0">
                 Sandsteinstatue "Veritas"
             </button>
 
