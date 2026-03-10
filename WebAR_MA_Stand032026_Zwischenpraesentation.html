@@ -249,7 +249,7 @@
         <p id="objText">Beschreibung</p>
     </div>
 
-    <!-- UI: Hinweis zum Antippen (wird nun für 5 Sekunden eingeblendet) -->
+    <!-- UI: Hinweis zum Antippen -->
     <div id="clickHint">👆 Tippe auf das 3D-Modell<br>für weitere Informationen</div>
 
     <!-- UI: Kartensteuerung -->
@@ -345,7 +345,7 @@
         };
 
         // Liste der POIs für die Karte
-        const stations =[
+        const stations = [
             { title: 'Große Fontaine', coords:[52.386018, 9.695975] },
             { title: 'Goldenes Tor', coords:[52.390184, 9.699546] },
             { title: 'Haupteingang mit Kasse', coords:[52.391185, 9.698368] },
@@ -678,7 +678,7 @@
                                 mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
                                 
-                                // Sauberer UI-Aufruf (steuert Text, Kupferstich und den 5s-Hinweis zentral)
+                                // Sauberer UI-Aufruf (steuert Text und Kupferstich zentral)
                                 updateUIForModel(id, "MindAR");
                             } else {
                                 mesh.visible = false;
@@ -1128,9 +1128,8 @@
                 const id = item.id;
                 const mesh = gnssMeshes[id];
                 const config = AR_MODELS[id];
-                const dist = item.dist;
 
-                if (!closestModelFound && dist < VISIBILITY_DISTANCE) {
+                if (!closestModelFound && item.dist < VISIBILITY_DISTANCE) {
                     mesh.visible = true;
                     closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
 
@@ -1139,29 +1138,6 @@
                     // das Modell hier automatisch relativ zum neuen Standpunkt.
                     const heightY = -2.0; 
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
-                    
-                    /* 
-                     * OPTISCHE TIEFEN-KORREKTUR (PROJEKTIONS-FIX):
-                     * Da die Modelle (z.B. durch Scale 8000) sehr groß sind, füllen sie den Bildschirm schnell aus
-                     * und wirken, als wären sie direkt vor dem Nutzer, obwohl sie auf der echten GPS-Koordinate liegen.
-                     * Durch diesen Faktor passen wir die Render-Größe dynamisch weich an die Distanz an.
-                     * So wird das Modell optisch ein Stück in die Ferne geschoben, damit es realistischer 
-                     * und maßstabsgetreuer auf dem echten Objekt "sitzt".
-                     */
-                    let perspectiveScale = 1.0;
-                    if (dist > 10.0) {
-                        // Leichte optische Verkleinerung für Objekte in der Ferne, um den AR-Tiefeneffekt zu simulieren
-                        perspectiveScale = 1.0 - (dist / 150.0); 
-                        // Verhindern, dass das Modell komplett verschwindet (Minimal auf 30% verkleinern)
-                        if (perspectiveScale < 0.3) perspectiveScale = 0.3; 
-                    }
-                    
-                    // Finale Skalierung aus Basis-Skalierung und Tiefenkorrektur berechnen
-                    const baseScale = config.scale * 0.05;
-                    const finalScale = baseScale * perspectiveScale;
-                    mesh.scale.set(finalScale, finalScale, finalScale);
-
-                    // Positionierung anwenden
                     mesh.position.set(offset.x, heightY, -offset.z);
                     
                     // Sauberes, zentrales UI-Update
@@ -1382,19 +1358,13 @@
             statusText.innerHTML = `<span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br><div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;"><span class="label-small">Position (Relativ)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm</div><div style="margin-top:8px;"><span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°</div>`;
         }
 
-        // Modifizierte Trigger-Funktion: Blendet den Hinweis für exakt 5 Sekunden ein
         function triggerHint() {
-            if (hintTimeout) {
-                // Setzt den Timer zurück, falls die Funktion mehrfach schnell hintereinander aufgerufen wird
-                clearTimeout(hintTimeout); 
-            }
+            if (hintTimeout) return;
             clickHint.style.opacity = 1;
-            
-            // Timeout wurde von 2000ms auf 5000ms (5 Sekunden) erhöht
             hintTimeout = setTimeout(() => { 
                 clickHint.style.opacity = 0;
                 hintTimeout = null; 
-            }, 5000);
+            }, 2000);
         }
         
         // ZENTRALE FUNKTION FÜR DAS UI (verhindert Flackern/Fehler des Kupferstichs)
@@ -1413,9 +1383,7 @@
                 objTitle.innerText = AR_MODELS[id].title;
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
-                
-                // Zeige den 5-Sekunden-Hinweis an, sobald ein neues 3D-Modell (egal aus welcher Quelle) fokussiert wurde.
-                triggerHint();
+                if (sourceName === "ArUco") triggerHint();
             }
         }
 
