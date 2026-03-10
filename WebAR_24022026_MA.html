@@ -395,6 +395,11 @@
         let lastDeviceOrientation = null; 
         let mapStations, userLayer; 
         let currentTrackingID = -1; 
+        
+        // NEU: Speichert, welches Modul aktuell das UI kontrolliert. 
+        // Dies verhindert, dass der Marker-Scanner fälschlicherweise das GNSS-UI schließt!
+        let currentTrackingSource = ""; 
+        
         let lossCounter = 0; 
         const maxLossFrames = 30; 
         let hintTimeout = null; 
@@ -573,20 +578,27 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
 
-            // --- NEU: VISUELLES METRISCHES GITTER (ZUR FEHLERSUCHE DER DISTANZEN) ---
+            // --- NEU: VISUELLES METRISCHES GITTER AUF AUGENHÖHE ---
             /*
-             * Ein GridHelper (Gitter) und ein AxesHelper (Achsenkreuz) werden in die GNSS-Gruppe gelegt.
-             * Das Gitter ist 200x200 Meter groß, wobei jedes Kästchen EXAKT 1x1 Meter entspricht.
-             * Die Achsen zeigen die Himmelsrichtungen: Z-Achse (Blau) = Nord/Süd, X-Achse (Rot) = Ost/West.
-             * So kannst du visuell sofort überprüfen, ob das Objekt wirklich in der richtigen Distanz liegt,
-             * indem du im Kamerabild einfach die Kästchen bis zum Modell zählst!
+             * Um die Linien "alle 10 Kästchen blau" zu rendern, legen wir zwei Gitter übereinander.
+             * Gitter 1 macht alle grauen 1-Meter Kästchen.
+             * Gitter 2 macht nur alle 10 Meter blaue Linien.
+             * Beide liegen auf "position.y = 0.0" -> das ist exakt auf Augenhöhe/Kamerahöhe des Smartphones.
              */
-            const gridHelper = new THREE.GridHelper(200, 200, 0x00ff00, 0x444444); // 200m Größe, 200 Linien = 1m Raster
-            gridHelper.position.y = -2.0; // Auf den Boden legen (auf gleiche Höhe wie Modelle)
-            gnssGroup.add(gridHelper);
+            
+            // 1-Meter Raster (grau, 200 Kästchen)
+            const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
+            gridHelper1m.position.y = 0.0; // Auf Augenhöhe
+            gnssGroup.add(gridHelper1m);
 
-            const axesHelper = new THREE.AxesHelper(10); // Achsenkreuz mit 10 Meter Länge
-            axesHelper.position.y = -1.9; // Minimal über dem Boden, damit es nicht vom Gitter verdeckt wird
+            // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
+            const gridHelper10m = new THREE.GridHelper(200, 20, 0x0088ff, 0x0088ff); 
+            gridHelper10m.position.y = 0.01; // Minimal versetzt, damit sich die Linien grafisch nicht stören (Z-Fighting)
+            gnssGroup.add(gridHelper10m);
+
+            // Achsenkreuz für die Himmelsrichtungen
+            const axesHelper = new THREE.AxesHelper(10); 
+            axesHelper.position.y = 0.02; 
             gnssGroup.add(axesHelper);
             // --------------------------------------------------------------------------
             
@@ -1181,7 +1193,7 @@
                     // Positionierung anwenden
                     mesh.position.set(offset.x, heightY, -offset.z);
                     
-                    // Sauberes, zentrales UI-Update
+                    // Sauberes, zentrales UI-Update. "sourceName" wird genutzt um den Dauerschleifen-Fehler zu beheben.
                     updateUIForModel(id, isSimulatedPos ? "Pos. Simulation" : "GNSS"); 
 
                 } else {
@@ -1190,12 +1202,20 @@
                 }
             });
             
-            // UI aufräumen, falls gar kein Objekt im GNSS-Modus in der Nähe ist
+            /* 
+             * UI AUFRÄUMEN (BUGFIX):
+             * Falls gar kein Objekt im GNSS-Modus in der Nähe ist, wird das UI sauber ausgeblendet.
+             * WICHTIG: Dies passiert NUR, wenn der GNSS-Modus gerade das UI kontrolliert.
+             * Das verhindert, dass der GNSS-Modus ein UI löscht, welches gerade vom ArUco-Modus geöffnet wurde!
+             */
             if (!closestModelFound && currentTrackingID !== -1 && !isMarkerTracking) {
-                 currentTrackingID = -1;
-                 modelInfo.style.display = 'none';
-                 historicalInfo.style.display = 'none';
-                 clickHint.style.opacity = 0;
+                 if (currentTrackingSource === "GNSS" || currentTrackingSource === "Pos. Simulation") {
+                     currentTrackingID = -1;
+                     currentTrackingSource = "";
+                     modelInfo.style.display = 'none';
+                     historicalInfo.style.display = 'none';
+                     clickHint.style.opacity = 0;
+                 }
             }
         }
 
@@ -1280,11 +1300,17 @@
                 markerGroup.visible = false;
                 lossCounter++;
                 if (lossCounter > maxLossFrames) {
-                    if (currentTrackingID !== -1) {
+                    /*
+                     * BUGFIX: Hier darf das UI nur zurückgesetzt werden, wenn es vorher auch
+                     * tatsächlich durch einen ArUco-Marker geöffnet wurde! Das verhindert 
+                     * die störende Dauerschleife im GNSS-Modus.
+                     */
+                    if (currentTrackingID !== -1 && currentTrackingSource === "ArUco") {
                             modelInfo.style.display = 'none';
                             clickHint.style.opacity = 0;
                             historicalInfo.style.display = 'none'; 
                             currentTrackingID = -1;
+                            currentTrackingSource = ""; // Quelle nach dem Löschen zurücksetzen
                     }
                     if(statusText.innerHTML.includes("Gefunden") || statusText.innerHTML.includes("Tracking")) {
                             statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -1414,10 +1440,12 @@
             }, 5000);
         }
         
-        // ZENTRALE FUNKTION FÜR DAS UI (verhindert Flackern/Fehler des Kupferstichs)
+        // ZENTRALE FUNKTION FÜR DAS UI (steuert Text, Kupferstich und den Klick-Hinweis)
         function updateUIForModel(id, sourceName) {
-            if (currentTrackingID !== id) {
+            // Die Abfrage prüft nun auch die "Tracking-Quelle", um Konflikte zwischen den Modulen zu verhindern
+            if (currentTrackingID !== id || currentTrackingSource !== sourceName) {
                 currentTrackingID = id;
+                currentTrackingSource = sourceName;
                 modelInfo.style.display = (id === 0 ? 'none' : 'block');
                 
                 // Hier wird der Kupferstich zentral gesteuert! (ID 3 oder 33 = zeigen)
@@ -1513,7 +1541,7 @@
             if (intersects.length > 0) {
                 let clickedObj = intersects[0].object;
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     for(let [key, val] of Object.entries(gnssMeshes)) {
+                     for(let[key, val] of Object.entries(gnssMeshes)) {
                          if(val === clickedObj) {
                              activeLink = AR_MODELS[key].link;
                              let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
