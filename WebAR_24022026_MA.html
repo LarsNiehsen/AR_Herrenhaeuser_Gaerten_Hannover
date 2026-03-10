@@ -396,8 +396,7 @@
         let mapStations, userLayer; 
         let currentTrackingID = -1; 
         
-        // NEU: Speichert, welches Modul aktuell das UI kontrolliert. 
-        // Dies verhindert, dass der Marker-Scanner fälschlicherweise das GNSS-UI schließt!
+        // Speichert, welches Modul aktuell das UI kontrolliert, um Dauerschleifen/Fehler zu verhindern
         let currentTrackingSource = ""; 
         
         let lossCounter = 0; 
@@ -578,27 +577,27 @@
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
 
-            // --- NEU: VISUELLES METRISCHES GITTER AUF AUGENHÖHE ---
+            // --- KORREKTUR: VISUELLES METRISCHES GITTER (AM BODEN BEI DEN FÜSSEN) ---
             /*
-             * Um die Linien "alle 10 Kästchen blau" zu rendern, legen wir zwei Gitter übereinander.
+             * Das Gitter ist 200x200 Meter groß. Da der Nutzer in der 3D-Welt IMMER im Zentrum (0,0,0) steht,
+             * liegt dieses Gitter immer exakt an deinen Füßen und dehnt sich 100m in jede Richtung aus.
              * Gitter 1 macht alle grauen 1-Meter Kästchen.
              * Gitter 2 macht nur alle 10 Meter blaue Linien.
-             * Beide liegen auf "position.y = 0.0" -> das ist exakt auf Augenhöhe/Kamerahöhe des Smartphones.
              */
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = 0.0; // Auf Augenhöhe
+            gridHelper1m.position.y = -2.0; // Auf den Boden legen!
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
             const gridHelper10m = new THREE.GridHelper(200, 20, 0x0088ff, 0x0088ff); 
-            gridHelper10m.position.y = 0.01; // Minimal versetzt, damit sich die Linien grafisch nicht stören (Z-Fighting)
+            gridHelper10m.position.y = -1.99; // Minimal höher, um Z-Fighting (Flackern) zu vermeiden
             gnssGroup.add(gridHelper10m);
 
             // Achsenkreuz für die Himmelsrichtungen
             const axesHelper = new THREE.AxesHelper(10); 
-            axesHelper.position.y = 0.02; 
+            axesHelper.position.y = -1.98; // Direkt über dem Gitter an den Füßen
             gnssGroup.add(axesHelper);
             // --------------------------------------------------------------------------
             
@@ -667,7 +666,7 @@
                                 let curAcc = 1.5;
 
                                 if (realPos) {
-                                    // Falls beim Auslösen noch kein GPS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
+                                    // Falls beim Auslösen noch kein GNSS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
                                     if (!simulationStartRealPos) {
                                         simulationStartRealPos = { lat: realPos.latitude, lon: realPos.longitude };
                                     }
@@ -1163,34 +1162,31 @@
                     mesh.visible = true;
                     closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
 
-                    // WICHTIG: Berechnung des Offsets relativ zur aktuellen 'lastPos'.
-                    // Wenn 'lastPos' durch eine Simulation aktualisiert wurde, verschiebt sich
-                    // das Modell hier automatisch relativ zum neuen Standpunkt.
+                    // Basis-Höhe für Objekte und den Boden.
                     const heightY = -2.0; 
+                    
+                    // WICHTIG: Berechnung des Offsets relativ zur aktuellen 'lastPos'.
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                     
                     /* 
-                     * OPTISCHE TIEFEN-KORREKTUR (PROJEKTIONS-FIX):
-                     * Da die Modelle (z.B. durch Scale 8000) sehr groß sind, füllen sie den Bildschirm schnell aus
-                     * und wirken, als wären sie direkt vor dem Nutzer, obwohl sie auf der echten GPS-Koordinate liegen.
-                     * Durch diesen Faktor passen wir die Render-Größe dynamisch weich an die Distanz an.
-                     * So wird das Modell optisch ein Stück in die Ferne geschoben, damit es realistischer 
-                     * und maßstabsgetreuer auf dem echten Objekt "sitzt".
-                     */
+                    * OPTISCHE TIEFEN-KORREKTUR (NUR VERKLEINERN, KEIN HERANZIEHEN):
+                    * Die Modelle liegen auf ihrer EXAKTEN GNSS-Position für Distanz.
+                    * Um den optischen Horizont-Effekt der Handykamera auszugleichen, 
+                    * verkleinern wir das Modell sanft und linear, je weiter es weg ist.
+                    */
                     let perspectiveScale = 1.0;
                     if (dist > 10.0) {
-                        // Leichte optische Verkleinerung für Objekte in der Ferne, um den AR-Tiefeneffekt zu simulieren
+                        // Leichte, lineare optische Verkleinerung für Objekte in der Ferne
                         perspectiveScale = 1.0 - (dist / 150.0); 
-                        // Verhindern, dass das Modell komplett verschwindet (Minimal auf 30% verkleinern)
+                        // Verhindern, dass das Modell zu winzig wird (Minimal auf 30% fixieren)
                         if (perspectiveScale < 0.3) perspectiveScale = 0.3; 
                     }
-                    
                     // Finale Skalierung aus Basis-Skalierung und Tiefenkorrektur berechnen
                     const baseScale = config.scale * 0.05;
                     const finalScale = baseScale * perspectiveScale;
                     mesh.scale.set(finalScale, finalScale, finalScale);
 
-                    // Positionierung anwenden
+                    // Positionierung anwenden (EXAKTE DISTANZ WIRD BEIBEHALTEN!)
                     mesh.position.set(offset.x, heightY, -offset.z);
                     
                     // Sauberes, zentrales UI-Update. "sourceName" wird genutzt um den Dauerschleifen-Fehler zu beheben.
@@ -1214,7 +1210,7 @@
                      currentTrackingSource = "";
                      modelInfo.style.display = 'none';
                      historicalInfo.style.display = 'none';
-                     clickHint.style.opacity = 0;
+                     clickHint.style.opacity = "0"; // Sauberer CSS String
                  }
             }
         }
@@ -1307,7 +1303,7 @@
                      */
                     if (currentTrackingID !== -1 && currentTrackingSource === "ArUco") {
                             modelInfo.style.display = 'none';
-                            clickHint.style.opacity = 0;
+                            clickHint.style.opacity = "0";
                             historicalInfo.style.display = 'none'; 
                             currentTrackingID = -1;
                             currentTrackingSource = ""; // Quelle nach dem Löschen zurücksetzen
@@ -1425,30 +1421,32 @@
             statusText.innerHTML = `<span style="color:yellow;">Gefunden: ID ${id} (${source})</span><br><div style="margin-top:8px; padding-top:5px; border-top:1px solid #777;"><span class="label-small">Position (Relativ)</span><br>X: ${x} cm | Y: ${y} cm | Z: ${z} cm</div><div style="margin-top:8px;"><span class="label-small">Rotation (relativ)</span><br>Pitch: ${pitch}° | Yaw: ${yaw}° | Roll: ${roll}°</div>`;
         }
 
-        // Modifizierte Trigger-Funktion: Blendet den Hinweis für exakt 5 Sekunden ein
+        // Modifizierte Trigger-Funktion: Blendet den Hinweis sauber ein und lässt ihn ungestört ablaufen.
         function triggerHint() {
+            // Wenn der Text gerade sichtbar ist, brechen wir hier sofort ab, um den Timer nicht ungewollt zu stören!
+            if (clickHint.style.opacity === "1") return; 
+
             if (hintTimeout) {
-                // Setzt den Timer zurück, falls die Funktion mehrfach schnell hintereinander aufgerufen wird
                 clearTimeout(hintTimeout); 
             }
-            clickHint.style.opacity = 1;
             
-            // Timeout wurde von 2000ms auf 5000ms (5 Sekunden) erhöht
+            clickHint.style.opacity = "1";
+            
+            // Timeout auf 5000ms (5 Sekunden) gesetzt
             hintTimeout = setTimeout(() => { 
-                clickHint.style.opacity = 0;
+                clickHint.style.opacity = "0";
                 hintTimeout = null; 
             }, 5000);
         }
         
         // ZENTRALE FUNKTION FÜR DAS UI (steuert Text, Kupferstich und den Klick-Hinweis)
         function updateUIForModel(id, sourceName) {
-            // Die Abfrage prüft nun auch die "Tracking-Quelle", um Konflikte zwischen den Modulen zu verhindern
+            // Die Abfrage prüft nun auch die "Tracking-Quelle", um Dauerschleifen zwischen GNSS und Markern zu verhindern.
             if (currentTrackingID !== id || currentTrackingSource !== sourceName) {
                 currentTrackingID = id;
                 currentTrackingSource = sourceName;
                 modelInfo.style.display = (id === 0 ? 'none' : 'block');
                 
-                // Hier wird der Kupferstich zentral gesteuert! (ID 3 oder 33 = zeigen)
                 if (id === 3 || id === 33) {
                     historicalInfo.style.display = 'block';
                 } else {
@@ -1459,7 +1457,7 @@
                 objText.innerText = AR_MODELS[id].info;
                 activeLink = AR_MODELS[id].link;
                 
-                // Zeige den 5-Sekunden-Hinweis an, sobald ein neues 3D-Modell (egal aus welcher Quelle) fokussiert wurde.
+                // Zeige den 5-Sekunden-Hinweis an, sobald ein neues 3D-Modell fokussiert wurde.
                 triggerHint();
             }
         }
@@ -1517,7 +1515,6 @@
         
         document.body.addEventListener('click', (event) => {
             // FILTER: Klicks auf UI-Elemente ignorieren! 
-            // So werden beim Drücken von Karte/Buttons keine Info-Tabs mehr versehentlich geöffnet.
             if (event.target.closest('.ui-panel') || 
                 event.target.closest('#mapControls') || 
                 event.target.closest('.leaflet-container') ||
@@ -1541,7 +1538,7 @@
             if (intersects.length > 0) {
                 let clickedObj = intersects[0].object;
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     for(let[key, val] of Object.entries(gnssMeshes)) {
+                     for(let [key, val] of Object.entries(gnssMeshes)) {
                          if(val === clickedObj) {
                              activeLink = AR_MODELS[key].link;
                              let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
