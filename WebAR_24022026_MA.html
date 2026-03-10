@@ -350,9 +350,9 @@
             { title: 'Goldenes Tor', coords:[52.390184, 9.699546] },
             { title: 'Haupteingang mit Kasse', coords:[52.391185, 9.698368] },
             { title: 'Niki de Saint Phalle - Grotte', coords:[52.390713, 9.696767] },
-            { title: 'Sommer - Statue', coords: [ 52.389583, 9.697833] },
+            { title: 'Sommer - Statue', coords:[ 52.389583, 9.697833] },
             { title: 'Borghesischer Fechter', coords:[52.389463, 9.699207] },
-            { title: 'Niederdeutscher Blumengarten', coords: [52.388196, 9.697853] }
+            { title: 'Niederdeutscher Blumengarten', coords:[52.388196, 9.697853] }
         ];
 
         // Referenzierung der HTML-Elemente
@@ -572,6 +572,23 @@
 
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
+
+            // --- NEU: VISUELLES METRISCHES GITTER (ZUR FEHLERSUCHE DER DISTANZEN) ---
+            /*
+             * Ein GridHelper (Gitter) und ein AxesHelper (Achsenkreuz) werden in die GNSS-Gruppe gelegt.
+             * Das Gitter ist 200x200 Meter groß, wobei jedes Kästchen EXAKT 1x1 Meter entspricht.
+             * Die Achsen zeigen die Himmelsrichtungen: Z-Achse (Blau) = Nord/Süd, X-Achse (Rot) = Ost/West.
+             * So kannst du visuell sofort überprüfen, ob das Objekt wirklich in der richtigen Distanz liegt,
+             * indem du im Kamerabild einfach die Kästchen bis zum Modell zählst!
+             */
+            const gridHelper = new THREE.GridHelper(200, 200, 0x00ff00, 0x444444); // 200m Größe, 200 Linien = 1m Raster
+            gridHelper.position.y = -2.0; // Auf den Boden legen (auf gleiche Höhe wie Modelle)
+            gnssGroup.add(gridHelper);
+
+            const axesHelper = new THREE.AxesHelper(10); // Achsenkreuz mit 10 Meter Länge
+            axesHelper.position.y = -1.9; // Minimal über dem Boden, damit es nicht vom Gitter verdeckt wird
+            gnssGroup.add(axesHelper);
+            // --------------------------------------------------------------------------
             
             // Definition der MindAR-Anker
             for (let i = 0; i < 7; i++) {
