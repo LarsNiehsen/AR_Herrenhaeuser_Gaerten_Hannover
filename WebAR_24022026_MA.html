@@ -319,14 +319,14 @@
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 mindTargetIndexes:[1, 2, 3, 4, 5, 6], 
                 lat: 52.388196, lon: 9.697853,
-                initRotation: 5
+                initRotation: 354
             },
             2: { 
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
                 title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', 
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
                 lat: 52.389463, lon: 9.699207,
-                initRotation: 96
+                initRotation: 341
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, 
@@ -582,22 +582,22 @@
              * Das Gitter ist 200x200 Meter groß. Da der Nutzer in der 3D-Welt IMMER im Zentrum (0,0,0) steht,
              * liegt dieses Gitter immer exakt an deinen Füßen und dehnt sich 100m in jede Richtung aus.
              * Gitter 1 macht alle grauen 1-Meter Kästchen.
-             * Gitter 2 macht nur alle 10 Meter blaue Linien.
+             * Gitter 2 macht nur alle 10 Meter dicke blaue Linien.
              */
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = -2.0; // Auf den Boden legen!
+            gridHelper1m.position.y = -2.0; // Exakt am Boden
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
             const gridHelper10m = new THREE.GridHelper(200, 20, 0x0088ff, 0x0088ff); 
-            gridHelper10m.position.y = -1.99; // Minimal höher, um Z-Fighting (Flackern) zu vermeiden
+            gridHelper10m.position.y = -1.99; // Minimal höher als das graue Gitter, um Flackern (Z-Fighting) zu vermeiden
             gnssGroup.add(gridHelper10m);
 
             // Achsenkreuz für die Himmelsrichtungen
             const axesHelper = new THREE.AxesHelper(10); 
-            axesHelper.position.y = -1.98; // Direkt über dem Gitter an den Füßen
+            axesHelper.position.y = -1.98; // Direkt über dem Gitter am Boden
             gnssGroup.add(axesHelper);
             // --------------------------------------------------------------------------
             
@@ -666,7 +666,7 @@
                                 let curAcc = 1.5;
 
                                 if (realPos) {
-                                    // Falls beim Auslösen noch kein GNSS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
+                                    // Falls beim Auslösen noch kein GPS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
                                     if (!simulationStartRealPos) {
                                         simulationStartRealPos = { lat: realPos.latitude, lon: realPos.longitude };
                                     }
@@ -1169,11 +1169,14 @@
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                     
                     /* 
-                    * OPTISCHE TIEFEN-KORREKTUR (NUR VERKLEINERN, KEIN HERANZIEHEN):
-                    * Die Modelle liegen auf ihrer EXAKTEN GNSS-Position für Distanz.
-                    * Um den optischen Horizont-Effekt der Handykamera auszugleichen, 
-                    * verkleinern wir das Modell sanft und linear, je weiter es weg ist.
-                    */
+                     * OPTISCHE TIEFEN-KORREKTUR (NUR VERKLEINERN, KEIN HERANZIEHEN):
+                     * Die Modelle liegen auf ihrer EXAKTEN GPS-Distanz. 
+                     * (X und Z Achse bleiben zu 100% unangetastet!).
+                     * Um den optischen Horizont-Effekt der Handykamera auszugleichen, 
+                     * verkleinern wir das Modell stattdessen sanft und linear, je weiter es weg ist.
+                     * Da es kleiner wird, aber auf der gleichen Position verbleibt, 
+                     * wird es optisch sichtbar in Richtung Boden (Y=-2.0) gedrückt.
+                     */
                     let perspectiveScale = 1.0;
                     if (dist > 10.0) {
                         // Leichte, lineare optische Verkleinerung für Objekte in der Ferne
@@ -1181,12 +1184,13 @@
                         // Verhindern, dass das Modell zu winzig wird (Minimal auf 30% fixieren)
                         if (perspectiveScale < 0.3) perspectiveScale = 0.3; 
                     }
+                    
                     // Finale Skalierung aus Basis-Skalierung und Tiefenkorrektur berechnen
                     const baseScale = config.scale * 0.05;
                     const finalScale = baseScale * perspectiveScale;
                     mesh.scale.set(finalScale, finalScale, finalScale);
 
-                    // Positionierung anwenden (EXAKTE DISTANZ WIRD BEIBEHALTEN!)
+                    // Positionierung anwenden (EXAKTE DISTANZ BLEIBT BEIBEHALTEN!)
                     mesh.position.set(offset.x, heightY, -offset.z);
                     
                     // Sauberes, zentrales UI-Update. "sourceName" wird genutzt um den Dauerschleifen-Fehler zu beheben.
