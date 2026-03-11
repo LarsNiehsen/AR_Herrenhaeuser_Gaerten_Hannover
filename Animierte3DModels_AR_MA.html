@@ -165,13 +165,15 @@
         #btn-right { grid-column: 3; grid-row: 2; }
         #btn-down { grid-column: 2; grid-row: 3; }
 
-        /* Der Höhen-Regler, neu platziert unten links im selben Design wie der Drehen-Regler */
+        /* Der Höhen-Regler, vertikal positioniert in der linken Mitte */
         #height-control {
             position: absolute; 
-            /* Gleicher Abstand von unten wie das Steuerkreuz */
-            bottom: 20px; 
-            /* An den linken Rand gesetzt */
+            /* Setzt die Box exakt auf 50% der Bildschirmhöhe */
+            top: 50%; 
+            /* Abstand von der linken Kante */
             left: 20px; 
+            /* Schiebt die Box um die eigene halbe Höhe nach oben, für perfekte Zentrierung */
+            transform: translateY(-50%); 
             z-index: 10;
             display: none; 
             /* Ordnet den Text und den Schieber untereinander an */
@@ -179,8 +181,8 @@
             align-items: center;
             /* Derselbe halbtransparente schwarze Hintergrund wie beim Drehen-Regler */
             background: rgba(0, 0, 0, 0.6); 
-            /* Identischer Innenabstand für das gleiche Aussehen */
-            padding: 10px 15px; 
+            /* Innenabstand angepasst für ein hochkantes Element (oben/unten mehr, links/rechts weniger) */
+            padding: 20px 10px; 
             /* Identisch stark abgerundete Ecken */
             border-radius: 30px;
         }
@@ -188,7 +190,7 @@
         /* Der Rotations-Regler (Drehen) am unteren Bildschirmrand mittig */
         #rotation-control {
             position: absolute; 
-            /* Gleicher Abstand von unten wie die anderen Steuerelemente */
+            /* Gleicher Abstand von unten wie das Steuerkreuz */
             bottom: 20px; 
             /* 50% von links setzt den Startpunkt genau in die Mitte */
             left: 50%; 
@@ -214,13 +216,28 @@
             font-size: 14px; 
         }
 
-        /* Größenanpassung für beide Schieberegler (Höhe und Drehen) */
-        #rotationSlider, #heightSlider { 
+        /* Größenanpassung nur für den horizontalen Drehen-Schieberegler */
+        #rotationSlider { 
             /* Die Breite passt sich der Bildschirmgröße an (25% der Breite) */
             width: 25vw; 
             /* Die Schieberegler werden aber nie breiter als 120 Pixel */
             max-width: 120px; 
             margin: 0; 
+        }
+
+        /* Größenanpassung speziell für den neuen vertikalen Höhen-Schieberegler */
+        #heightSlider {
+            /* Informiert moderne Browser, dass dieser Balken vertikal (von unten nach oben) sein soll */
+            -webkit-appearance: slider-vertical;
+            appearance: slider-vertical;
+            /* Die Dicke des Schiebebalkens */
+            width: 8px;
+            /* Die Höhe des Balkens entspricht genau der Länge des horizontalen Dreh-Reglers (120px) */
+            height: 120px;
+            /* Ein kleiner Puffer-Abstand oben und unten */
+            margin: 10px 0;
+            /* Ändert den Mauszeiger zur Orientierungshilfe */
+            cursor: pointer;
         }
     </style>
     
@@ -257,13 +274,15 @@
         <div class="ctrl-btn" id="btn-down">⬇️</div>
     </div>
 
-    <!-- Höhen-Slider Menü (nun im gleichen Design wie der Dreh-Slider) -->
+    <!-- Höhen-Slider Menü (Vertikal auf der linken Seite) -->
     <div id="height-control">
         <span>Höhe</span>
-        <input type="range" id="heightSlider" min="0.1" max="3.0" step="0.1" value="1.6">
+        <!-- Der Bereich wurde massiv verdoppelt und erweitert (von stark unterirdisch -3.0 bis extrem hoch 8.0) -->
+        <!-- Das Attribut orient="vertical" wird hinzugefügt, damit auch ältere Browser den Regler aufrecht stellen -->
+        <input type="range" orient="vertical" id="heightSlider" min="-3.0" max="8.0" step="0.1" value="1.6">
     </div>
 
-    <!-- Drehen-Slider Menü -->
+    <!-- Drehen-Slider Menü (Horizontal unten in der Mitte) -->
     <div id="rotation-control">
         <span>⟲ Drehen ⟳</span>
         <input type="range" id="rotationSlider" min="-180" max="180" value="0">
@@ -342,11 +361,11 @@
             const walkMenu = document.getElementById('walk-controls');
             if (walkMenu) walkMenu.style.display = 'grid';
             
-            // Das Höhen-Menü wird gesucht und sichtbar gemacht
+            // Das vertikale Höhen-Menü wird gesucht und sichtbar gemacht
             const heightMenu = document.getElementById('height-control');
             if (heightMenu) heightMenu.style.display = 'flex';
             
-            // Das Drehen-Menü wird gesucht und sichtbar gemacht
+            // Das horizontale Drehen-Menü wird gesucht und sichtbar gemacht
             const rotationMenu = document.getElementById('rotation-control');
             if (rotationMenu) rotationMenu.style.display = 'flex';
 
@@ -366,7 +385,7 @@
 
             // Erstellt eine Kamera, ähnlich wie in der realen Welt (Sichtfeld, Seitenverhältnis, Nähe, Ferne)
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000000);
-            // Positioniert die Kamera auf einer Höhe von 1.6 Metern
+            // Positioniert die Kamera auf einer Standardhöhe von 1.6 Metern
             camera.position.set(0, 1.6, 0);
 
             // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für den Bildschirm umrechnet
@@ -498,7 +517,7 @@
 
                         // Ein Event-Listener wartet darauf, dass eine Animation fertig abgespielt wurde
                         mixer.addEventListener('finished', () => {
-                            // Das animierte Modell wird ausgeblendet
+                            // Das animierte Modell wird nach dem Ablauf ausgeblendet
                             animatedModel.visible = false;
                             
                             // Das statische Modell wird stattdessen wieder eingeblendet
@@ -541,9 +560,9 @@
             // Der HTML-Schieberegler für die Höhe wird mit dem Code verknüpft
             const hSlider = document.getElementById('heightSlider');
             if (hSlider) {
-                // Jedes Mal, wenn der Schieber bewegt wird, reagiert dieser Block
+                // Jedes Mal, wenn der Schieber hoch oder runter bewegt wird, reagiert dieser Block
                 hSlider.addEventListener('input', (e) => {
-                    // Die Kamera-Höhe wird auf den aktuellen Zahlenwert des Schiebers gesetzt
+                    // Die Kamera-Höhe wird sofort auf den aktuellen Zahlenwert des Schiebers gesetzt
                     camera.position.y = parseFloat(e.target.value);
                 });
             }
@@ -551,7 +570,7 @@
             // Der HTML-Schieberegler für das Drehen wird eingebunden
             const rSlider = document.getElementById('rotationSlider');
             if (rSlider) {
-                // Jedes Mal, wenn der Dreh-Schieber bewegt wird, startet dieser Block
+                // Jedes Mal, wenn der Dreh-Schieber seitlich bewegt wird, startet dieser Block
                 rSlider.addEventListener('input', (e) => {
                     // Der Grad-Wert (0 bis 360) des Schiebers wird in mathematische Radianten umgerechnet
                     const radians = parseFloat(e.target.value) * (Math.PI / 180);
@@ -636,7 +655,7 @@
                         }
                     }
                     
-                    // Die Menüs für Höhe und Drehung werden während der Animation kurzfristig unsichtbar gemacht
+                    // Die Menüs für Höhe und Drehung werden während der Animation kurzfristig unsichtbar gemacht, um Ablenkung zu vermeiden
                     const rControl = document.getElementById('rotation-control');
                     if (rControl) rControl.style.display = 'none';
                     
