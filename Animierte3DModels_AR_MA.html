@@ -1,308 +1,167 @@
-<!-- Deklariert das Dokument als modernes HTML5-Dokument -->
 <!DOCTYPE html>
-<!-- Legt die Sprache der Webseite auf Deutsch fest -->
 <html lang="de">
-<!-- Startet den Kopfbereich für Metadaten, CSS und Skript-Importe -->
 <head>
-    <!-- Definiert den Zeichensatz, damit Umlaute korrekt angezeigt werden -->
     <meta charset="UTF-8">
-    <!-- Optimiert die Darstellung auf Smartphones und verhindert manuelles Zoomen -->
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no, maximum-scale=1.0">
-    <!-- Legt den Titel des Browser-Tabs fest -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <title>WebAR - Animierte 3D-Modelle mit Three.js</title>
-    
-    <!-- Hier beginnen die CSS-Regeln für das Aussehen der Elemente -->
     <style>
-        /* Definiert das Aussehen des gesamten Seiteninhalts */
         body {
-            /* Entfernt den Standard-Außenabstand des Browsers */
             margin: 0;
-            /* Verhindert, dass Scrollbalken erscheinen */
             overflow: hidden;
-            /* Setzt die Hintergrundfarbe der Seite auf Schwarz */
             background-color: #000;
-            /* Verwendet eine moderne, serifenlose Schriftart */
             font-family: sans-serif;
+            /* Verhindert versehentliches Wischen/Zoomen auf dem Smartphone */
+            touch-action: none; 
         }
-        
-        /* Gestaltet das Video-Element für das Live-Kamerabild */
         #webcam {
-            /* Löst das Video aus dem normalen Textfluss heraus */
             position: absolute;
-            /* Setzt das Video ganz nach oben */
             top: 0;
-            /* Setzt das Video ganz nach links */
             left: 0;
-            /* Zwingt das Video, die gesamte Bildschirmbreite auszufüllen */
             width: 100vw;
-            /* Zwingt das Video, die gesamte Bildschirmhöhe auszufüllen */
             height: 100vh;
-            /* Schneidet überstehende Ränder ab, ohne das Bild zu verzerren */
             object-fit: cover;
-            /* Legt das Video auf die unterste Bildebene */
             z-index: 1;
         }
-        
-        /* Container für die dreidimensionalen Objekte */
         #container {
-            /* Legt den 3D-Container exakt über das Kamera-Video */
             position: absolute;
-            /* Startposition oben */
             top: 0;
-            /* Startposition links */
             left: 0;
-            /* Füllt die volle Bildschirmbreite */
             width: 100vw;
-            /* Füllt die volle Bildschirmhöhe */
             height: 100vh;
-            /* Platziert den 3D-Inhalt eine Ebene über dem Video */
             z-index: 2;
         }
-        
-        /* Das Start-Menü, welches vor der Kamera-Erlaubnis sichtbar ist */
         #ui {
-            /* Legt sich über den gesamten Bildschirm */
             position: absolute;
-            /* Positioniert ab der oberen Kante */
             top: 0;
-            /* Positioniert ab der linken Kante */
             left: 0;
-            /* Füllt den Bildschirm in der Breite */
             width: 100vw;
-            /* Füllt den Bildschirm in der Höhe */
             height: 100vh;
-            /* Legt das Menü auf die oberste Ebene, über alle anderen Elemente */
             z-index: 10;
-            /* Aktiviert Flexbox für einfaches Zentrieren von Inhalten */
             display: flex;
-            /* Zentriert den Start-Button horizontal */
             justify-content: center;
-            /* Zentriert den Start-Button vertikal */
             align-items: center;
-            /* Erzeugt einen abgedunkelten, leicht transparenten Hintergrund */
             background: rgba(0, 0, 0, 0.85);
         }
-        
-        /* Das Aussehen aller Buttons auf der Seite (insbesondere des Start-Buttons) */
         button {
-            /* Schafft Platz im Inneren des Buttons (15px oben/unten, 40px links/rechts) */
             padding: 15px 40px;
-            /* Setzt die Textgröße auf 20 Pixel */
             font-size: 20px;
-            /* Verwandelt den Mauszeiger in eine Hand, wenn man darüber fährt */
             cursor: pointer;
-            /* Färbt den Button auffällig Rot */
             background-color: #ff0000;
-            /* Färbt den Text im Button Weiß */
             color: white;
-            /* Entfernt den Standard-Rahmen des Browsers */
             border: none;
-            /* Rundet die Ecken des Buttons ab */
             border-radius: 8px;
-            /* Macht die Schriftart fett */
             font-weight: bold;
         }
-        
-        /* Ein kleines Textfeld zur Anzeige von Systeminformationen */
         #info {
-            /* Wird absolut positioniert */
             position: absolute;
-            /* 10 Pixel Abstand vom oberen Rand */
             top: 10px;
-            /* 10 Pixel Abstand vom linken Rand */
             left: 10px;
-            /* Textfarbe ist Weiß */
             color: white;
-            /* Liegt über dem 3D-Container, aber unter dem Start-Menü */
             z-index: 5;
-            /* Halbtransparenter, schwarzer Hintergrund für bessere Lesbarkeit */
             background: rgba(0,0,0,0.5);
-            /* Innenabstand für den Text */
             padding: 5px 10px;
-            /* Leicht abgerundete Ecken */
             border-radius: 4px;
-            /* Wird zu Beginn vollständig unsichtbar geschaltet */
             display: none;
-            /* Verhindert, dass das Textfeld Klicks abfängt */
             pointer-events: none;
         }
 
-        /* Container für das virtuelle Steuerkreuz (D-Pad) */
-        #controls {
-            /* Positioniert das Steuerkreuz unten rechts */
-            position: absolute;
-            /* 30 Pixel Abstand von unten */
-            bottom: 30px;
-            /* 20 Pixel Abstand von rechts */
-            right: 20px;
-            /* Ordnet das Element über dem 3D-Modell ein */
+        /* --- NEUE UI ELEMENTE FÜR STEUERUNG --- */
+        
+        /* Das Steuerkreuz (Laufen) unten rechts */
+        #walk-controls {
+            position: absolute; 
+            bottom: 30px; 
+            right: 20px; 
             z-index: 10;
-            /* Ist zu Beginn unsichtbar */
-            display: none;
-            /* Nutzt das Raster-Layout (Grid) für die Tastenanordnung */
-            grid-template-columns: 50px 50px 50px;
-            /* Definiert drei Zeilen zu je 50 Pixel Höhe */
-            grid-template-rows: 50px 50px 50px;
-            /* Lässt 5 Pixel Platz zwischen den Tasten */
+            /* Zu Beginn unsichtbar */
+            display: none; 
+            /* Gitter-Layout für die Tastenanordnung */
+            grid-template-columns: 50px 50px 50px; 
+            grid-template-rows: 50px 50px 50px; 
             gap: 5px;
         }
         
-        /* Einheitliches Aussehen für alle vier Richtungstasten */
+        /* Aussehen der einzelnen Lauf-Tasten */
         .ctrl-btn {
-            /* Weißer, leicht transparenter Hintergrund */
-            background: rgba(255, 255, 255, 0.3);
-            /* Durchgehender weißer Rand */
-            border: 2px solid white;
-            /* Macht die Form der Buttons exakt kreisrund */
+            background: rgba(255, 255, 255, 0.3); 
+            border: 2px solid white; 
             border-radius: 50%;
-            /* Die Pfeilsymbole werden Weiß dargestellt */
-            color: white;
-            /* Größe der Pfeilsymbole */
-            font-size: 20px;
-            /* Zentriert das Symbol im kreisrunden Button */
-            display: flex;
-            /* Horizontale Zentrierung */
-            justify-content: center;
-            /* Vertikale Zentrierung */
-            align-items: center;
-            /* Verhindert, dass der Text beim schnellen Tippen markiert wird */
+            color: white; 
+            font-size: 20px; 
+            display: flex; 
+            justify-content: center; 
+            align-items: center; 
             user-select: none;
         }
+        /* Roter Hintergrund beim Drücken */
+        .ctrl-btn:active { background: rgba(255, 0, 0, 0.6); }
         
-        /* Optisches Feedback, solange eine Taste gedrückt gehalten wird */
-        .ctrl-btn:active {
-            /* Der Hintergrund ändert sich zu transparentem Rot */
-            background: rgba(255, 0, 0, 0.6);
-        }
-        
-        /* Platziert den Vorwärts-Pfeil in der Mitte der ersten Zeile */
+        /* Platzierung der Tasten im Gitter */
         #btn-up { grid-column: 2; grid-row: 1; }
-        /* Platziert den Links-Pfeil ganz links in der mittleren Zeile */
         #btn-left { grid-column: 1; grid-row: 2; }
-        /* Platziert den Rechts-Pfeil ganz rechts in der mittleren Zeile */
         #btn-right { grid-column: 3; grid-row: 2; }
-        /* Platziert den Rückwärts-Pfeil in der Mitte der unteren Zeile */
         #btn-down { grid-column: 2; grid-row: 3; }
 
-        /* Container für den Schieberegler der Kamerahöhe */
+        /* Der Höhen-Regler auf der linken Seite */
         #height-control {
-            /* Befestigt das Element am linken Bildschirmrand */
-            position: absolute;
-            /* Setzt die Position exakt in die vertikale Bildschirmmitte */
-            top: 50%;
-            /* 20 Pixel Abstand von links */
-            left: 20px;
-            /* Verschiebt das Element um die eigene halbe Höhe nach oben, um es perfekt zu zentrieren */
-            transform: translateY(-50%);
-            /* Legt es über die 3D-Szene */
+            position: absolute; 
+            top: 50%; 
+            left: 20px; 
+            transform: translateY(-50%); 
             z-index: 10;
-            /* Startet im unsichtbaren Zustand */
-            display: none;
-            /* Ordnet den Titel und den Regler untereinander an */
-            flex-direction: column;
-            /* Zentriert beide Elemente zueinander */
+            /* Zu Beginn unsichtbar */
+            display: none; 
+            flex-direction: column; 
             align-items: center;
         }
-        
-        /* Stil für die Beschriftung des Höhen-Reglers */
-        #height-control span {
-            /* Textfarbe Weiß */
-            color: white;
-            /* Harter schwarzer Schatten, damit der Text auf hellem Hintergrund lesbar bleibt */
+        #height-control span { 
+            color: white; 
+            font-weight: bold; 
+            margin-bottom: 10px; 
+            font-size: 14px; 
             text-shadow: 1px 1px 2px black;
-            /* Abstand nach unten zum Schieberegler */
-            margin-bottom: 10px;
-            /* Schriftart fett */
-            font-weight: bold;
-            /* Text wird zentriert dargestellt */
-            text-align: center;
-            /* Schriftgröße 14 Pixel */
-            font-size: 14px;
         }
-        
-        /* Spezielles Design für den vertikalen HTML-Slider */
+        /* Dreht den Höhen-Regler in die Senkrechte (ohne appearance) */
         input[type=range][orient=vertical] {
-            /* Notwendig für ältere Browser, um Slider vertikal zu drehen */
-            writing-mode: bt-lr;
-            /* Überschreibt das Standard-Aussehen in Webkit-Browsern (Safari/Chrome) */
-            -webkit-appearance: slider-vertical;
-            /* Moderne Standard-Eigenschaft zur Sicherstellung der Kompatibilität in allen Browsern */
-            appearance: slider-vertical;
-            /* Breite des Schiebereglers */
-            width: 8px;
-            /* Höhe des Schiebereglers in Pixeln */
-            height: 150px;
-            /* Innenabstand an den Enden */
+            writing-mode: bt-lr; 
+            width: 8px; 
+            height: 150px; 
             padding: 0 5px;
         }
 
-        /* Container für den Schieberegler zum Drehen des 3D-Modells */
+        /* Der Rotations-Regler am unteren Bildschirmrand */
         #rotation-control {
-            /* Positioniert das Element am unteren Bildschirmrand */
-            position: absolute;
-            /* 30 Pixel Abstand nach unten */
-            bottom: 30px;
-            /* Setzt die Startkoordinate genau in die horizontale Bildschirmmitte */
-            left: 50%;
-            /* Korrigiert die Positionierung um die eigene halbe Breite nach links für perfekte Zentrierung */
-            transform: translateX(-50%);
-            /* Liegt über dem 3D-Container */
+            position: absolute; 
+            bottom: 30px; 
+            left: 50%; 
+            transform: translateX(-50%); 
             z-index: 10;
-            /* Zu Beginn ausgeblendet */
-            display: none;
-            /* Inhalt wird untereinander gestapelt */
-            flex-direction: column;
-            /* Inhalt wird zentriert ausgerichtet */
+            /* Zu Beginn unsichtbar */
+            display: none; 
+            flex-direction: column; 
             align-items: center;
-            /* Halbtransparenter schwarzer Hintergrundkasten */
-            background: rgba(0, 0, 0, 0.6);
-            /* Innerer Abstand des Kastens */
-            padding: 15px 25px;
-            /* Stark abgerundete Ecken für ein modernes Design */
+            background: rgba(0, 0, 0, 0.6); 
+            padding: 15px 25px; 
             border-radius: 30px;
-            /* Sanfter Schatten unter dem Kasten zur Hervorhebung */
-            box-shadow: 0 4px 10px rgba(0,0,0,0.5);
         }
-        
-        /* Stil für die Beschriftung des Rotations-Reglers */
-        #rotation-control span {
-            /* Schriftfarbe ist Weiß */
-            color: white;
-            /* Macht die Schrift fett */
-            font-weight: bold;
-            /* Platz nach unten zum eigentlichen Regler */
-            margin-bottom: 10px;
-            /* Schriftgröße auf 16 Pixel gesetzt */
-            font-size: 16px;
-            /* Vergrößert den Abstand zwischen den Buchstaben minimal */
-            letter-spacing: 1px;
+        #rotation-control span { 
+            color: white; 
+            font-weight: bold; 
+            margin-bottom: 10px; 
+            font-size: 16px; 
         }
-        
-        /* Stil für den eigentlichen horizontalen Rotations-Regler */
-        #rotationSlider {
-            /* Fordert den Standard-Browser-Stil für Schieberegler an (Apple Kompatibilität) */
-            -webkit-appearance: auto;
-            /* Definiert das standardisierte Aussehen ohne Präfixe für maximale Kompatibilität */
-            appearance: auto;
-            /* Der Regler nimmt fast die halbe Bildschirmbreite ein */
-            width: 45vw;
-            /* Er wird aber niemals breiter als 250 Pixel */
-            max-width: 250px;
-            /* Entfernt unerwünschte Außenabstände */
-            margin: 0;
+        #rotationSlider { 
+            width: 45vw; 
+            max-width: 250px; 
+            margin: 0; 
         }
     </style>
     
-    <!-- Die Importmap verknüpft Paketnamen mit Web-Adressen (CDNs) -->
-    <!-- Sie sorgt dafür, dass Browser wissen, woher sie Three.js laden sollen, ohne dass man einen Bundler braucht -->
     <script type="importmap">
         {
             "imports": {
-                /* Der Haupt-Code der Three.js Bibliothek */
                 "three": "https://unpkg.com/three@0.133.0/build/three.module.js",
-                /* Ein Zusatzmodul, welches fähig ist, 3D-Modelle im GLB/GLTF-Format zu entschlüsseln */
                 "GLTFLoader": "https://unpkg.com/three@0.133.0/examples/jsm/loaders/GLTFLoader.js",
-                /* Ein Zusatzmodul, das Kamerabewegungen mit den Handysensoren synchronisiert */
                 "DeviceOrientationControls": "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js"
             }
         }
@@ -310,458 +169,350 @@
 </head>
 <body>
 
-    <!-- Das Menü, welches dem Nutzer beim Öffnen der Seite zuerst angezeigt wird -->
     <div id="ui">
-        <!-- Ein auffälliger Button, der den Prozess startet und Sicherheitsfreigaben anfordert -->
         <button id="startButton">AR Starten</button>
     </div>
 
-    <!-- Ein HTML5 Video-Element, welches das Live-Bild der Handykamera empfängt -->
-    <!-- 'autoplay' sorgt für direktes Abspielen, 'playsinline' verhindert den Vollbild-Videoplayer unter iOS -->
     <video id="webcam" autoplay playsinline></video>
-    
-    <!-- Ein leerer Container, in den später das fertige 3D-Bild (Canvas) projiziert wird -->
     <div id="container"></div>
-    
-    <!-- Das Hinweis-Feld in der oberen linken Ecke -->
     <div id="info">Lade Modelle...</div>
 
-    <!-- Die vier Touch-Buttons, welche das virtuelle Steuerkreuz bilden -->
-    <div id="controls">
+    <!-- NEUE HTML ELEMENTE FÜR STEUERUNG -->
+    <!-- Steuerkreuz -->
+    <div id="walk-controls">
         <div class="ctrl-btn" id="btn-up">⬆️</div>
         <div class="ctrl-btn" id="btn-left">⬅️</div>
         <div class="ctrl-btn" id="btn-right">➡️</div>
         <div class="ctrl-btn" id="btn-down">⬇️</div>
     </div>
 
-    <!-- Das Steuerelement auf der linken Seite zur Verstellung der Augenhöhe -->
+    <!-- Höhen-Slider -->
     <div id="height-control">
         <span>Höhe</span>
-        <!-- HTML-Schieberegler mit Werten von 0.1 bis 3.0 (Metern). Standard ist 1.6 Meter -->
         <input type="range" orient="vertical" id="heightSlider" min="0.1" max="3.0" step="0.1" value="1.6">
     </div>
 
-    <!-- Das Steuerelement am unteren Rand zum Rotieren der Modelle -->
+    <!-- Drehen-Slider -->
     <div id="rotation-control">
-        <span>⟲ Modell drehen ⟳</span>
-        <!-- HTML-Schieberegler für Winkel von -180 Grad bis +180 Grad. Standard ist 0 -->
+        <span>⟲ Drehen ⟳</span>
         <input type="range" id="rotationSlider" min="-180" max="180" value="0">
     </div>
 
-    <!-- Das eigentliche Programm, deklariert als modernes JavaScript-Modul -->
     <script type="module">
-        // Lädt die grundlegenden 3D-Werkzeuge aus der zuvor verknüpften Bibliothek
         import * as THREE from 'three';
-        // Lädt den Importer für die 3D-Dateien
         import { GLTFLoader } from 'GLTFLoader';
-        // Lädt das Modul für die Gerätesensor-Verarbeitung
         import { DeviceOrientationControls } from 'DeviceOrientationControls';
 
-        // Reserviert Namen für wichtige Objekte der 3D-Szene
         let camera, scene, renderer, controls;
-        // Reserviert Namen für die beiden 3D-Modelle sowie den Animations-Mischer
         let staticModel, animatedModel, mixer;
-        // Startet eine Stoppuhr, um Animationen gleichmäßig über die Zeit zu steuern
         let clock = new THREE.Clock();
 
-        // Sucht das HTML-Element des Start-Buttons
-        const startButton = document.getElementById('startButton');
-        // Sucht das HTML-Element des Start-Menüs
-        const ui = document.getElementById('ui');
-        // Sucht das HTML-Video-Element
-        const webcam = document.getElementById('webcam');
-        // Sucht das HTML-Informationstext-Element
-        const info = document.getElementById('info');
-
-        // Legt den Speicherort für das unbewegte 3D-Modell fest
-        const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
-        // Legt den Speicherort für das animierte 3D-Modell fest
-        const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb';
-
-        // Speichert, ob derzeit eine oder mehrere Richtungs-Tasten gedrückt gehalten werden
+        // Speichert ab, welche Lauf-Tasten gerade gedrückt werden
         let moveState = { forward: false, backward: false, left: false, right: false };
-        // Legt fest, wie schnell sich die virtuelle Kamera bewegt (in Koordinateneinheiten pro Bildaufbau)
+        // Legt die Lauf-Geschwindigkeit fest
         const MOVE_SPEED = 0.05;
 
-        // Wartet auf einen Mausklick oder Fingertipp auf den Start-Button
+        const startButton = document.getElementById('startButton');
+        const ui = document.getElementById('ui');
+        const webcam = document.getElementById('webcam');
+        const info = document.getElementById('info');
+
+        // ---- MODELLE HIER DEFINIERT ----
+        const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
+        const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb';
+        // --------------------------------
+
         startButton.addEventListener('click', async () => {
-            
-            // Prüft, ob das benutzte Handy zwingend eine Abfrage für die Sensorennutzung verlangt (typisch für iPhones)
+            // Sensoren-Anfrage (für iOS wichtig)
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
-                    // Zeigt dem Nutzer ein Popup zur Genehmigung
                     const permission = await DeviceOrientationEvent.requestPermission();
-                    // Bricht den Vorgang ab, falls der Nutzer ablehnt
                     if (permission !== 'granted') {
                         alert('Zugriff auf Gerätesensoren wurde verweigert.');
                         return;
                     }
                 } catch (error) {
-                    // Schreibt eine Fehlermeldung in die Entwickler-Konsole, falls die Abfrage fehlschlägt
                     console.error('Fehler bei Sensoren-Freigabe:', error);
                 }
             }
 
+            // Kamera-Zugriff anfragen
             try {
-                // Fordert den direkten Zugriff auf die rückseitige Kamera (environment) des Handys an
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
-                // Leitet das Signal der Handykamera an das vorbereitete Video-Element weiter
                 webcam.srcObject = stream;
             } catch (error) {
-                // Gibt eine Warnung aus, falls keine Kamera gefunden wurde oder der Zugriff blockiert wird
                 alert('Kamera konnte nicht gestartet werden.');
                 console.error(error);
                 return;
             }
 
-            // Blendet das schwarze Start-Menü vollständig aus
+            // Startbildschirm ausblenden
             ui.style.display = 'none';
-            // Blendet das Hinweisfeld mit der Aufschrift "Lade Modelle..." ein
             info.style.display = 'block';
 
-            // Blendet das Steuerkreuz zur Bewegung ein, indem das CSS-Grid aktiviert wird
-            document.getElementById('controls').style.display = 'grid';
-            // Blendet den Höhen-Slider ein
-            document.getElementById('height-control').style.display = 'flex';
-            // Blendet den Rotations-Slider ein
-            document.getElementById('rotation-control').style.display = 'flex';
+            // Menüs einblenden (mit Sicherheits-Checks, falls HTML fehlt)
+            const walkMenu = document.getElementById('walk-controls');
+            if (walkMenu) walkMenu.style.display = 'grid';
+            
+            const heightMenu = document.getElementById('height-control');
+            if (heightMenu) heightMenu.style.display = 'flex';
+            
+            const rotationMenu = document.getElementById('rotation-control');
+            if (rotationMenu) rotationMenu.style.display = 'flex';
 
-            // Startet die Funktion, welche die 3D-Welt aufbaut
+            // 3D-Welt aufbauen und Laufsteuerung aktivieren
             initThreeJS();
-            // Startet die Funktion, welche Tastendrücke auswertet
             setupVirtualWalking();
         });
 
-        // Die Hauptfunktion, in der alle 3D-Elemente initialisiert werden
         function initThreeJS() {
-            // Holt sich den leeren Container aus der HTML-Datei
             const container = document.getElementById('container');
 
-            // Erstellt eine völlig leere virtuelle 3D-Welt
             scene = new THREE.Scene();
 
-            // Erstellt eine Kamera mit perspektivischer Verzerrung (Blickwinkel 70 Grad)
             camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000000);
-            // Setzt die Kamera auf Position X=0, Y=1.6 (Höhe), Z=0
             camera.position.set(0, 1.6, 0);
 
-            // Erstellt die Grafik-Engine, welche die Szene berechnet
-            // alpha: true lässt den Hintergrund durchsichtig erscheinen, um das Kameravideo sichtbar zu machen
+            // Renderer mit Schatten-Aktivierung
             renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
-            // Setzt die Auflösung auf die exakte Breite und Höhe des Browserfensters
             renderer.setSize(window.innerWidth, window.innerHeight);
-            // Passt die Schärfe an Bildschirme mit hoher Pixeldichte (Retina) an
             renderer.setPixelRatio(window.devicePixelRatio);
-            // Schaltet die Berechnung von Schatteneffekten ein
             renderer.shadowMap.enabled = true;
-            // Wählt eine spezielle Technik für sanfte, weiche Schattenränder
-            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
-            // Fügt die erzeugte 3D-Zeichenfläche in den HTML-Container ein
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Weiche Schattenränder
             container.appendChild(renderer.domElement);
 
-            // Fügt der Szene ein sehr schwaches, gleichmäßiges Umgebungslicht hinzu
+            // --- BELEUCHTUNG UND SCHATTEN ---
             const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
-            // Fügt das Licht dauerhaft der Welt hinzu
             scene.add(ambientLight);
 
-            // Erstellt ein gerichtetes Licht, vergleichbar mit Sonnenlicht, in der Stärke 1.2
+            // Licht links oben neben dem Modell (X=-3, Y=4, Z=-1)
             const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
-            // Positioniert das Licht links (-3), oben (4) und minimal vor dem Zentrum (-1)
             dirLight.position.set(-3, 4, -1);
-            // Weist die Grafik-Engine an, dieses Licht für Schattenberechnungen zu nutzen
             dirLight.castShadow = true;
 
-            // Zielt mit dem Licht exakt auf die Stelle, an der das Modell später steht (Z = -2)
+            // Richtung des Lichts auf das Modell zielen (Z=-2)
             dirLight.target.position.set(0, 0, -2);
-            // Das virtuelle "Ziel-Objekt" des Lichts muss ebenfalls der Szene hinzugefügt werden
             scene.add(dirLight.target);
 
-            // Erhöht die interne Texturauflösung des Schattens für schärfere Ergebnisse
+            // Schatten-Qualität und Bereich
             dirLight.shadow.mapSize.width = 1024;
             dirLight.shadow.mapSize.height = 1024;
-            // Begrenzt den Bereich, in dem Schatten berechnet werden, um Leistung zu sparen
             dirLight.shadow.camera.near = 0.5;
             dirLight.shadow.camera.far = 15;
-            // Zieht einen unsichtbaren Kasten auf, innerhalb dessen Schatten fallen können
             dirLight.shadow.camera.left = -5;
             dirLight.shadow.camera.right = 5;
             dirLight.shadow.camera.top = 5;
             dirLight.shadow.camera.bottom = -5;
-            // Verhindert Grafikfehler (kleine schwarze Streifen), indem der Schatten um 1 Millimeter korrigiert wird
             dirLight.shadow.bias = -0.001; 
-            // Fügt das Hauptlicht der 3D-Welt hinzu
             scene.add(dirLight);
 
-            // Erstellt eine flache, unsichtbare Ebene als Boden, die genau 100x100 Meter groß ist
+            // --- BODEN (RASTER & SCHATTEN-EMPFÄNGER) ---
+            
+            // 1. ShadowMaterial (Schatten auf dem Kamera-Hintergrund)
             const floorGeometry = new THREE.PlaneGeometry(100, 100);
-            // Verwendet ein spezielles Material, das Schatten auffängt, aber sonst komplett durchsichtig ist
             const floorMaterial = new THREE.ShadowMaterial({ opacity: 0.5 }); 
-            // Kombiniert die flache Form und das Material zu einem physikalischen Objekt
             const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
-            // Dreht den Boden um 90 Grad in die Waagerechte (standardmäßig stehen solche Ebenen aufrecht)
-            floorMesh.rotation.x = -Math.PI / 2; 
-            // Stellt sicher, dass der Boden exakt auf der Höhe Null liegt
+            floorMesh.rotation.x = -Math.PI / 2; // Liegend
             floorMesh.position.y = 0;
-            // Aktiviert den Empfang von herabfallenden Schatten für dieses Objekt
-            floorMesh.receiveShadow = true; 
-            // Fügt den Boden der Welt hinzu
+            floorMesh.receiveShadow = true; // Boden empfängt den Schatten
             scene.add(floorMesh);
 
-            // Erstellt ein großes Raster, aufgeteilt in ein-Meter-Kästchen mit grauer Färbung
+            // 2. Dünnes Meter-Raster
             const grid1m = new THREE.GridHelper(100, 100, 0x888888, 0x555555);
-            // Legt das Raster auf den Boden
             grid1m.position.y = 0;
-            // Fügt das Raster in die Szene ein
             scene.add(grid1m);
 
-            // Eine verschachtelte Schleife, welche mehrere Raster übereinander zeichnet
+            // 3. Dickes 5-Meter-Raster (Rot)
             for (let xOffset = -0.02; xOffset <= 0.02; xOffset += 0.02) {
                 for (let zOffset = -0.02; zOffset <= 0.02; zOffset += 0.02) {
-                    // Erstellt ein rotes Raster mit fünf-Meter-Unterteilung
                     const grid5m = new THREE.GridHelper(100, 20, 0xff0000, 0xff0000);
-                    // Versetzt die Linien minimal um wenige Millimeter in die Höhe und zur Seite, um eine optische "Dicke" zu simulieren
                     grid5m.position.set(xOffset, 0.01, zOffset);
-                    // Fügt das verdickte Raster zur Welt hinzu
                     scene.add(grid5m);
                 }
             }
 
-            // Aktiviert das Lademodul für 3D-Daten
+            // --- MODELLE LADEN ---
             const loader = new GLTFLoader();
-            // Definiert den Skalierungsfaktor gemäß der Nutzer-Vorgabe auf exakt 200.0
             const modelScale = 200.0;
 
-            // Eine kleine Hilfsfunktion, um Schatten für komplexe 3D-Modelle zu aktivieren
+            // Aktiviert Schattenwurf für alle Mesh-Teile
             const enableShadows = (modelObj) => {
-                // Geht alle Einzelteile des 3D-Modells durch
                 modelObj.traverse((child) => {
-                    // Falls das Einzelteil eine sichtbare Oberfläche (Mesh) ist
                     if (child.isMesh) {
-                        // Darf es Schatten auf andere Objekte werfen
                         child.castShadow = true;
-                        // Darf es Schatten von anderen Teilen empfangen
                         child.receiveShadow = true; 
                     }
                 });
             };
 
-            // Beginnt den Ladevorgang für das erste (starre) Modell
+            // Statisches Modell laden
             loader.load(URL_STATIC_MODEL, (gltf) => {
-                // Weist die aus der Datei gelesene 3D-Gruppe der Variablen zu
                 staticModel = gltf.scene;
-                // Vergrößert oder verkleinert das Modell auf allen drei Achsen um den definierten Faktor
                 staticModel.scale.set(modelScale, modelScale, modelScale);
-                // Platziert das Modell exakt 2 Meter vor der Kameraposition auf dem Raster
                 staticModel.position.set(0, 0, -2);
                 
-                // Wendet die Schatten-Eigenschaften auf alle Bestandteile des Modells an
                 enableShadows(staticModel); 
-                // Fügt das fertige, sichtbare Modell in die Welt ein
                 scene.add(staticModel);
 
-                // Ändert die Information für den Nutzer ab
                 info.innerText = 'Statisches Modell geladen. Lade animiertes...';
 
-                // Beginnt nun sofort den Ladevorgang für das zweite (animierte) Modell
+                // Animiertes Modell laden
                 loader.load(URL_ANIMATED_MODEL, (gltfAnim) => {
-                    // Speichert die gelesene Struktur in die entsprechende Variable
                     animatedModel = gltfAnim.scene;
-                    // Skaliert auch dieses Modell absolut identisch
                     animatedModel.scale.set(modelScale, modelScale, modelScale);
-                    // Stellt es an die exakt gleiche Position wie das statische Modell
                     animatedModel.position.set(0, 0, -2);
                     
-                    // Schaltet Schatten auch für das animierte Modell frei
                     enableShadows(animatedModel); 
-                    // Schaltet das animierte Modell vorerst komplett unsichtbar
                     animatedModel.visible = false; 
-                    // Fügt es in die Szene ein (wo es unsichtbar verweilt)
                     scene.add(animatedModel);
 
-                    // Überprüft, ob in der Datei überhaupt Animationen (z.B. Laufen, Springen) hinterlegt wurden
+                    // Animation vorbereiten, aber nicht sofort starten
                     if (gltfAnim.animations && gltfAnim.animations.length > 0) {
-                        // Verknüpft das Modell mit dem internen Animations-Regisseur (Mixer)
                         mixer = new THREE.AnimationMixer(animatedModel);
-                        // Wählt explizit die erste gefundene Animation aus der Datei
                         const action = mixer.clipAction(gltfAnim.animations[0]);
-                        // Startet die Animation sofort unsichtbar im Hintergrund
                         action.play();
                     }
 
-                    // Informiert den Nutzer, dass nun interagiert werden kann
-                    info.innerText = '1. Modell drehen\n2. Tippe das Modell an!';
-                    // Lässt das Textfeld nach Ablauf von vier Sekunden vollautomatisch verschwinden
+                    info.innerText = '1. Modell drehen\n2. Modell antippen!';
                     setTimeout(() => info.style.display = 'none', 4000);
-                    
                 }, undefined, (error) => {
-                    // Zeigt bei einem Fehler beim Laden des zweiten Modells eine Warnung an
                     console.error("Fehler beim Laden des animierten Modells", error);
                     info.innerText = 'Statisches Modell bereit. (Animiertes Modell nicht gefunden)';
                 });
 
             }, undefined, (error) => {
-                // Meldet kritische Ladefehler des primären Modells
                 console.error("Fehler beim Laden des statischen Modells:", error);
                 info.innerText = 'Fehler beim Laden des Modells!';
             });
 
-            // Aktiviert die ständige Messung der Handy-Neigung (Gyroskop) für die Kamera
             controls = new DeviceOrientationControls(camera);
-            
-            // Führt bei einem Fingertipp oder Klick auf dem Bildschirm die Funktion "onPointerDown" aus
             window.addEventListener('pointerdown', onPointerDown);
-            // Überwacht Größenänderungen des Fensters (z.B. Drehen des Handys)
             window.addEventListener('resize', onWindowResize);
 
-            // Verknüpft den HTML-Höhen-Schieberegler mit einer Aktion
-            document.getElementById('heightSlider').addEventListener('input', (e) => {
-                // Übersetzt die Position des Reglers in die Y-Höhe der virtuellen Kamera
-                camera.position.y = parseFloat(e.target.value);
-            });
+            // Höhen-Regler Logik (mit Sicherheits-Check)
+            const hSlider = document.getElementById('heightSlider');
+            if (hSlider) {
+                hSlider.addEventListener('input', (e) => {
+                    camera.position.y = parseFloat(e.target.value);
+                });
+            }
 
-            // Verknüpft den rotierenden HTML-Schieberegler mit einer Aktion
-            document.getElementById('rotationSlider').addEventListener('input', (e) => {
-                // Rechnet den eingestellten Winkel von klassischen Grad in Bogenmaß (Radiant) um
-                const radians = parseFloat(e.target.value) * (Math.PI / 180);
-                
-                // Rotiert das sichtbare statische Modell um die eigene vertikale Achse
-                if (staticModel) staticModel.rotation.y = radians;
-                // Rotiert das unsichtbare animierte Modell simultan mit, damit beim Klick kein Sprung entsteht
-                if (animatedModel) animatedModel.rotation.y = radians;
-            });
+            // Rotations-Regler Logik (mit Sicherheits-Check)
+            const rSlider = document.getElementById('rotationSlider');
+            if (rSlider) {
+                rSlider.addEventListener('input', (e) => {
+                    // Grad in Radiant umrechnen
+                    const radians = parseFloat(e.target.value) * (Math.PI / 180);
+                    // Beide Modelle synchron drehen
+                    if (staticModel) staticModel.rotation.y = radians;
+                    if (animatedModel) animatedModel.rotation.y = radians;
+                });
+            }
 
-            // Setzt das kontinuierliche Neuzeichnen der Szene in Gang
             animate();
         }
 
-        // Eine Routine zum Überwachen der Touch-Tasten für das virtuelle Bewegen
+        // --- STEUERUNGS-LOGIK ---
         function setupVirtualWalking() {
-            // Eine interne Hilfs-Routine, um Tasten mit Bewegungs-Befehlen zu koppeln
+            // Hilfsfunktion zur Verbindung von Button und Lauf-Befehl
             const bindBtn = (id, action) => {
-                // Findet das HTML-Element zur jeweiligen Taste
                 const btn = document.getElementById(id);
-                // Wenn der Finger das Display berührt: Aktiviert die jeweilige Richtung
+                // Überspringt Fehler, falls der HTML-Button fehlt
+                if (!btn) return;
+                
+                // Touch/Maus Events
                 btn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); moveState[action] = true; }, {passive: false});
-                // Wenn die Maus gedrückt wird (für PC-Nutzer)
                 btn.addEventListener('mousedown', (e) => { e.stopPropagation(); moveState[action] = true; });
-                // Wenn der Finger das Display wieder verlässt: Stoppt die Bewegung in dieser Richtung
                 btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); moveState[action] = false; }, {passive: false});
-                // Wenn die Maustaste losgelassen wird
                 btn.addEventListener('mouseup', (e) => { e.stopPropagation(); moveState[action] = false; });
-                // Wenn die Maus den Button-Bereich verlässt
                 btn.addEventListener('mouseleave', () => { moveState[action] = false; });
             };
             
-            // Verbindet den Nach-Oben-Pfeil mit dem Befehl "Vorwärts gehen"
             bindBtn('btn-up', 'forward');
-            // Verbindet den Nach-Unten-Pfeil mit "Rückwärts gehen"
             bindBtn('btn-down', 'backward');
-            // Verbindet den Linken Pfeil mit "Nach links gehen"
             bindBtn('btn-left', 'left');
-            // Verbindet den Rechten Pfeil mit "Nach rechts gehen"
             bindBtn('btn-right', 'right');
         }
 
-        // Bereitet ein Modul vor, das unsichtbare Linien berechnet, um Berührungen im Raum zu erkennen
+        // --- KLICK/TOUCH LOGIK ---
         const raycaster = new THREE.Raycaster();
-        // Bereitet einen Vektor vor, um die X- und Y-Position des Fingers auf dem Bildschirm zu speichern
         const mouse = new THREE.Vector2();
 
-        // Diese Logik wird durchlaufen, sobald das Display angetippt wird
         function onPointerDown(event) {
-            // Falls der Klick zufällig auf einen Slider oder einen Lauf-Button fiel, wird die Aktion ignoriert
-            if(event.target.className.includes('ctrl-btn') || event.target.tagName === 'INPUT' || event.target.closest('#rotation-control')) return;
+            // Verhindert Klicks durch UI-Elemente hindurch
+            if (event.target.className.includes('ctrl-btn') || event.target.tagName === 'INPUT' || event.target.closest('#rotation-control')) return;
 
-            // Rechnet die reale Pixel-Mausposition in ein normalisiertes Koordinatensystem (-1 bis +1) um
+            // Pixelkoordinaten umrechnen
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
-            // Die Y-Koordinate wird ebenfalls berechnet und gespiegelt
             mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
 
-            // Sendet den virtuellen Detektor-Strahl aus der Kamera durch die errechnete Finger-Position
             raycaster.setFromCamera(mouse, camera);
 
-            // Prüft, ob das Hauptmodell geladen ist und noch angezeigt wird
+            // Klick auf statisches Modell prüfen
             if (staticModel && staticModel.visible) {
-                // Sammelt alle 3D-Fragmente, die vom Strahl durchbohrt wurden
                 const intersects = raycaster.intersectObject(staticModel, true);
                 
-                // Falls mindestens ein Element getroffen wurde
                 if (intersects.length > 0) {
-                    // Wird das starre Modell sofort unsichtbar geschaltet
+                    // Statisches Modell ausblenden
                     staticModel.visible = false;
-                    
-                    // Falls das animierte Modell bereits fertig im Hintergrund geladen wurde
+                    // Animiertes Modell einblenden
                     if (animatedModel) {
-                        // Wird es nun sichtbar eingeblendet
                         animatedModel.visible = true;
                     }
-                    
-                    // Lässt die Bedienelemente zum Drehen verschwinden, da das Modell nun animiert ist
-                    document.getElementById('rotation-control').style.display = 'none';
+                    // Drehregler ausblenden
+                    const rControl = document.getElementById('rotation-control');
+                    if (rControl) rControl.style.display = 'none';
                 }
             }
         }
 
-        // Korrigiert das Seitenverhältnis, falls das Browserfenster in der Größe verändert wird
-        function onWindowResize() {
-            // Passt die Kamera an das neue Format an
-            camera.aspect = window.innerWidth / window.innerHeight;
-            // Aktualisiert die internen Matrizen der Kamera
-            camera.updateProjectionMatrix();
-            // Passt auch die Bildebene des Renderers an die neuen Maße an
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        }
-
-        // Verschiebt die Kamera im Raum, je nachdem welche Pfeiltaste gerade aktiv ist
+        // --- LAUFEN BERECHNEN ---
         function applyMovement() {
-            // Bricht die Berechnung ab, wenn derzeit keine einzige Taste gehalten wird
+            // Nichts tun, wenn keine Taste gedrückt ist
             if(!moveState.forward && !moveState.backward && !moveState.left && !moveState.right) return;
             
-            // Erzeugt einen leeren Platzhalter für die Bewegungsrichtung
+            // Blickrichtung der Kamera ermitteln
             const dir = new THREE.Vector3();
-            // Liest die exakte Richtung aus, in die die Handykamera gerade zeigt
             camera.getWorldDirection(dir);
-            // Ignoriert die Höhenunterschiede (Kopf-Neigung), damit man nicht in den Himmel oder Boden fliegt
-            dir.y = 0;
-            // Kürzt die Vektorlänge exakt auf 1, um immer gleich schnell zu laufen
+            // Höhe ignorieren, damit man geradeaus läuft
+            dir.y = 0; 
             dir.normalize();
             
-            // Berechnet mathematisch die Himmelsrichtung "Rechts" relativ zur aktuellen Blickrichtung (Kreuzprodukt)
+            // Richtung für Seitwärtsbewegung ermitteln
             const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
 
-            // Geht entlang des Blickvektors nach vorne
+            // Kamera verschieben
             if (moveState.forward) camera.position.addScaledVector(dir, MOVE_SPEED);
-            // Geht entlang des Blickvektors rückwärts
             if (moveState.backward) camera.position.addScaledVector(dir, -MOVE_SPEED);
-            // Geht in negativer Richtung auf dem Rechts-Vektor (entspricht links laufen)
             if (moveState.left) camera.position.addScaledVector(right, -MOVE_SPEED);
-            // Geht entlang des Rechts-Vektors seitwärts rechts
             if (moveState.right) camera.position.addScaledVector(right, MOVE_SPEED);
         }
 
-        // Das Herzstück der 3D-Berechnung, welches endlos wiederholt wird
+        // Fenstergröße anpassen
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        // Endlos-Zeichenschleife
         function animate() {
-            // Fordert den Browser auf, das nächste verfügbare Bild zu berechnen
             requestAnimationFrame(animate);
-            // Berechnet die exakt verstrichene Zeit seit dem letzten berechneten Bild
             const delta = clock.getDelta();
             
-            // Falls das Modell sichtbar ist und eine Animation existiert
+            // Animation des Modells abspielen
             if (mixer && animatedModel && animatedModel.visible) {
-                // Wird der Skelett-Knochenaufbau des Modells um die vergangene Zeit weiterbewegt
                 mixer.update(delta);
             }
 
-            // Falls die Handysensorik aktiv ist
+            // Sensoren auslesen (Kameradrehung)
             if (controls) {
-                // Wird die Kamera-Ansicht an die neue Neigung des Telefons angepasst
                 controls.update();
             }
 
-            // Führt Kamera-Verschiebungen aus, sofern Lauf-Tasten gedrückt werden
+            // Gehen ausführen
             applyMovement();
 
-            // Erzeugt das tatsächliche Pixel-Bild aus Kamera und 3D-Welt und schiebt es auf den Bildschirm
             renderer.render(scene, camera);
         }
     </script>
