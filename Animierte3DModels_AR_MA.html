@@ -1,0 +1,308 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>WebAR - Animierte 3D-Modelle mit Three.js</title>
+    <style>
+        body {
+            margin: 0;
+            overflow: hidden;
+            background-color: #000;
+            font-family: sans-serif;
+        }
+        #webcam {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            object-fit: cover;
+            z-index: 1;
+        }
+        #container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 2;
+        }
+        #ui {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100vw;
+            height: 100vh;
+            z-index: 10;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: rgba(0, 0, 0, 0.85);
+        }
+        button {
+            padding: 15px 40px;
+            font-size: 20px;
+            cursor: pointer;
+            background-color: #ff0000;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-weight: bold;
+        }
+        #info {
+            position: absolute;
+            top: 10px;
+            left: 10px;
+            color: white;
+            z-index: 5;
+            background: rgba(0,0,0,0.5);
+            padding: 5px 10px;
+            border-radius: 4px;
+            display: none;
+            pointer-events: none;
+        }
+    </style>
+    
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.133.0/build/three.module.js",
+                "GLTFLoader": "https://unpkg.com/three@0.133.0/examples/jsm/loaders/GLTFLoader.js",
+                "DeviceOrientationControls": "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <div id="ui">
+        <button id="startButton">AR Starten</button>
+    </div>
+
+    <video id="webcam" autoplay playsinline></video>
+    <div id="container"></div>
+    <div id="info">Lade Modelle...</div>
+
+    <script type="module">
+        import * as THREE from 'three';
+        import { GLTFLoader } from 'GLTFLoader';
+        import { DeviceOrientationControls } from 'DeviceOrientationControls';
+
+        let camera, scene, renderer, controls;
+        let staticModel, animatedModel, mixer;
+        let clock = new THREE.Clock();
+
+        const startButton = document.getElementById('startButton');
+        const ui = document.getElementById('ui');
+        const webcam = document.getElementById('webcam');
+        const info = document.getElementById('info');
+
+        // ---- MODELLE HIER DEFINIERT ----
+        const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
+        const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb'; // <- Neuer Dateiname
+        // --------------------------------
+
+        startButton.addEventListener('click', async () => {
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') {
+                        alert('Zugriff auf Gerätesensoren wurde verweigert.');
+                        return;
+                    }
+                } catch (error) {
+                    console.error('Fehler bei Sensoren-Freigabe:', error);
+                }
+            }
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                webcam.srcObject = stream;
+            } catch (error) {
+                alert('Kamera konnte nicht gestartet werden.');
+                console.error(error);
+                return;
+            }
+
+            ui.style.display = 'none';
+            info.style.display = 'block';
+
+            initThreeJS();
+        });
+
+        function initThreeJS() {
+            const container = document.getElementById('container');
+
+            scene = new THREE.Scene();
+
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000000);
+            camera.position.set(0, 1.6, 0);
+
+            // Renderer mit Schatten-Aktivierung
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            renderer.setPixelRatio(window.devicePixelRatio);
+            renderer.shadowMap.enabled = true;
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; // Weiche Schattenränder
+            container.appendChild(renderer.domElement);
+
+            // --- BELEUCHTUNG UND SCHATTEN ---
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+            scene.add(ambientLight);
+
+            // Licht links oben neben dem Modell (X=-3, Y=4, Z=-1)
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            dirLight.position.set(-3, 4, -1);
+            dirLight.castShadow = true;
+
+            // Richtung des Lichts auf das Modell zielen (Z=-2)
+            dirLight.target.position.set(0, 0, -2);
+            scene.add(dirLight.target);
+
+            // Schatten-Qualität und Bereich
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 15;
+            dirLight.shadow.camera.left = -5;
+            dirLight.shadow.camera.right = 5;
+            dirLight.shadow.camera.top = 5;
+            dirLight.shadow.camera.bottom = -5;
+            dirLight.shadow.bias = -0.001; 
+            scene.add(dirLight);
+
+
+            // --- BODEN (RASTER & SCHATTEN-EMPFÄNGER) ---
+            
+            // 1. ShadowMaterial (Schatten auf dem Kamera-Hintergrund)
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            const floorMaterial = new THREE.ShadowMaterial({ opacity: 0.5 }); 
+            const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+            floorMesh.rotation.x = -Math.PI / 2; // Liegend
+            floorMesh.position.y = 0;
+            floorMesh.receiveShadow = true; // Boden empfängt den Schatten
+            scene.add(floorMesh);
+
+            // 2. Dünnes Meter-Raster
+            const grid1m = new THREE.GridHelper(100, 100, 0x888888, 0x555555);
+            grid1m.position.y = 0;
+            scene.add(grid1m);
+
+            // 3. Dickes 5-Meter-Raster (Rot)
+            for (let xOffset = -0.02; xOffset <= 0.02; xOffset += 0.02) {
+                for (let zOffset = -0.02; zOffset <= 0.02; zOffset += 0.02) {
+                    const grid5m = new THREE.GridHelper(100, 20, 0xff0000, 0xff0000);
+                    grid5m.position.set(xOffset, 0.01, zOffset);
+                    scene.add(grid5m);
+                }
+            }
+
+            // --- MODELLE LADEN ---
+            const loader = new GLTFLoader();
+            const modelScale = 20000.0;
+
+            // Aktiviert Schattenwurf für alle Mesh-Teile
+            const enableShadows = (modelObj) => {
+                modelObj.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true; 
+                    }
+                });
+            };
+
+            // Statisches Modell laden
+            loader.load(URL_STATIC_MODEL, (gltf) => {
+                staticModel = gltf.scene;
+                staticModel.scale.set(modelScale, modelScale, modelScale);
+                staticModel.position.set(0, 0, -2);
+                
+                enableShadows(staticModel); 
+                scene.add(staticModel);
+
+                info.innerText = 'Statisches Modell geladen. Lade animiertes...';
+
+                // Animiertes Modell laden
+                loader.load(URL_ANIMATED_MODEL, (gltfAnim) => {
+                    animatedModel = gltfAnim.scene;
+                    animatedModel.scale.set(modelScale, modelScale, modelScale);
+                    animatedModel.position.set(0, 0, -2);
+                    
+                    enableShadows(animatedModel); 
+                    animatedModel.visible = false; 
+                    scene.add(animatedModel);
+
+                    // Animation vorbereiten
+                    if (gltfAnim.animations && gltfAnim.animations.length > 0) {
+                        mixer = new THREE.AnimationMixer(animatedModel);
+                        const action = mixer.clipAction(gltfAnim.animations[0]);
+                        action.play();
+                    }
+
+                    info.innerText = 'Tippe auf das Modell, um es zu animieren.';
+                    setTimeout(() => info.style.display = 'none', 3000);
+                }, undefined, (error) => {
+                    console.error("Fehler beim Laden des animierten Modells", error);
+                    info.innerText = 'Statisches Modell bereit. (Animiertes Modell nicht gefunden)';
+                });
+
+            }, undefined, (error) => {
+                console.error("Fehler beim Laden des statischen Modells:", error);
+                info.innerText = 'Fehler beim Laden des Modells!';
+            });
+
+            controls = new DeviceOrientationControls(camera);
+            window.addEventListener('pointerdown', onPointerDown);
+            window.addEventListener('resize', onWindowResize);
+
+            animate();
+        }
+
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        function onPointerDown(event) {
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            raycaster.setFromCamera(mouse, camera);
+
+            // Klick auf statisches Modell prüfen
+            if (staticModel && staticModel.visible) {
+                const intersects = raycaster.intersectObject(staticModel, true);
+                
+                if (intersects.length > 0) {
+                    staticModel.visible = false;
+                    if (animatedModel) {
+                        animatedModel.visible = true;
+                    }
+                }
+            }
+        }
+
+        function onWindowResize() {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        }
+
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            // Animation des Modells abspielen
+            if (mixer && animatedModel && animatedModel.visible) {
+                mixer.update(delta);
+            }
+
+            // Sensoren auslesen (Kameradrehung)
+            if (controls) {
+                controls.update();
+            }
+
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
