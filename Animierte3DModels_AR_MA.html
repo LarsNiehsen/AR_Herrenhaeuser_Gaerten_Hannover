@@ -225,7 +225,7 @@
             margin: 0; 
         }
 
-        /* Größenanpassung speziell für den neuen vertikalen Höhen-Schieberegler */
+        /* Größenanpassung speziell für den vertikalen Höhen-Schieberegler */
         #heightSlider {
             /* Informiert moderne Browser, dass dieser Balken vertikal (von unten nach oben) sein soll */
             -webkit-appearance: slider-vertical;
@@ -256,7 +256,7 @@
 
     <!-- Das Startmenü mit dem Button -->
     <div id="ui">
-        <button id="startButton">AR Starten</button>
+        <button id="startButton" type="button">AR Starten</button>
     </div>
 
     <!-- Hier wird das Live-Video der Kamera eingefügt (automatisch startend) -->
@@ -277,8 +277,7 @@
     <!-- Höhen-Slider Menü (Vertikal auf der linken Seite) -->
     <div id="height-control">
         <span>Höhe</span>
-        <!-- Der Bereich wurde massiv verdoppelt und erweitert (von stark unterirdisch -3.0 bis extrem hoch 8.0) -->
-        <!-- Das Attribut orient="vertical" wird hinzugefügt, damit auch ältere Browser den Regler aufrecht stellen -->
+        <!-- Der Bereich geht von stark unterirdisch (-3.0) bis extrem hoch (8.0) -->
         <input type="range" orient="vertical" id="heightSlider" min="-3.0" max="8.0" step="0.1" value="1.6">
     </div>
 
@@ -499,9 +498,21 @@
                     animatedModel.position.set(0, 0, -2);
                     
                     enableShadows(animatedModel); 
-                    // Zu Beginn wird das animierte Modell noch unsichtbar geschaltet
-                    animatedModel.visible = false; 
+                    // Das animierte Modell wird zunächst der Welt hinzugefügt
                     scene.add(animatedModel);
+
+                    // --- FEHLERBEHEBUNG FÜR ABSTURZ / SEITE NEU LADEN ---
+                    // Ein bekanntes Problem auf Smartphones: Wenn das animierte Modell 
+                    // durch den ersten Klick sichtbar wird, muss die Grafikkarte plötzlich 
+                    // gewaltige Datenmengen verarbeiten. Das führt oft dazu, dass das 
+                    // Handy die Seite komplett neu lädt.
+                    // Lösung: Wir schalten das Modell kurz sichtbar, zwingen den Browser
+                    // mit "compile" zur sofortigen Hintergrundberechnung und verstecken
+                    // das Modell danach sofort wieder. So ist beim Klick alles bereit.
+                    animatedModel.visible = true;
+                    renderer.compile(scene, camera);
+                    animatedModel.visible = false;
+                    // ----------------------------------------------------
 
                     // Falls Animationen in der Datei gefunden wurden, werden sie vorbereitet
                     if (gltfAnim.animations && gltfAnim.animations.length > 0) {
@@ -618,11 +629,14 @@
 
         // Diese Funktion wird immer dann ausgelöst, wenn auf den Bildschirm getippt/geklickt wird
         function onPointerDown(event) {
-            // Klicks auf Schieberegler oder Lauf-Buttons sollen ignoriert werden, damit das Modell nicht aus Versehen aktiviert wird
-            if (event.target.className.includes('ctrl-btn') || 
+            // Robuste Prüfung: Verhindert, dass der Klick auf einen Schieberegler oder Lauf-Knopf versehentlich das Modell auslöst
+            // Das System bricht den Klickvorgang sofort ab, wenn ein UI-Element berührt wurde
+            if ((event.target.classList && event.target.classList.contains('ctrl-btn')) || 
                 event.target.tagName === 'INPUT' || 
                 event.target.closest('#rotation-control') || 
-                event.target.closest('#height-control')) return;
+                event.target.closest('#height-control')) {
+                return;
+            }
 
             // Die X- und Y-Bildschirmkoordinaten werden in Werte zwischen -1 und +1 umgerechnet
             mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
