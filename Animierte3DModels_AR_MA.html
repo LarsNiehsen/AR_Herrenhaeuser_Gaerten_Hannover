@@ -498,21 +498,9 @@
                     animatedModel.position.set(0, 0, -2);
                     
                     enableShadows(animatedModel); 
-                    // Das animierte Modell wird zunächst der Welt hinzugefügt
-                    scene.add(animatedModel);
-
-                    // --- FEHLERBEHEBUNG FÜR ABSTURZ / SEITE NEU LADEN ---
-                    // Ein bekanntes Problem auf Smartphones: Wenn das animierte Modell 
-                    // durch den ersten Klick sichtbar wird, muss die Grafikkarte plötzlich 
-                    // gewaltige Datenmengen verarbeiten. Das führt oft dazu, dass das 
-                    // Handy die Seite komplett neu lädt.
-                    // Lösung: Wir schalten das Modell kurz sichtbar, zwingen den Browser
-                    // mit "compile" zur sofortigen Hintergrundberechnung und verstecken
-                    // das Modell danach sofort wieder. So ist beim Klick alles bereit.
-                    animatedModel.visible = true;
-                    renderer.compile(scene, camera);
+                    // Das animierte Modell wird der Welt hinzugefügt (noch unsichtbar)
                     animatedModel.visible = false;
-                    // ----------------------------------------------------
+                    scene.add(animatedModel);
 
                     // Falls Animationen in der Datei gefunden wurden, werden sie vorbereitet
                     if (gltfAnim.animations && gltfAnim.animations.length > 0) {
@@ -543,6 +531,27 @@
                             const hControl = document.getElementById('height-control');
                             if (hControl) hControl.style.display = 'flex';
                         });
+
+                        // --- EXTREM WICHTIGER GRAFIKKARTEN-WARMUP ---
+                        // Um den Absturz (Neu-Laden) beim ersten Klick zu verhindern,
+                        // zwingen wir das Handy hier heimlich zu einer Vorab-Berechnung.
+                        
+                        // 1. Modell extrem winzig machen, damit man es nicht bemerkt
+                        animatedModel.scale.set(0.0001, 0.0001, 0.0001);
+                        animatedModel.visible = true;
+                        
+                        // 2. Die Knochen-Animation für den Bruchteil einer Sekunde starten
+                        mixer.update(0.01);
+                        
+                        // 3. Dem System befehlen, die Shader zu übersetzen und einmal stumm zu rendern
+                        renderer.compile(scene, camera);
+                        renderer.render(scene, camera);
+                        
+                        // 4. Alles wieder sauber auf den Anfangszustand zurücksetzen
+                        animatedModel.visible = false;
+                        animatedModel.scale.set(modelScale, modelScale, modelScale);
+                        animationAction.reset();
+                        // ------------------------------------------------
                     }
 
                     // Der Benutzer wird angewiesen, was zu tun ist
