@@ -171,6 +171,20 @@
             padding: 0; line-height: 1;
         }
 
+        /* Höhen-Regler, vertikal positioniert in der linken Mitte */
+        #height-control {
+            top: 50%; left: 20px; transform: translateY(-50%); 
+            display: flex; flex-direction: column; align-items: center;
+            padding: 20px 10px; border-radius: 30px;
+        }
+        #height-control span { 
+            font-weight: bold; margin-bottom: 5px; font-size: 14px; 
+        }
+        #heightSlider {
+            -webkit-appearance: slider-vertical; appearance: slider-vertical;
+            width: 8px; height: 120px; margin: 10px 0; cursor: pointer;
+        }
+
         /* Hinweis-Text für Interaktionen in der Bildschirmmitte. */
         #clickHint {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -216,7 +230,7 @@
                 Überblick über die vielen Highlights im Großen Garten
             </div>
             
-            <iframe src="https://www.gartenis.de/" style="flex: 1; width: 100%; border: none; background: #fff;"></iframe>
+            <iframe src="https://www.gartenis.de/" allow="geolocation" style="flex: 1; width: 100%; border: none; background: #fff;"></iframe>
             
             <div style="padding: 15px; text-align: center; background: rgba(0,0,0,0.8); border-top: 1px solid rgba(255,255,255,0.2);">
                 <button id="closeIntroBtn" style="background: rgba(40, 180, 100, 0.9); color: white; border: 1px solid rgba(100, 255, 150, 0.5); padding: 12px 24px; font-size: 0.7rem; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.2s;">
@@ -228,8 +242,14 @@
 
     <!-- Skript für das neue Startbildschirm-Overlay -->
     <script>
-        document.getElementById('closeIntroBtn').addEventListener('click', function() {
+        document.getElementById('closeIntroBtn').addEventListener('click', function(event) {
+            event.stopPropagation(); // Stoppt das Durchklicken
             document.getElementById('introOverlay').style.display = 'none';
+        });
+
+        // Verhindert ebenfalls, dass Klicks auf den Randbereich des Overlays durchgereicht werden
+        document.getElementById('introOverlay').addEventListener('click', function(event) {
+            event.stopPropagation();
         });
     </script>
     <!-- ENDE NEUES OVERLAY -->
@@ -297,6 +317,12 @@
     <div id="rotationControls">
         <button id="rotLeftBtn" class="ui-panel rotate-btn">↺</button>
         <button id="rotRightBtn" class="ui-panel rotate-btn">↻</button>
+    </div>
+
+    <!-- UI: Höhen-Slider Menü (Vertikal auf der linken Seite) -->
+    <div id="height-control" class="ui-panel">
+        <span>Höhe</span>
+        <input type="range" orient="vertical" id="heightSlider" min="-3.0" max="8.0" step="0.1" value="1.6">
     </div>
 
     <!-- Externe Skripte für Mapping und AR-Funktionalität -->
@@ -591,6 +617,16 @@
             renderer = mindarThree.renderer;
             scene = mindarThree.scene;
             camera = mindarThree.camera;
+
+            // Der HTML-Schieberegler für die Höhe wird mit dem Code verknüpft
+            const hSlider = document.getElementById('heightSlider');
+            if (hSlider) {
+                camera.position.y = parseFloat(hSlider.value);
+                hSlider.addEventListener('input', (e) => {
+                    camera.position.y = parseFloat(e.target.value);
+                });
+            }
+
             camera.far = 50000; camera.updateProjectionMatrix();
             renderer.setClearColor(0x000000, 0);
             
