@@ -208,6 +208,32 @@
 </head>
 <body>
 
+    <!-- NEUES ÜBERLAGERNDES FENSTER (STARTBILDSCHIRM) -->
+    <div id="introOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
+        <div style="width: 80%; height: 80%; background: #222; border-radius: 12px; border: 1px solid rgba(255,255,255,0.3); display: flex; flex-direction: column; overflow: hidden; box-shadow: 0 10px 40px rgba(0,0,0,0.8);">
+            
+            <div style="padding: 15px; text-align: center; font-weight: bold; font-size: 1.1rem; color: #fff; background: rgba(0,0,0,0.8); border-bottom: 1px solid rgba(255,255,255,0.2);">
+                Verschaffen Sie sich einen Überblick über die vielen Highlichts im Großen Garten
+            </div>
+            
+            <iframe src="https://www.gartenis.de/" style="flex: 1; width: 100%; border: none; background: #fff;"></iframe>
+            
+            <div style="padding: 15px; text-align: center; background: rgba(0,0,0,0.8); border-top: 1px solid rgba(255,255,255,0.2);">
+                <button id="closeIntroBtn" style="background: rgba(40, 180, 100, 0.9); color: white; border: 1px solid rgba(100, 255, 150, 0.5); padding: 12px 24px; font-size: 1rem; font-weight: bold; border-radius: 8px; cursor: pointer; box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.2s;">
+                    Virtuellen Tour in Augmented Reality starten
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- Skript für das neue Startbildschirm-Overlay -->
+    <script>
+        document.getElementById('closeIntroBtn').addEventListener('click', function() {
+            document.getElementById('introOverlay').style.display = 'none';
+        });
+    </script>
+    <!-- ENDE NEUES OVERLAY -->
+
     <!-- Video-Element für den Kamerazugriff -->
     <video id="videoElement" playsinline muted autoplay autofocus></video>
     
@@ -1372,7 +1398,7 @@
             L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
             const url = 'data:image/svg+xml;base64,' + btoa(svg);
-            const icon = L.icon({ iconUrl: url, iconSize:[48, 48], iconAnchor: [24, 24], className: 'user-arrow' });
+            const icon = L.icon({ iconUrl: url, iconSize:[48, 48], iconAnchor:[24, 24], className: 'user-arrow' });
             L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
         }
 
@@ -1542,7 +1568,7 @@
             if (intersects.length > 0) {
                 let clickedObj = intersects[0].object;
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     for(let [key, val] of Object.entries(gnssMeshes)) {
+                     for(let[key, val] of Object.entries(gnssMeshes)) {
                          if(val === clickedObj) {
                              activeLink = AR_MODELS[key].link;
                              let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
