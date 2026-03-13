@@ -261,7 +261,7 @@
 </head>
 <body>
 
-    <!-- NEUES ÜBERLAGERNDES FENSTER (STARTBILDSCHIRM) 
+    <!-- ÜBERLAGERNDES FENSTER (STARTBILDSCHIRM) 
          Dieses Element dunkelt den Hintergrund ab und zeigt eine kleine Vorschau-Webseite 
          bevor der Nutzer die eigentliche AR-Anwendung startet. -->
     <div id="introOverlay" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0, 0, 0, 0.5); z-index: 9999; display: flex; align-items: center; justify-content: center; backdrop-filter: blur(5px);">
@@ -285,7 +285,7 @@
         </div>
     </div>
 
-    <!-- Skript für das neue Startbildschirm-Overlay -->
+    <!-- Skript für das Startbildschirm-Overlay -->
     <script>
         // Wird ausgeführt, wenn der Button im Intro-Fenster geklickt wird
         document.getElementById('closeIntroBtn').addEventListener('click', function(event) {
@@ -298,7 +298,7 @@
             event.stopPropagation();
         });
     </script>
-    <!-- ENDE NEUES OVERLAY -->
+    <!-- ENDE OVERLAY -->
 
     <!-- Video-Element für den Kamerazugriff 
          Spielt das Kamera-Bild automatisch (autoplay) und ohne Ton (muted) ab. -->
@@ -402,18 +402,12 @@
         // Magnetische Deklination für Hannover (Korrekturwert zum geographischen Norden, da magnetisch Nord leicht abweicht)
         const magDeclination = 3.5;
 
-        // Koordinaten für die Simulations-Trigger (GPS Daten der Standorte)
+        // Koordinaten für die Simulations-Trigger (GNSS Daten der Standorte)
         const target0Lat = 52.386444; // Fontäne Breitengrad
         const target0Lon = 9.695780;  // Fontäne Längengrad
 
         const targetBlumengartenLat = 52.388029; // Blumengarten Breitengrad
         const targetBlumengartenLon = 9.697794;  // Blumengarten Längengrad
-        
-        // HINZUGEFÜGT: Koordinaten für die Fechter-Simulation (Target 9). 
-        // Dieser Punkt liegt exakt 2 Meter südlich der eigentlichen Statue-GPS-Koordinate, 
-        // damit die virtuelle Kamera 2m davor steht.
-        const targetFechterLat = 52.389445; 
-        const targetFechterLon = 9.699207;
 
         // Definition der verfügbaren 3D-Modelle und ihrer Eigenschaften in einem JavaScript-Objekt (JSON-artig).
         // 'initRotation' bestimmt die initiale Drehung des Modells relativ zu Norden (in Grad).
@@ -437,9 +431,8 @@
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
                 title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', 
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
-                // mindTargetIndexes entfernt, da Target 9 nun eine direkte GPS-Simulation in 2m Entfernung auslöst!
                 lat: 52.389463, lon: 9.699207,
-                initRotation: 275 // HINZUGEFÜGT: Ausrichtung auf 275 Grad gesetzt
+                initRotation: 341 
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, 
@@ -469,7 +462,6 @@
         ];
 
         // Referenzierung der HTML-Elemente über ihre ID, um sie später im Code ansprechen zu können.
-        // document.getElementById sucht in der HTML-Datei nach dem entsprechenden Element.
         const videoCanvas = document.getElementById('videoCanvas');
         const statusText = document.getElementById('statusText');
         const modelInfo = document.getElementById('modelInfo');
@@ -490,7 +482,6 @@
         const orientBtn = document.getElementById('orientBtn');
 
         // Initialisierung des Zeichenkontexts für das 2D-Overlay-Canvas.
-        // 'willReadFrequently' optimiert die Performance, da oft Bilddaten für OCR ausgelesen werden.
         const context2D = videoCanvas.getContext('2d', { willReadFrequently: true });
 
         // Globale Variablen (let bedeutet, dass der Wert später verändert werden darf).
@@ -504,7 +495,7 @@
         let markerGroup, gnssGroup; // Gruppiert 3D-Modelle logisch zusammen
         
         let lastPos = null; // Speichert die letzte bekannte GNSS-Position
-        let realPos = null; // Speichert die tatsächliche Sensor-Position des GPS-Sensors
+        let realPos = null; // Speichert die tatsächliche Sensor-Position des GNSS-Sensors
         let heading = 0;    // Korrigierte Blickrichtung (in Grad)
         let rawHeading = 0; // Unkorrigierte Rohdaten des Kompass
         let compassOffset = 0; // Kalibrierungsoffset (Winkelkorrektur)
@@ -541,7 +532,11 @@
         let isOcrRunning = false; // Blockiert neue OCR-Aufrufe, solange eine Erkennung läuft
         let lastOcrTime = 0; // Zeitpunkt der letzten Texterkennung zur Pausenberechnung
 
-        // NEU: HINZUGEFÜGT FÜR DIE ANIMATION (FECHTER)
+        // Variablen für die lokale AR Platzierung (Borghesischer Fechter Target 9)
+        // Stellt sicher, dass das Modell ohne GNSS Wackeln exakt vor der Kamera platziert wird
+        let isFechterPlacedLocally = false;
+        let localFechterEndTime = 0;
+
         // Eine virtuelle Stoppuhr, um Animationen in der exakt richtigen Geschwindigkeit abzuspielen
         let clock = new THREE.Clock(); 
         // Eine Liste, die alle aktiven Animations-Steuerungen (Mixer) speichert
@@ -733,7 +728,7 @@
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
-            // Gruppen erstellen, um Marker und GPS-Modelle sauber zu trennen
+            // Gruppen erstellen, um Marker und GNSS-Modelle sauber zu trennen
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
 
@@ -747,7 +742,7 @@
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = 0.0; // Exakt am Boden (wurde vorher auf 0.0 korrigiert)
+            gridHelper1m.position.y = 0.0; // Exakt am Boden
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
@@ -763,7 +758,6 @@
             
             // Definition der MindAR-Anker
             // Eine Schleife erstellt Platzhalter in der 3D-Welt, die mit den Bildern verknüpft werden.
-            // Die Schleife geht nun bis 10 (Indizes 0 bis 9), damit auch der Fechter (Target 9) eingeschlossen wird.
             for (let i = 0; i < 10; i++) {
                 const anchor = mindarThree.addAnchor(i);
                 // onTargetFound wird automatisch aufgerufen, sobald die Handykamera das entsprechende Bild sieht
@@ -774,15 +768,45 @@
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
                         // Simulation NiederdeutscherBlumengarten (Trigger 4-6) aktivieren
-                        // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt, 
-                        // damit sie direkt mittig im Sichtfeld erscheint.
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 9) {
-                        // NEU: Simulation Fechter (Target 9) aktivieren
-                        // Blickrichtung auf 0 Grad (Nord) gesetzt.
-                        // Da die simulierte Kamera exakt 2 Meter südlich der Statue steht,
-                        // blickt man direkt auf die Vorderseite des Modells im 3D-Grid!
-                        activateSimulation(targetFechterLat, targetFechterLon, 0);
+                        // Lokale Platzierung des Borghesischen Fechters (Target 9) aktivieren
+                        // Anstatt GNSS-Koordinaten zu nutzen, wird das Modell stabil
+                        // in 2 Metern Entfernung genau in der aktuellen Blickrichtung des Nutzers platziert.
+                        isFechterPlacedLocally = true;
+                        localFechterEndTime = Date.now() + 30000; // Für 30 Sekunden anzeigen
+                        activeMindARId = -1; // Image Tracking beenden, wir nutzen das stabile Grid
+                        
+                        if (gnssMeshes[2]) {
+                            // Blickrichtung der Kamera im 3D-Raum auslesen
+                            const dir = new THREE.Vector3(0, 0, -1);
+                            dir.applyQuaternion(camera.quaternion);
+                            dir.y = 0; // Auf der horizontalen Ebene bleiben, damit das Modell am Boden steht
+                            dir.normalize();
+                            
+                            // Punkt exakt 2 Meter vor der aktuellen Blickrichtung ermitteln
+                            const placementPos = dir.multiplyScalar(2);
+                            
+                            // Modell an dieser errechneten Position verankern
+                            gnssMeshes[2].position.set(placementPos.x, 0, placementPos.z);
+                            
+                            // Modell so rotieren, dass es den Nutzer (der im Ursprung 0,0,0 steht) anschaut
+                            // Da das Modell intern leicht eingedreht ist, kompensieren wir dies,
+                            // indem wir zur Ausrichtung der Kamera 275 Grad hinzufügen.
+                            const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
+                            gnssMeshes[2].rotation.y = camEuler.y + THREE.MathUtils.degToRad(275);
+                            
+                            // Korrekte Skalierung anwenden
+                            const finalScale = AR_MODELS[2].scale * 0.05;
+                            gnssMeshes[2].scale.set(finalScale, finalScale, finalScale);
+                            
+                            // Dieselben Werte auf das animierte Modell kopieren, damit der Wechsel unsichtbar ist
+                            if (gnssMeshes[2].userData.animMesh) {
+                                gnssMeshes[2].userData.animMesh.position.copy(gnssMeshes[2].position);
+                                gnssMeshes[2].userData.animMesh.rotation.copy(gnssMeshes[2].rotation);
+                                gnssMeshes[2].userData.animMesh.scale.copy(gnssMeshes[2].scale);
+                            }
+                        }
                     } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8) {
                          // Standard-Timer für reines Image Tracking aktivieren (Bild klebt an Kamera).
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
@@ -798,7 +822,7 @@
 
             // Render-Schleife: Diese Funktion wird etwa 60 mal pro Sekunde ausgeführt, um das Bild zu zeichnen.
             renderer.setAnimationLoop(() => {
-                // NEU: Berechnet die Zeit, die seit dem letzten Bild vergangen ist. Wird für Animationen benötigt.
+                // Berechnet die Zeit, die seit dem letzten Bild vergangen ist. Wird für Animationen benötigt.
                 const delta = clock.getDelta();
                 // Alle registrierten Animations-Mixer (z.B. der Fechter) werden ein kleines Stück vorwärtsgespult
                 mixers.forEach(mixer => mixer.update(delta));
@@ -808,7 +832,6 @@
                 const arucoFound = processArucoFrame(video);
                 
                 // OCR-Prüfung periodisch ausführen, wenn kein Marker getrackt wird und 2 Sekunden vergangen sind.
-                // Das spart extrem viel Akku und Leistung.
                 if (!arucoFound && activeMindARId === -1 && !isOcrRunning && (Date.now() - lastOcrTime > 2000)) {
                     runOcrCheck(videoCanvas);
                 }
@@ -847,7 +870,7 @@
                                 let curAcc = 1.5;
 
                                 if (realPos) {
-                                    // Falls beim Auslösen noch kein GPS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
+                                    // Falls beim Auslösen noch kein GNSS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
                                     if (!simulationStartRealPos) {
                                         simulationStartRealPos = { lat: realPos.latitude, lon: realPos.longitude };
                                     }
@@ -872,7 +895,6 @@
                             if (realPos) lastPos = realPos;
                         }
                     } 
-                    // PRÜFT AUCH FÜR DIE INDIZES 7 UND 8 DEN STANDARD MODUS
                     else if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8) {
                         // Standard MindAR Anzeige aktiv
                         // Zeige das Modell, solange der Timer (Nachbrennzeit) noch nicht abgelaufen ist.
@@ -905,7 +927,7 @@
                 let showGNSSModels = !arucoFound && !(showStandardMindAR && !isSimulatedPos);
 
                 // --- GNSS-LOGIK UND KAMERA-ROTATION ---
-                if (showGNSSModels && (showSimulation || (!isMarkerTracking && gnssGroup))) {
+                if (showGNSSModels && (showSimulation || (!isMarkerTracking && gnssGroup) || isFechterPlacedLocally)) {
                     gnssGroup.visible = true;
                     
                     // KAMERA-ROTATION ANSTATT SZENEN-ROTATION:
@@ -930,7 +952,7 @@
                          gnssGroup.rotation.set(0, 0, 0);
                     }
 
-                    // Führt die Berechnungen für GPS-Distanzen aus
+                    // Führt die Berechnungen für Distanzen aus
                     updateGNSSObjects(); 
                     // Aktualisiert den Text auf dem Bildschirm
                     updateGNSSUI(); 
@@ -940,12 +962,12 @@
                     Object.keys(gnssMeshes).forEach(key => {
                         if (gnssMeshes[key]) {
                             gnssMeshes[key].visible = false;
-                            // NEU: Auch das animierte Modell wird ausgeblendet, falls es gerade abgespielt wird
+                            // Auch das animierte Modell wird ausgeblendet, falls es gerade abgespielt wird
                             if (gnssMeshes[key].userData.animMesh) gnssMeshes[key].userData.animMesh.visible = false;
                         }
                     });
                     // Kamera-Rotation zurücksetzen damit MindAR/ArUco sie korrekt verwaltet.
-                    // Ohne diesen Reset würde das Bild beim Wechsel von GPS zu Marker schief hängen.
+                    // Ohne diesen Reset würde das Bild beim Wechsel von GNSS zu Marker schief hängen.
                     camera.rotation.order = 'YXZ';
                     camera.rotation.set(0, 0, 0);
                     camera.quaternion.set(0, 0, 0, 1);
@@ -992,7 +1014,7 @@
                      // Im GNSS Modus ist die Objekt-Rotation statisch, aber zur Info wird sie angezeigt
                      Object.keys(gnssMeshes).forEach(id => {
                          if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
-                         // NEU: Wenn das Modell animiert ist, dessen Rotation auslesen
+                         // Wenn das Modell animiert ist, dessen Rotation auslesen
                          if(gnssMeshes[id].userData.animMesh && gnssMeshes[id].userData.animMesh.visible) currentRotY = gnssMeshes[id].userData.animMesh.rotation.y;
                      });
                 } 
@@ -1039,9 +1061,6 @@
         async function runOcrCheck(canvas) {
             isOcrRunning = true;
             lastOcrTime = Date.now();
-            
-            // Status-Update im UI (optional, damit man sieht, dass er arbeitet)
-            // statusText.innerHTML = "<span style='color:#aaa'>Scanne Text...</span>";
 
             try {
                 // Tesseract scannt das Bild, das vom Canvas übergeben wird.
@@ -1057,8 +1076,7 @@
                 if(cleanText.length > 5) console.log("OCR Scan:", cleanText);
 
                 // 2. Robuste Prüfung: Es wird auf charakteristische Wortteile geprüft statt auf ganze Sätze.
-                // Das hilft, wenn Tesseract z.B. "Blurnengarten" statt "Blumengarten" liest (Tippfehler durch Schmutz auf dem Schild).
-                // Prüft auf: ("nieder" UND "deut") ODER ("blumen" UND "garten")
+                // Das hilft, wenn Tesseract z.B. "Blurnengarten" statt "Blumengarten" liest.
                 const matchNieder = cleanText.includes("nieder") && cleanText.includes("deut");
                 const matchBlumen = cleanText.includes("blumen") && cleanText.includes("garten");
 
@@ -1082,12 +1100,6 @@
          * Funktion zur Berechnung der 3D-Kamera-Rotation (Quaternion) anhand der Smartphone-Sensoren.
          * Ein Quaternion ist ein mathematisches Konstrukt, das Drehungen im dreidimensionalen Raum 
          * berechnet, ohne Probleme durch blockierende Rotationsachsen (Gimbal Lock) zu verursachen.
-         * 
-         * Parameter:
-         * - orientData: Enthält die rohen Neigungswerte des Smartphones (Beta für die Längsachse, 
-         *   Gamma für die Querachse).
-         * - correctedHeading: Der vollständig berechnete und bei Bedarf kalibrierte Kompasswert 
-         *   in Grad (0-360), der immer verlässlich den geografischen Norden anzeigt.
          */
         function getDeviceQuaternion(orientData, correctedHeading) {
             /* 
@@ -1111,8 +1123,6 @@
             
             /*
              * Abfrage der Bildschirmorientierung (Hochformat oder Querformat).
-             * Dies ist wichtig, damit die gerenderte 3D-Welt nicht versehentlich zur Seite kippt, 
-             * wenn das Gerät vom Nutzer gedreht wird.
              */
             const orient = window.screen.orientation ? THREE.MathUtils.degToRad(window.screen.orientation.angle) : 0;
 
@@ -1120,34 +1130,26 @@
              * Ein Euler-Winkel führt die drei Rotationsachsen (Nicken, Gieren, Rollen) in einem 
              * Objekt zusammen. Das Minus vor dem Gammawert (-gamma) ist erforderlich, um die Richtung 
              * der Sensordaten an das zugrunde liegende Koordinatensystem der 3D-Engine anzugleichen.
-             * Die Angabe 'YXZ' bestimmt die exakte Reihenfolge, in der die drei Drehungen ausgeführt werden.
              */
             const euler = new THREE.Euler(beta, alpha, -gamma, 'YXZ');
             
-            /*
-             * Das Quaternion (q) wird initialisiert und aus den kombinierten Euler-Winkeln erstellt.
-             */
             const q = new THREE.Quaternion();
             q.setFromEuler(euler);
             
             /*
              * Anpassung der berechneten Rotation an den Standard-Blickwinkel der verwendeten Three.js Engine.
-             * Die Multiplikation mit dem Quaternion q1 dreht die Achsen so, dass die Ansicht der Smartphone-Kamera 
-             * korrekt mit der Blickrichtung der virtuellen 3D-Kamera übereinstimmt (welche normalerweise 
-             * entlang einer negativen Z-Achse schaut).
              */
             const q1 = new THREE.Quaternion(-Math.sqrt(0.5), 0, 0, Math.sqrt(0.5)); 
             q.multiply(q1);
             
             /*
              * Die finale Multiplikation mit q2 sorgt dafür, dass die weiter oben ermittelte Korrektur für 
-             * das Bildschirmformat (Hoch- oder Querformat) angewendet wird.
+             * das Bildschirmformat angewendet wird.
              */
             const q2 = new THREE.Quaternion();
             q2.setFromAxisAngle(new THREE.Vector3(0, 0, 1), -orient);
             q.multiply(q2);
             
-            // Das vollständig berechnete Rotationsobjekt wird für die Anwendung zurückgegeben.
             return q;
         }
 
@@ -1158,7 +1160,17 @@
          */
         function activateSimulation(lat, lon, targetHeading) {
             isSimulatedPos = true;
+            isFechterPlacedLocally = false; // Bricht eine eventuell noch laufende lokale Platzierung ab
             simulationEndTime = Date.now() + SIMULATION_PERSISTENCE; 
+            
+            // Fechter-Rotation vorsichtshalber auf den GNSS-Standardwert (341) zurücksetzen,
+            // falls eine vorherige Target 9 Simulation diese überschrieben hatte.
+            if (gnssMeshes[2]) {
+                gnssMeshes[2].rotation.y = THREE.MathUtils.degToRad(AR_MODELS[2].initRotation);
+                if (gnssMeshes[2].userData.animMesh) {
+                    gnssMeshes[2].userData.animMesh.rotation.y = THREE.MathUtils.degToRad(AR_MODELS[2].initRotation);
+                }
+            }
             
             // Wir definieren das Ziel, zu dem die Simulation initial springen soll.
             simulatedBaseCoords = { lat: lat, lon: lon };
@@ -1176,7 +1188,7 @@
             // Berechnung des Kompass-Offsets zur Kalibrierung
             if (typeof targetHeading === 'number') {
                 // Vergleicht, wo der Kompass des Handys gerade hinzeigt, mit der Angabe, 
-                // wo er eigentlich hinzeigen müsste (weil er vor der Informationstafel steht).
+                // wo er eigentlich hinzeigen müsste.
                 compassOffset = (targetHeading - rawHeading + 360) % 360;
                 console.log("Kompass kalibriert. Soll: " + targetHeading + ", Roh: " + rawHeading + ", Offset: " + compassOffset);
             }
@@ -1221,7 +1233,7 @@
                     // 2. GNSS Version (Positionsbasiert)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
-                        // Bei GPS-Modellen wird die Skalierung deutlich reduziert, da der Raum riesig ist.
+                        // Bei GNSS-Modellen wird die Skalierung deutlich reduziert, da der Raum riesig ist.
                         let gnssScale = config.scale * 0.05; 
                         
                         // Spezielle Größenanpassung für die Blumengarten-Statue
@@ -1245,7 +1257,7 @@
                              modelGNSS.userData.measureBar = measureBar;
                         }
                         
-                        // --- NEU: ANIMIERTES MODELL LADEN FÜR TARGET 9 (GNSS / Simulation) ---
+                        // --- ANIMIERTES MODELL LADEN FÜR TARGET 9 (GNSS / Simulation) ---
                         // Da das Modell nun in der Grid-Simulation steht, laden wir das Animationsmodell hier rein!
                         if (id === 2) {
                             loader.load('3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb', (gltfAnim) => {
@@ -1287,7 +1299,7 @@
                                 }
                             });
                         }
-                        // --- ENDE NEU ---
+                        // --- ENDE ---
 
                         modelGNSS.visible = false;
                         gnssGroup.add(modelGNSS);
@@ -1305,7 +1317,7 @@
                                 const modelMind = gltf.scene.clone();
                                 let mindScale = config.scale * 0.015; // Anpassung der Skalierung für Bilder
 
-                                // HIER WURDEN DIE INDIZES 7 UND 8 HINZUGEFÜGT (Skalierung halbieren wie bei Index 1).
+                                // Skalierung halbieren wie bei Index 1.
                                 if ((targetIndex >= 1 && targetIndex <= 3) || targetIndex === 7 || targetIndex === 8) {
                                     mindScale = mindScale * 0.5;
                                 }
@@ -1313,7 +1325,7 @@
                                 modelMind.scale.set(mindScale, mindScale, mindScale);
                                 
                                 let rotationY = Math.PI; // Standard 180 Grad
-                                // HIER WURDEN DIE INDIZES 7 UND 8 HINZUGEFÜGT (Gleiche Rotation wie 1)
+                                // Gleiche Rotation wie 1
                                 if (targetIndex === 1 || targetIndex === 7 || targetIndex === 8) rotationY = THREE.MathUtils.degToRad(357); 
                                 if (targetIndex === 2) rotationY = THREE.MathUtils.degToRad(123); 
                                 if (targetIndex === 3) rotationY = THREE.MathUtils.degToRad(265);
@@ -1348,8 +1360,22 @@
             });
         }
 
-        // Aktualisiert die Anzeige der GPS-Daten auf dem Bildschirm
+        // Aktualisiert die Anzeige der GNSS-Daten auf dem Bildschirm
         function updateGNSSUI() {
+            // Wenn das Modell gerade direkt vor dem Nutzer verankert ist (Target 9)
+            if (isFechterPlacedLocally && Date.now() < localFechterEndTime) {
+                closestObjForArrow = AR_MODELS[2];
+                const compassStr = Math.round(heading) + "°";
+                statusText.innerHTML = `
+                    <span class="label-small">Modus</span> <span class="val-highlight">Lokales AR</span><br>
+                    <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
+                    <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
+                    <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">2 m (fixiert)</span>
+                `;
+                return; // Normalen GNSS-Text überspringen
+            }
+
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
                  return;
@@ -1357,7 +1383,7 @@
             let closestDist = 99999; // Startwert extrem hoch ansetzen, damit alles näher ist
             let closestObj = null;
             
-            // Schleife geht durch alle Modelle und rechnet die Distanz zwischen Handystandort und Modell aus
+            // Schleife geht durch alle Modelle und rechnet die Distanz zwischen GNSS-Standort und Modell aus
             Object.keys(AR_MODELS).forEach(key => {
                 const m = AR_MODELS[key];
                 if(m.lat && m.lon) {
@@ -1411,6 +1437,40 @@
 
         // Berechnung und Platzierung der GNSS-Modelle in der 3D-Szene
         function updateGNSSObjects() {
+            // Wenn der Fechter über Target 9 ausgelöst wurde, wird die GNSS-Berechnung 
+            // temporär komplett übersprungen, um ein Wackeln des Modells zu verhindern.
+            if (isFechterPlacedLocally && Date.now() < localFechterEndTime) {
+                Object.keys(gnssMeshes).forEach(key => {
+                    const id = parseInt(key);
+                    const mesh = gnssMeshes[id];
+                    
+                    if (id === 2) {
+                        // Steuert die Sichtbarkeit (statisch vs. animiert)
+                        if (mesh.userData.animMesh && mesh.userData.animMesh.visible) {
+                            mesh.visible = false;
+                        } else {
+                            mesh.visible = true;
+                            if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
+                        }
+                        updateUIForModel(id, "Lokales AR"); 
+                    } else {
+                        mesh.visible = false;
+                        if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
+                    }
+                });
+                return; // Beendet die Funktion frühzeitig
+            } else if (isFechterPlacedLocally) {
+                // Die 30 Sekunden sind abgelaufen, Modell wieder freigeben
+                isFechterPlacedLocally = false;
+                if (gnssMeshes[2]) {
+                    // Setzt die Rotation wieder auf den realen geografischen GNSS-Standard (341) zurück
+                    gnssMeshes[2].rotation.y = THREE.MathUtils.degToRad(AR_MODELS[2].initRotation);
+                    if (gnssMeshes[2].userData.animMesh) {
+                        gnssMeshes[2].userData.animMesh.rotation.y = THREE.MathUtils.degToRad(AR_MODELS[2].initRotation);
+                    }
+                }
+            }
+
             if (!lastPos) return;
 
             // SCHRITT 1: Zuerst werden die Distanzen zu allen Modellen berechnet und in einem Array (Liste) gespeichert
@@ -1462,13 +1522,13 @@
                     // Positionierung anwenden (EXAKTE DISTANZ BLEIBT BEIBEHALTEN!)
                     mesh.position.set(offset.x, heightY, -offset.z);
                     
-                    // NEU: Animiertes Modell exakt synchron zum statischen Modell mitziehen
+                    // Animiertes Modell exakt synchron zum statischen Modell mitziehen
                     if (mesh.userData.animMesh) {
                         mesh.userData.animMesh.scale.copy(mesh.scale);
                         mesh.userData.animMesh.position.copy(mesh.position);
                     }
                     
-                    // NEU: Steuert, ob gerade das statische oder das springende Modell zu sehen ist
+                    // Steuert, ob gerade das statische oder das springende Modell zu sehen ist
                     if (mesh.userData.animMesh && mesh.userData.animMesh.visible) {
                         mesh.visible = false;
                     } else {
@@ -1503,7 +1563,7 @@
             }
         }
 
-        // Haversine-Formel: Rechnet die Entfernung zwischen zwei GPS-Koordinaten auf der gekrümmten Erdoberfläche aus.
+        // Haversine-Formel: Rechnet die Entfernung zwischen zwei GNSS-Koordinaten auf der gekrümmten Erdoberfläche aus.
         function haversineDist(lat1, lon1, lat2, lon2) {
             const R = 6371e3; // Erdradius in Metern
             const rad = Math.PI/180;
@@ -1513,7 +1573,7 @@
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); // Gibt die Distanz in Metern zurück
         }
 
-        // Rechnet GPS-Koordinaten in ein lokales Meter-Koordinatensystem für Three.js (X und Z) um.
+        // Rechnet GNSS-Koordinaten in ein lokales Meter-Koordinatensystem für Three.js (X und Z) um.
         function calcOffset(lat1, lon1, lat2, lon2) {
             const R = 6378137; // Erdradius am Äquator
             const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -1662,11 +1722,11 @@
                     orientBtn.style.background = '#4f4'; 
                 }
             });
-            // Nach kurzer Verzögerung wird das GPS des Handys (Geolocation API) aktiviert
+            // Nach kurzer Verzögerung wird das GNSS des Handys (Geolocation API) aktiviert
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        // Wird vom Browser aufgerufen, sobald neue GPS-Daten vom Sensor ankommen
+        // Wird vom Browser aufgerufen, sobald neue GNSS-Daten vom Sensor ankommen
         function onPos(pos) {
             realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             if (!isSimulatedPos) {
@@ -1692,7 +1752,7 @@
         // Malt den kleinen roten Punkt (Nutzer) auf die Leaflet Karte
         function drawUserOnMap(p) {
             if (!userLayer) return; userLayer.clearLayers(); // Alten Punkt löschen
-            // Der Kreis repräsentiert die GPS-Ungenauigkeit (je ungenauer, desto größer der Kreis)
+            // Der Kreis repräsentiert die GNSS-Ungenauigkeit (je ungenauer, desto größer der Kreis)
             L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
             // Baut eine kleine SVG-Vektorgrafik für den Pfeil und dreht ihn mit dem Heading-Winkel
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
@@ -1852,7 +1912,7 @@
             ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
                 
-                // Dreht das GPS Modell und (falls vorhanden) direkt auch das animierte Kind-Modell mit
+                // Dreht das GNSS Modell und (falls vorhanden) direkt auch das animierte Kind-Modell mit
                 if(gnssMeshes[id]) {
                     if (gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
                     if (gnssMeshes[id].userData.animMesh && gnssMeshes[id].userData.animMesh.visible) gnssMeshes[id].userData.animMesh.rotation.y -= 0.2;
@@ -1909,10 +1969,10 @@
                 if (Array.isArray(meshArray)) { meshArray.forEach(m => { if(m.visible) objectsToCheck.push(m); }); }
             });
             
-            // Sucht auch explizit in der GPS-Gruppe nach dem statischen und animierten Modell
+            // Sucht auch explizit in der GNSS-Gruppe nach dem statischen und animierten Modell
             Object.values(gnssMeshes).forEach(m => { 
                 if(m.visible) objectsToCheck.push(m); 
-                // NEU: Fügt das animierte Modell in die Prüfung ein, falls es gerade abgespielt wird
+                // Fügt das animierte Modell in die Prüfung ein, falls es gerade abgespielt wird
                 if(m.userData.animMesh && m.userData.animMesh.visible) objectsToCheck.push(m.userData.animMesh);
             });
             
@@ -1927,7 +1987,7 @@
                 // Modelle bestehen oft aus vielen Einzelteilen (Augen, Arme etc.). Diese Schleife läuft "hoch" zum übergeordneten Hauptmodell.
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
                      
-                     // Prüft für GPS/Simulations-Modelle (Hier liegt nun auch unser Fechter Target 9!)
+                     // Prüft für GNSS/Simulations-Modelle (Hier liegt nun auch unser Fechter Target 9!)
                      for(let[key, val] of Object.entries(gnssMeshes)) {
                          
                          let isStaticHit = (val === clickedObj);
@@ -1936,7 +1996,7 @@
                          // Falls das statische Modell ODER das animierte Modell angetippt wurde
                          if(isStaticHit || isAnimHit) {
                              
-                             // --- NEU: ANIMATIONS-WECHSEL ---
+                             // ANIMATIONS-WECHSEL FÜR TARGET 9
                              // Wenn das Modell eine versteckte Animation besitzt (also der Nutzer gerade darauf geklickt hat)
                              if (val.userData.animMesh && !val.userData.animMesh.visible) {
                                  // Blendet das statische Modell sofort aus
