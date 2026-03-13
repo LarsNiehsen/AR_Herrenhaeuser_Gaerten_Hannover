@@ -298,6 +298,7 @@
             event.stopPropagation();
         });
     </script>
+    <!-- ENDE NEUES OVERLAY -->
 
     <!-- Video-Element für den Kamerazugriff 
          Spielt das Kamera-Bild automatisch (autoplay) und ohne Ton (muted) ab. -->
@@ -401,13 +402,19 @@
         // Magnetische Deklination für Hannover (Korrekturwert zum geographischen Norden, da magnetisch Nord leicht abweicht)
         const magDeclination = 3.5;
 
-        // Koordinaten für die Simulations-Trigger (WGS84 Daten der Standorte)
+        // Koordinaten für die Simulations-Trigger (GPS Daten der Standorte)
         const target0Lat = 52.386444; // Fontäne Breitengrad
         const target0Lon = 9.695780;  // Fontäne Längengrad
 
         const targetBlumengartenLat = 52.388029; // Blumengarten Breitengrad
         const targetBlumengartenLon = 9.697794;  // Blumengarten Längengrad
         
+        // HINZUGEFÜGT: Koordinaten für die Fechter-Simulation (Target 9). 
+        // Dieser Punkt liegt exakt 2 Meter südlich der eigentlichen Statue-GPS-Koordinate, 
+        // damit die virtuelle Kamera 2m davor steht.
+        const targetFechterLat = 52.389445; 
+        const targetFechterLon = 9.699207;
+
         // Definition der verfügbaren 3D-Modelle und ihrer Eigenschaften in einem JavaScript-Objekt (JSON-artig).
         // 'initRotation' bestimmt die initiale Drehung des Modells relativ zu Norden (in Grad).
         const AR_MODELS = {
@@ -422,7 +429,6 @@
                 info: 'Sandsteinstatue "Veritas" von 1730', 
                 link: 'https://herrenhaeuser-gaerten.hannover.de/Herrenhausen-erleben/Gro%C3%9Fer-Garten/Der-Niederdeutsche-Blumengarten',
                 // mindTargetIndexes listet alle MindAR-Target-Indizes auf, bei denen dieses Modell angezeigt werden soll.
-                // Indizes 7 und 8 wurden hinzugefügt.
                 mindTargetIndexes:[1, 2, 3, 4, 5, 6, 7, 8], 
                 lat: 52.388196, lon: 9.697853,
                 initRotation: 354
@@ -431,10 +437,9 @@
                 url: '3D_models/BorghesischerFechter_WebAR.glb', scale: 26000.0, 
                 title: 'Borghesischer Fechter', info: 'Borghesischer Fechter am Gartentheater', 
                 link: 'https://www.visit-hannover.com/Kultur-Sehensw%C3%BCrdigkeiten/Sehensw%C3%BCrdigkeiten/Die-Herrenh%C3%A4user-G%C3%A4rten/Gartentheater-Herrenhausen',
-                // HINZUGEFÜGT: Target Index 9 startet das Modell für den Borghesischen Fechter
-                mindTargetIndexes: [9],
+                // mindTargetIndexes entfernt, da Target 9 nun eine direkte GPS-Simulation in 2m Entfernung auslöst!
                 lat: 52.389463, lon: 9.699207,
-                initRotation: 341
+                initRotation: 275 // HINZUGEFÜGT: Ausrichtung auf 275 Grad gesetzt
             },
             3: { 
                 url: '3D_models/GrosseFontaine_WebAR.glb', scale: 8000.0, 
@@ -499,7 +504,7 @@
         let markerGroup, gnssGroup; // Gruppiert 3D-Modelle logisch zusammen
         
         let lastPos = null; // Speichert die letzte bekannte GNSS-Position
-        let realPos = null; // Speichert die tatsächliche Sensor-Position des GNSS-Sensors
+        let realPos = null; // Speichert die tatsächliche Sensor-Position des GPS-Sensors
         let heading = 0;    // Korrigierte Blickrichtung (in Grad)
         let rawHeading = 0; // Unkorrigierte Rohdaten des Kompass
         let compassOffset = 0; // Kalibrierungsoffset (Winkelkorrektur)
@@ -536,7 +541,7 @@
         let isOcrRunning = false; // Blockiert neue OCR-Aufrufe, solange eine Erkennung läuft
         let lastOcrTime = 0; // Zeitpunkt der letzten Texterkennung zur Pausenberechnung
 
-        // ANIMATION (FECHTER)
+        // NEU: HINZUGEFÜGT FÜR DIE ANIMATION (FECHTER)
         // Eine virtuelle Stoppuhr, um Animationen in der exakt richtigen Geschwindigkeit abzuspielen
         let clock = new THREE.Clock(); 
         // Eine Liste, die alle aktiven Animations-Steuerungen (Mixer) speichert
@@ -728,7 +733,7 @@
             dl.position.set(0, 500, 1000);
             scene.add(dl);
 
-            // Gruppen erstellen, um Marker und GNSS-Modelle sauber zu trennen
+            // Gruppen erstellen, um Marker und GPS-Modelle sauber zu trennen
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
 
@@ -742,17 +747,17 @@
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = -2.0; // Exakt am Boden
+            gridHelper1m.position.y = 0.0; // Exakt am Boden (wurde vorher auf 0.0 korrigiert)
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
             const gridHelper10m = new THREE.GridHelper(200, 20, 0x0088ff, 0x0088ff); 
-            gridHelper10m.position.y = -1.99; // Minimal höher als das graue Gitter, um Flackern (Z-Fighting) zu vermeiden
+            gridHelper10m.position.y = 0.01; // Minimal höher als das graue Gitter, um Flackern (Z-Fighting) zu vermeiden
             gnssGroup.add(gridHelper10m);
 
             // Achsenkreuz für die Himmelsrichtungen (kleine Farb-Linien im Zentrum)
             const axesHelper = new THREE.AxesHelper(10); 
-            axesHelper.position.y = -1.98; // Direkt über dem Gitter am Boden
+            axesHelper.position.y = 0.02; // Direkt über dem Gitter am Boden
             gnssGroup.add(axesHelper);
             // --------------------------------------------------------------------------
             
@@ -772,9 +777,14 @@
                         // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt, 
                         // damit sie direkt mittig im Sichtfeld erscheint.
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
-                    } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8 || i === 9) {
-                         // Standard-Timer für Image Tracking aktivieren.
-                         // HINZUGEFÜGT: Auch Index 9 (Fechter) nutzt dieses Standard-Verhalten.
+                    } else if (i === 9) {
+                        // NEU: Simulation Fechter (Target 9) aktivieren
+                        // Blickrichtung auf 0 Grad (Nord) gesetzt.
+                        // Da die simulierte Kamera exakt 2 Meter südlich der Statue steht,
+                        // blickt man direkt auf die Vorderseite des Modells im 3D-Grid!
+                        activateSimulation(targetFechterLat, targetFechterLon, 0);
+                    } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8) {
+                         // Standard-Timer für reines Image Tracking aktivieren (Bild klebt an Kamera).
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
                 };
@@ -788,9 +798,9 @@
 
             // Render-Schleife: Diese Funktion wird etwa 60 mal pro Sekunde ausgeführt, um das Bild zu zeichnen.
             renderer.setAnimationLoop(() => {
-                // Berechnet die Zeit, die seit dem letzten Bild vergangen ist. Wird für Animationen benötigt.
+                // NEU: Berechnet die Zeit, die seit dem letzten Bild vergangen ist. Wird für Animationen benötigt.
                 const delta = clock.getDelta();
-                // Alle registrierten Animations-Mixer werden ein kleines Stück vorwärtsgespult
+                // Alle registrierten Animations-Mixer (z.B. der Fechter) werden ein kleines Stück vorwärtsgespult
                 mixers.forEach(mixer => mixer.update(delta));
 
                 const video = mindarThree.video;
@@ -807,8 +817,7 @@
                 let showStandardMindAR = false;
 
                 // Logik für MindAR-Timer: Solange das Bild sichtbar ist, wird die Zeit immer wieder verlängert.
-                // HINZUGEFÜGT: Auch Index 9 (Fechter) verlängert die Tracking-Zeit.
-                if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8 || activeMindARId === 9) {
+                if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8) {
                     if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
                         activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
                     }
@@ -838,7 +847,7 @@
                                 let curAcc = 1.5;
 
                                 if (realPos) {
-                                    // Falls beim Auslösen noch kein GNSS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
+                                    // Falls beim Auslösen noch kein GPS verfügbar war, wird es beim ersten Fix als Nullpunkt gesetzt.
                                     if (!simulationStartRealPos) {
                                         simulationStartRealPos = { lat: realPos.latitude, lon: realPos.longitude };
                                     }
@@ -863,8 +872,8 @@
                             if (realPos) lastPos = realPos;
                         }
                     } 
-                    // PRÜFT AUCH FÜR DIE NEUEN INDIZES 7, 8 UND 9 DEN STANDARD MODUS
-                    else if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8 || activeMindARId === 9) {
+                    // PRÜFT AUCH FÜR DIE INDIZES 7 UND 8 DEN STANDARD MODUS
+                    else if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8) {
                         // Standard MindAR Anzeige aktiv
                         // Zeige das Modell, solange der Timer (Nachbrennzeit) noch nicht abgelaufen ist.
                         if (Date.now() < activeMindAREndTime) showStandardMindAR = true;
@@ -873,33 +882,16 @@
                 }
 
                 // Steuerung MindAR-Modelle (Ein- und Ausblenden je nach Status)
-                // Object.keys iteriert über alle hinterlegten Modelle.
                 Object.keys(mindARMeshes).forEach(idStr => {
-                    const id = parseInt(idStr); // Wandelt den String-Schlüssel in eine echte Zahl um
+                    const id = parseInt(idStr); 
                     if (mindARMeshes[id]) {
                         mindARMeshes[id].forEach(mesh => {
-                            // Wenn der aktuelle Anker zu diesem Modell gehört, wird es sichtbar gemacht
                             if (showStandardMindAR && mesh.userData.anchorIndex === activeMindARId) {
-                                
-                                // Ist das Modell gerade dabei, eine Animation abzuspielen? Dann verstecke das statische Modell!
-                                if (mesh.userData.animMesh && mesh.userData.animMesh.visible) {
-                                    mesh.visible = false;
-                                } else {
-                                    // Ansonsten: Zeige ganz normal das statische Modell
-                                    mesh.visible = true;
-                                    if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
-                                }
-                                
-                                // Wenn das Modell ein Partikelsystem (Wasser) hat, wird es geupdatet
+                                mesh.visible = true;
                                 if(mesh.userData.particles) updateWaterEffect(mesh.userData.particles);
-                                
-                                // Sauberer UI-Aufruf (steuert Text, Kupferstich und den 5s-Hinweis zentral)
                                 updateUIForModel(id, "MindAR");
                             } else {
-                                // Ansonsten wird es versteckt
                                 mesh.visible = false;
-                                // Auch ein eventuell vorhandenes animiertes Modell muss versteckt werden
-                                if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
                             }
                         });
                     }
@@ -938,7 +930,7 @@
                          gnssGroup.rotation.set(0, 0, 0);
                     }
 
-                    // Führt die Berechnungen für GNSS-Distanzen aus
+                    // Führt die Berechnungen für GPS-Distanzen aus
                     updateGNSSObjects(); 
                     // Aktualisiert den Text auf dem Bildschirm
                     updateGNSSUI(); 
@@ -946,10 +938,14 @@
                     // GNSS ausblenden, Kamera für Marker-Tracking zurücksetzen
                     gnssGroup.visible = false;
                     Object.keys(gnssMeshes).forEach(key => {
-                        if (gnssMeshes[key]) gnssMeshes[key].visible = false;
+                        if (gnssMeshes[key]) {
+                            gnssMeshes[key].visible = false;
+                            // NEU: Auch das animierte Modell wird ausgeblendet, falls es gerade abgespielt wird
+                            if (gnssMeshes[key].userData.animMesh) gnssMeshes[key].userData.animMesh.visible = false;
+                        }
                     });
                     // Kamera-Rotation zurücksetzen damit MindAR/ArUco sie korrekt verwaltet.
-                    // Ohne diesen Reset würde das Bild beim Wechsel von GNSS zu Marker schief hängen.
+                    // Ohne diesen Reset würde das Bild beim Wechsel von GPS zu Marker schief hängen.
                     camera.rotation.order = 'YXZ';
                     camera.rotation.set(0, 0, 0);
                     camera.quaternion.set(0, 0, 0, 1);
@@ -996,17 +992,17 @@
                      // Im GNSS Modus ist die Objekt-Rotation statisch, aber zur Info wird sie angezeigt
                      Object.keys(gnssMeshes).forEach(id => {
                          if(gnssMeshes[id].visible) currentRotY = gnssMeshes[id].rotation.y;
+                         // NEU: Wenn das Modell animiert ist, dessen Rotation auslesen
+                         if(gnssMeshes[id].userData.animMesh && gnssMeshes[id].userData.animMesh.visible) currentRotY = gnssMeshes[id].userData.animMesh.rotation.y;
                      });
                 } 
                 else if (isMarkerTracking && activeMindARId !== -1) {
                      // Holt sich die Rotation, falls gerade ein Bild (MindAR) betrachtet wird
                      Object.keys(mindARMeshes).forEach(idStr => {
                          const id = parseInt(idStr);
-                         if (AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
+                         if (AR_MODELS[id].mindTargetIndexes && AR_MODELS[id].mindTargetIndexes.includes(activeMindARId) && mindARMeshes[id]) {
                              mindARMeshes[id].forEach(mesh => {
                                  if (mesh.visible) currentRotY = mesh.rotation.y;
-                                 // Holt die Rotation auch vom animierten Modell, falls das statische ausgeblendet ist
-                                 if (mesh.userData.animMesh && mesh.userData.animMesh.visible) currentRotY = mesh.userData.animMesh.rotation.y;
                              });
                          }
                      });
@@ -1225,8 +1221,14 @@
                     // 2. GNSS Version (Positionsbasiert)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
-                        // Bei GNSS-Modellen wird die Skalierung deutlich reduziert, da der Raum riesig ist.
-                        const gnssScale = config.scale * 0.05; 
+                        // Bei GPS-Modellen wird die Skalierung deutlich reduziert, da der Raum riesig ist.
+                        let gnssScale = config.scale * 0.05; 
+                        
+                        // Spezielle Größenanpassung für die Blumengarten-Statue
+                        if (id === 1) {
+                            gnssScale = config.scale * 0.015; 
+                        }
+                        
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
                         // Start-Drehung aus den Einstellungen auslesen und in Bogenmaß umwandeln.
@@ -1242,6 +1244,51 @@
                              modelGNSS.add(measureBar);
                              modelGNSS.userData.measureBar = measureBar;
                         }
+                        
+                        // --- NEU: ANIMIERTES MODELL LADEN FÜR TARGET 9 (GNSS / Simulation) ---
+                        // Da das Modell nun in der Grid-Simulation steht, laden wir das Animationsmodell hier rein!
+                        if (id === 2) {
+                            loader.load('3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb', (gltfAnim) => {
+                                // Klonen des Modells
+                                const animGNSS = gltfAnim.scene.clone();
+                                
+                                // Größe und Drehung direkt vom Basismodell kopieren
+                                animGNSS.scale.copy(modelGNSS.scale);
+                                animGNSS.rotation.copy(modelGNSS.rotation);
+                                
+                                // Das Modell ist zu Beginn unsichtbar, bis der Nutzer es antippt
+                                animGNSS.visible = false;
+                                
+                                // Prüfen, ob Animationen (Knochen) existieren
+                                if (gltfAnim.animations && gltfAnim.animations.length > 0) {
+                                    // Mixer (Stoppuhr) erstellen und speichern
+                                    const mixer = new THREE.AnimationMixer(animGNSS);
+                                    mixers.push(mixer);
+                                    
+                                    // Wir laden die erste Animation im Modell
+                                    const action = mixer.clipAction(gltfAnim.animations[0]);
+                                    // Befehl: Nur 1 Mal abspielen!
+                                    action.setLoop(THREE.LoopOnce, 1);
+                                    // Wenn die Animation durch ist, im letzten Bild stoppen
+                                    action.clampWhenFinished = true;
+                                    
+                                    // In die unsichtbare Daten-Tasche (userData) des Basismodells stecken
+                                    modelGNSS.userData.animMesh = animGNSS;
+                                    modelGNSS.userData.animAction = action;
+                                    
+                                    // Das animierte Modell zum GNSS Grid hinzufügen
+                                    gnssGroup.add(animGNSS);
+                                    
+                                    // Event: Wenn die Animation vorbei ist, wieder auf statisch zurückschalten
+                                    mixer.addEventListener('finished', () => {
+                                        animGNSS.visible = false;
+                                        modelGNSS.visible = true;
+                                    });
+                                }
+                            });
+                        }
+                        // --- ENDE NEU ---
+
                         modelGNSS.visible = false;
                         gnssGroup.add(modelGNSS);
                         gnssMeshes[id] = modelGNSS;
@@ -1254,8 +1301,7 @@
                         // Geht alle konfigurierten Bilder (Indizes) durch
                         config.mindTargetIndexes.forEach(targetIndex => {
                             // Includes prüft, ob die Zahl im angegebenen Array existiert.
-                            // HINZUGEFÜGT: Auch Target 9 (Borghesischer Fechter) wird geprüft.
-                            if ([1, 2, 3, 4, 5, 6, 7, 8, 9].includes(targetIndex) && mindarAnchors[targetIndex]) {
+                            if ([1, 2, 3, 4, 5, 6, 7, 8].includes(targetIndex) && mindarAnchors[targetIndex]) {
                                 const modelMind = gltf.scene.clone();
                                 let mindScale = config.scale * 0.015; // Anpassung der Skalierung für Bilder
 
@@ -1295,54 +1341,6 @@
                                 mindarAnchors[targetIndex].group.add(modelMind); // An den Anker der 3D-Welt heften
                                 mindARMeshes[id].push(modelMind); // In die Liste packen
                                 modelMind.visible = false;
-                                
-                                // --- ANIMIERTES MODELL LADEN FÜR TARGET 9 (Borghesischer Fechter) ---
-                                // Wenn wir gerade den Fechter (ID 2) für das Bild 9 vorbereiten...
-                                if (id === 2 && targetIndex === 9) {
-                                    // ...dann laden wir zusätzlich das spezielle, animierte Modell
-                                    loader.load('3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb', (gltfAnim) => {
-                                        // Einen Klon des animierten Modells erstellen
-                                        const animMind = gltfAnim.scene.clone();
-                                        
-                                        // Skalierung, Rotation und Position exakt 1:1 vom statischen Fechter übernehmen
-                                        animMind.scale.copy(modelMind.scale);
-                                        animMind.position.copy(modelMind.position);
-                                        animMind.rotation.copy(modelMind.rotation);
-                                        
-                                        // Das Modell ist zu Beginn unsichtbar, bis der Nutzer klickt
-                                        animMind.visible = false;
-                                        
-                                        // Prüfen, ob wirklich Animationen ("Knochen") in der Datei gefunden wurden
-                                        if (gltfAnim.animations && gltfAnim.animations.length > 0) {
-                                            // Ein "Mixer" ist die Stoppuhr, die eine Animation steuert
-                                            const mixer = new THREE.AnimationMixer(animMind);
-                                            mixers.push(mixer); // In der globalen Liste speichern, damit es pro Frame geupdatet wird
-                                            
-                                            // Die erste Animation der Datei auswählen
-                                            const action = mixer.clipAction(gltfAnim.animations[0]);
-                                            // Befehl, die Animation nur genau 1 Mal abzuspielen
-                                            action.setLoop(THREE.LoopOnce, 1);
-                                            // Wenn die Animation fertig ist, bleibt sie im letzten Bild stehen
-                                            action.clampWhenFinished = true;
-                                            
-                                            // Das animierte Modell wird virtuell in die "Tasche" (userData) des statischen Modells gesteckt.
-                                            // So können wir bei einem Klick auf das statische Modell sofort auf das animierte zugreifen!
-                                            modelMind.userData.animMesh = animMind;
-                                            modelMind.userData.animAction = action;
-                                            
-                                            // Das animierte Modell wird an den exakt selben Ankerpunkt geheftet
-                                            mindarAnchors[targetIndex].group.add(animMind);
-                                            
-                                            // Wenn die Animation einmal durchgespielt ist, verstecken wir das animierte Modell 
-                                            // und schalten zurück auf das statische.
-                                            mixer.addEventListener('finished', () => {
-                                                animMind.visible = false;
-                                                modelMind.visible = true;
-                                            });
-                                        }
-                                    });
-                                }
-
                             }
                         });
                     }
@@ -1350,7 +1348,7 @@
             });
         }
 
-        // Aktualisiert die Anzeige der GNSS-Daten auf dem Bildschirm
+        // Aktualisiert die Anzeige der GPS-Daten auf dem Bildschirm
         function updateGNSSUI() {
             if (!lastPos) {
                  statusText.innerHTML = "Warte auf GNSS Signal...";
@@ -1442,39 +1440,41 @@
 
                 // Wenn noch kein nahes gefunden wurde und es innerhalb der Sichtweite ist
                 if (!closestModelFound && dist < VISIBILITY_DISTANCE) {
-                    mesh.visible = true;
                     closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
 
-                    // Basis-Höhe für Objekte und den Boden (-2 bedeutet zwei Meter unter Kamera-Höhe).
-                    const heightY = -2.0; 
+                    // Basis-Höhe für Objekte ist jetzt exakt 0.0 (der echte Boden).
+                    const heightY = 0.0; 
                     
                     // WICHTIG: Berechnung des Offsets (in Metern) relativ zur aktuellen 'lastPos'.
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                     
                     /* 
-                     * OPTISCHE TIEFEN-KORREKTUR (NUR VERKLEINERN, KEIN HERANZIEHEN):
-                     * Die Modelle liegen auf ihrer EXAKTEN GNSS-Distanz. 
-                     * (X und Z Achse bleiben zu 100% unangetastet!).
-                     * Um den optischen Horizont-Effekt der Handykamera auszugleichen, 
-                     * verkleinern wir das Modell stattdessen sanft und linear, je weiter es weg ist.
-                     * Da es kleiner wird, aber auf der gleichen Position verbleibt, 
-                     * wird es optisch sichtbar in Richtung Boden (Y=-2.0) gedrückt.
+                     * REALE SKALIERUNG (1:1 METER-MAPPING)
                      */
-                    let perspectiveScale = 1.0;
-                    if (dist > 10.0) {
-                        // Leichte, lineare optische Verkleinerung für Objekte in der Ferne
-                        perspectiveScale = 1.0 - (dist / 150.0); 
-                        // Verhindern, dass das Modell zu winzig wird (Minimal auf 30% fixieren)
-                        if (perspectiveScale < 0.3) perspectiveScale = 0.3; 
+                    let finalScale = config.scale * 0.05;
+                    
+                    if (id === 1) {
+                        finalScale = config.scale * 0.015; 
                     }
                     
-                    // Finale Skalierung aus Basis-Skalierung und Tiefenkorrektur berechnen
-                    const baseScale = config.scale * 0.05;
-                    const finalScale = baseScale * perspectiveScale;
                     mesh.scale.set(finalScale, finalScale, finalScale);
 
                     // Positionierung anwenden (EXAKTE DISTANZ BLEIBT BEIBEHALTEN!)
                     mesh.position.set(offset.x, heightY, -offset.z);
+                    
+                    // NEU: Animiertes Modell exakt synchron zum statischen Modell mitziehen
+                    if (mesh.userData.animMesh) {
+                        mesh.userData.animMesh.scale.copy(mesh.scale);
+                        mesh.userData.animMesh.position.copy(mesh.position);
+                    }
+                    
+                    // NEU: Steuert, ob gerade das statische oder das springende Modell zu sehen ist
+                    if (mesh.userData.animMesh && mesh.userData.animMesh.visible) {
+                        mesh.visible = false;
+                    } else {
+                        mesh.visible = true;
+                        if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
+                    }
                     
                     // Sauberes, zentrales UI-Update. "sourceName" wird genutzt um den Dauerschleifen-Fehler zu beheben.
                     updateUIForModel(id, isSimulatedPos ? "Pos. Simulation" : "GNSS"); 
@@ -1482,6 +1482,7 @@
                 } else {
                     // Alle anderen Modelle werden ausgeblendet, damit das Handy nicht laggt
                     mesh.visible = false;
+                    if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
                 }
             });
             
@@ -1502,7 +1503,7 @@
             }
         }
 
-        // Haversine-Formel: Rechnet die Entfernung zwischen zwei GNSS-Koordinaten auf der gekrümmten Erdoberfläche aus.
+        // Haversine-Formel: Rechnet die Entfernung zwischen zwei GPS-Koordinaten auf der gekrümmten Erdoberfläche aus.
         function haversineDist(lat1, lon1, lat2, lon2) {
             const R = 6371e3; // Erdradius in Metern
             const rad = Math.PI/180;
@@ -1512,7 +1513,7 @@
             return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1-a)); // Gibt die Distanz in Metern zurück
         }
 
-        // Rechnet GNSS-Koordinaten in ein lokales Meter-Koordinatensystem für Three.js (X und Z) um.
+        // Rechnet GPS-Koordinaten in ein lokales Meter-Koordinatensystem für Three.js (X und Z) um.
         function calcOffset(lat1, lon1, lat2, lon2) {
             const R = 6378137; // Erdradius am Äquator
             const dLat = (lat2 - lat1) * Math.PI / 180; const dLon = (lon2 - lon1) * Math.PI / 180;
@@ -1661,11 +1662,11 @@
                     orientBtn.style.background = '#4f4'; 
                 }
             });
-            // Nach kurzer Verzögerung wird das GNSS des Handys (Geolocation API) aktiviert
+            // Nach kurzer Verzögerung wird das GPS des Handys (Geolocation API) aktiviert
             setTimeout(() => { if (navigator.geolocation) { navigator.geolocation.watchPosition(onPos, err => console.warn(err), { enableHighAccuracy: true, maximumAge: 5000, timeout: 20000 }); } }, 1500);
         }
 
-        // Wird vom Browser aufgerufen, sobald neue GNSS-Daten vom Sensor ankommen
+        // Wird vom Browser aufgerufen, sobald neue GPS-Daten vom Sensor ankommen
         function onPos(pos) {
             realPos = { latitude: pos.coords.latitude, longitude: pos.coords.longitude, accuracy: pos.coords.accuracy || 5 };
             if (!isSimulatedPos) {
@@ -1691,7 +1692,7 @@
         // Malt den kleinen roten Punkt (Nutzer) auf die Leaflet Karte
         function drawUserOnMap(p) {
             if (!userLayer) return; userLayer.clearLayers(); // Alten Punkt löschen
-            // Der Kreis repräsentiert die GNSS-Ungenauigkeit (je ungenauer, desto größer der Kreis)
+            // Der Kreis repräsentiert die GPS-Ungenauigkeit (je ungenauer, desto größer der Kreis)
             L.circle([p.latitude, p.longitude], { radius: Math.max(p.accuracy, 4), color: 'rgba(255,0,0,0.6)', fillColor: 'rgba(255,0,0,0.12)', weight: 1 }).addTo(userLayer);
             // Baut eine kleine SVG-Vektorgrafik für den Pfeil und dreht ihn mit dem Heading-Winkel
             const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><g transform="translate(24,24) rotate(${heading})"><path d="M0,-16 L6,0 L0,-6 L-6,0 Z" fill="red"/><circle cx="0" cy="10" r="3" fill="red"/></g></svg>`;
@@ -1850,11 +1851,15 @@
             const ids = Object.keys(AR_MODELS);
             ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z -= 0.2;
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
+                
+                // Dreht das GPS Modell und (falls vorhanden) direkt auch das animierte Kind-Modell mit
+                if(gnssMeshes[id]) {
+                    if (gnssMeshes[id].visible) gnssMeshes[id].rotation.y -= 0.2;
+                    if (gnssMeshes[id].userData.animMesh && gnssMeshes[id].userData.animMesh.visible) gnssMeshes[id].userData.animMesh.rotation.y -= 0.2;
+                }
+                
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { 
                     if(m.visible) m.rotation.y -= 0.2; 
-                    // Auch animierte Modelle rotieren, falls vorhanden und gerade sichtbar
-                    if (m.userData.animMesh && m.userData.animMesh.visible) m.userData.animMesh.rotation.y -= 0.2;
                 });
             });
         });
@@ -1864,10 +1869,14 @@
             const ids = Object.keys(AR_MODELS);
              ids.forEach(id => {
                 if(loadedMeshes[id] && loadedMeshes[id].visible) loadedMeshes[id].rotation.z += 0.2;
-                if(gnssMeshes[id] && gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
+                
+                if(gnssMeshes[id]) {
+                    if (gnssMeshes[id].visible) gnssMeshes[id].rotation.y += 0.2;
+                    if (gnssMeshes[id].userData.animMesh && gnssMeshes[id].userData.animMesh.visible) gnssMeshes[id].userData.animMesh.rotation.y += 0.2;
+                }
+                
                 if(mindARMeshes[id]) mindARMeshes[id].forEach(m => { 
                     if(m.visible) m.rotation.y += 0.2; 
-                    if (m.userData.animMesh && m.userData.animMesh.visible) m.userData.animMesh.rotation.y += 0.2;
                 });
             });
         });
@@ -1896,15 +1905,15 @@
             let objectsToCheck =[];
             // Sammelt alle derzeit sichtbaren Objekte zusammen, die vom Raycaster geprüft werden sollen
             Object.values(loadedMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
-            Object.values(gnssMeshes).forEach(m => { if(m.visible) objectsToCheck.push(m); });
             Object.values(mindARMeshes).forEach(meshArray => {
-                if (Array.isArray(meshArray)) { 
-                    meshArray.forEach(m => { 
-                        if(m.visible) objectsToCheck.push(m); 
-                        // Fügt das animierte Modell in die Prüfung ein, falls es gerade abgespielt wird
-                        if(m.userData.animMesh && m.userData.animMesh.visible) objectsToCheck.push(m.userData.animMesh);
-                    }); 
-                }
+                if (Array.isArray(meshArray)) { meshArray.forEach(m => { if(m.visible) objectsToCheck.push(m); }); }
+            });
+            
+            // Sucht auch explizit in der GPS-Gruppe nach dem statischen und animierten Modell
+            Object.values(gnssMeshes).forEach(m => { 
+                if(m.visible) objectsToCheck.push(m); 
+                // NEU: Fügt das animierte Modell in die Prüfung ein, falls es gerade abgespielt wird
+                if(m.userData.animMesh && m.userData.animMesh.visible) objectsToCheck.push(m.userData.animMesh);
             });
             
             if(objectsToCheck.length === 0) return;
@@ -1917,55 +1926,57 @@
                 
                 // Modelle bestehen oft aus vielen Einzelteilen (Augen, Arme etc.). Diese Schleife läuft "hoch" zum übergeordneten Hauptmodell.
                 while(clickedObj.parent && clickedObj.parent.type !== 'Scene') {
-                     // Prüft für GNSS-Modelle
+                     
+                     // Prüft für GPS/Simulations-Modelle (Hier liegt nun auch unser Fechter Target 9!)
                      for(let[key, val] of Object.entries(gnssMeshes)) {
-                         if(val === clickedObj) {
-                             activeLink = AR_MODELS[key].link;
-                             let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
-                             updateUIForModel(parseInt(key), label);
+                         
+                         let isStaticHit = (val === clickedObj);
+                         let isAnimHit = (val.userData.animMesh === clickedObj);
+                         
+                         // Falls das statische Modell ODER das animierte Modell angetippt wurde
+                         if(isStaticHit || isAnimHit) {
+                             
+                             // --- NEU: ANIMATIONS-WECHSEL ---
+                             // Wenn das Modell eine versteckte Animation besitzt (also der Nutzer gerade darauf geklickt hat)
+                             if (val.userData.animMesh && !val.userData.animMesh.visible) {
+                                 // Blendet das statische Modell sofort aus
+                                 val.visible = false;
+                                 // Blendet das animierte Modell ein
+                                 val.userData.animMesh.visible = true;
+                                 
+                                 if (val.userData.animAction) {
+                                     // Spult die Animation zurück auf 0
+                                     val.userData.animAction.reset();
+                                     // Startet die Jump-Animation
+                                     val.userData.animAction.play();
+                                 }
+                                 
+                                 // Aktualisiert das UI-Fenster kurz, ohne den Link aufzurufen
+                                 let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
+                                 updateUIForModel(parseInt(key), label);
+                                 return; // Der Vorgang wird gestoppt (Link öffnet sich nicht)
+                             } 
+                             // Wenn keine Animation existiert (z.B. andere Modelle) oder sie schon läuft
+                             else {
+                                 activeLink = AR_MODELS[key].link;
+                                 let label = isSimulatedPos ? "Pos. Simulation" : "GNSS";
+                                 updateUIForModel(parseInt(key), label);
+                                 window.open(activeLink, '_blank');
+                                 return;
+                             }
+                         }
+                     }
+                     
+                     // Prüft für herkömmliche MindAR-Modelle
+                     for(let id in mindARMeshes) {
+                         if(mindARMeshes[id].includes(clickedObj)) {
+                             activeLink = AR_MODELS[id].link;
+                             updateUIForModel(parseInt(id), "MindAR");
                              window.open(activeLink, '_blank');
                              return;
                          }
                      }
                      
-                     // Prüft für MindAR-Modelle
-                     for(let id in mindARMeshes) {
-                         // Falls das geklickte Objekt entweder das statische oder das animierte Modell ist
-                         let isStaticHit = mindARMeshes[id].includes(clickedObj);
-                         let isAnimHit = mindARMeshes[id].some(m => m.userData.animMesh === clickedObj);
-                         
-                         if(isStaticHit || isAnimHit) {
-                             // Wir holen uns das zuständige statische "Basis-Modell", in dem die Daten liegen
-                             let baseMesh = isStaticHit ? clickedObj : mindARMeshes[id].find(m => m.userData.animMesh === clickedObj);
-                             
-                             // Wenn das geklickte Modell ein verstecktes, animiertes Modell besitzt
-                             // (also der Nutzer gerade auf das statische Target 9 geklickt hat)
-                             if (baseMesh.userData.animMesh && !baseMesh.userData.animMesh.visible) {
-                                 // Blendet das statische Modell sofort aus
-                                 baseMesh.visible = false;
-                                 // Blendet das animierte Modell ein
-                                 baseMesh.userData.animMesh.visible = true;
-                                 
-                                 if (baseMesh.userData.animAction) {
-                                     // Spult die Animation zurück auf 0
-                                     baseMesh.userData.animAction.reset();
-                                     // Startet die Jump-Animation
-                                     baseMesh.userData.animAction.play();
-                                 }
-                                 
-                                 // Aktualisiert das UI-Fenster, ohne eine Webseite zu öffnen
-                                 updateUIForModel(parseInt(id), "MindAR");
-                                 return; // Der Vorgang wird gestoppt (Link öffnet sich nicht)
-                             } 
-                             // Wenn keine Animation existiert (z.B. Target 1-8) ODER das animierte Modell bereits läuft
-                             else {
-                                 activeLink = AR_MODELS[id].link;
-                                 updateUIForModel(parseInt(id), "MindAR");
-                                 window.open(activeLink, '_blank'); // Öffnet den Link
-                                 return;
-                             }
-                         }
-                     }
                      // Geht eine Hierarchie-Ebene im Modell höher
                      clickedObj = clickedObj.parent;
                 }
