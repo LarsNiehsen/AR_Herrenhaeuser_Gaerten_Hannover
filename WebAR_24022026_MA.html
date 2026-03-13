@@ -761,8 +761,10 @@
                         // Simulation Fontäne (Position 0) aktivieren
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
-                        // Simulation Blumengarten (Trigger 4-6) aktivieren
-                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                        // Simulation NiederdeutscherBlumengarten (Trigger 4-6) aktivieren
+                        // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt, 
+                        // damit sie direkt mittig im Sichtfeld erscheint.
+                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8) {
                          // Standard-Timer für Image Tracking aktivieren.
                          // HIER SIND DIE INDIZES 7 UND 8 MIT DEN GLEICHEN AKTIONEN WIE 1 DABEI.
