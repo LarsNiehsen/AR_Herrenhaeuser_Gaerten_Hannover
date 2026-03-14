@@ -373,7 +373,7 @@
     <!-- UI: Höhen-Slider Menü (Vertikal auf der linken Seite). Verstellt die Höhe der Kamera. -->
     <div id="height-control" class="ui-panel">
         <span>Höhe</span>
-        <!-- Der Bereich geht von stark unterirdisch (-10.0) bis hoch (10.0) -->
+        <!-- Der Bereich geht von tief unterirdisch (-10.0) bis sehr hoch (10.0) -->
         <input type="range" orient="vertical" id="heightSlider" min="-10.0" max="10.0" step="0.1" value="1.6">
     </div>
 
@@ -720,7 +720,7 @@
             // camera.far gibt an, wie weit die Kamera in die Ferne blicken kann, bevor Objekte abgeschnitten werden.
             camera.far = 50000; camera.updateProjectionMatrix();
             
-            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für den Bildschirm umrechnet
+            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für Bildschirm umrechnet
             // setClearColor auf Transparenz (0), damit das Kameravideo im Hintergrund sichtbar bleibt
             renderer.setClearColor(0x000000, 0);
             
@@ -786,7 +786,7 @@
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = 0.0; // Exakt am Boden (wurde vorher auf 0.0 korrigiert)
+            gridHelper1m.position.y = 0.0; // Exakt am Boden
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
@@ -812,7 +812,6 @@
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
                         // Simulation NiederdeutscherBlumengarten (Trigger 4-6) aktivieren
-                        // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt.
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 9) {
                         // Lokale Platzierung des Borghesischen Fechters (Target 9) aktivieren
@@ -844,8 +843,8 @@
                             const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                             gnssMeshes[2].rotation.y = camEuler.y + THREE.MathUtils.degToRad(275);
                             
-                            // Korrekte Skalierung anwenden
-                            const finalScale = AR_MODELS[2].scale * 0.05;
+                            // Korrekte Skalierung anwenden (1:1 Meter-Mapping für GNSS-Objekte)
+                            const finalScale = AR_MODELS[2].scale * 0.01;
                             gnssMeshes[2].scale.set(finalScale, finalScale, finalScale);
                             
                             // Dieselben Werte auf das animierte Modell kopieren, damit der Wechsel unsichtbar ist
@@ -1295,8 +1294,8 @@
                     // 2. GNSS Version (Positionsbasiert)
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
-                        // Bei GNSS-Modellen wird die Skalierung deutlich reduziert, da der Raum riesig ist.
-                        let gnssScale = config.scale * 0.05; 
+                        // Bei GNSS-Modellen wird die Skalierung deutlich reduziert, um echte Meter zu simulieren
+                        let gnssScale = config.scale * 0.01; 
                         
                         // Spezielle Größenanpassung für die Blumengarten-Statue
                         if (id === 1) {
@@ -1338,6 +1337,9 @@
                                 // Größe und Drehung direkt vom Basismodell kopieren
                                 animGNSS.scale.copy(modelGNSS.scale);
                                 animGNSS.rotation.copy(modelGNSS.rotation);
+                                
+                                // Eine zusätzliche Kopie der Position ist hier wichtig als Initialwert
+                                animGNSS.position.copy(modelGNSS.position);
                                 
                                 // Das Modell ist zu Beginn unsichtbar, bis der Nutzer es antippt
                                 animGNSS.visible = false;
@@ -1382,7 +1384,7 @@
                                     // 4. Alles wieder sauber auf den Anfangszustand zurücksetzen
                                     animGNSS.visible = false;
                                     animGNSS.scale.copy(modelGNSS.scale);
-                                    action.reset();
+                                    action.stop(); // Stoppt die Animation wieder vollständig
                                     // ------------------------------------------------
                                     
                                     // Event: Wenn die Animation vorbei ist, wieder auf statisch zurückschalten
@@ -1461,7 +1463,7 @@
                 closestObjForArrow = AR_MODELS[2];
                 const compassStr = Math.round(heading) + "°";
                 statusText.innerHTML = `
-                    <span class="label-small">Modus</span> <span class="val-highlight">AR (lokal in sichbereich)</span><br>
+                    <span class="label-small">Modus</span> <span class="val-highlight">AR (lokal in Sichtbereich)</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
@@ -1520,7 +1522,7 @@
             if (isFechterPlacedLocally && Date.now() < localFechterEndTime && gnssMeshes[2]) {
                 arrowContainer.style.opacity = 1;
                 
-                // Position des virtuellen 3D-Modells auslesen
+                // Position des virtuellen 3D-Modells im Raum auslesen
                 const targetPos = new THREE.Vector3();
                 gnssMeshes[2].getWorldPosition(targetPos);
                 
@@ -1528,7 +1530,7 @@
                 const camPos = new THREE.Vector3();
                 camera.getWorldPosition(camPos);
                 
-                // Vektor berechnen, der von der Kamera zum Modell zeigt (Höhe Y wird ignoriert)
+                // Vektor berechnen, der exakt von der Kamera zum Modell zeigt (Höhe Y wird ignoriert)
                 const toTarget = new THREE.Vector3().subVectors(targetPos, camPos);
                 toTarget.y = 0;
                 toTarget.normalize();
@@ -1539,8 +1541,9 @@
                 camDir.y = 0;
                 camDir.normalize();
                 
-                // Den Winkel zwischen Blickrichtung und Modell berechnen
+                // Den Winkel zwischen der Blickrichtung und dem Modell berechnen
                 const angle = camDir.angleTo(toTarget);
+                // Mit einem Kreuzprodukt bestimmen wir, ob das Ziel links oder rechts von uns liegt
                 const cross = new THREE.Vector3().crossVectors(camDir, toTarget);
                 let relativeAngle = THREE.MathUtils.radToDeg(angle);
                 
@@ -1561,7 +1564,7 @@
             arrowContainer.style.opacity = 1;
             // Berechnet, in welchem Himmelsrichtungs-Winkel das Ziel liegt
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
-            // Relativer Winkel: Zieht die aktuelle Blickrichtung des Nutzer ab, um den Pfeil auf dem Bildschirm zu drehen
+            // Relativer Winkel: Zieht die aktuelle Blickrichtung des Nutzers ab, um den Pfeil auf dem Bildschirm zu drehen
             const relativeAngle = (bearing - heading + 360) % 360;
             // CSS Transform wird genutzt, um die Grafik zu rotieren
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
@@ -1577,6 +1580,14 @@
                     const mesh = gnssMeshes[id];
                     
                     if (id === 2) {
+                        // Sichert ab, dass das animierte Modell IMMER exakt am statischen klebt
+                        // Auch wenn der Nutzer z.B. über die Buttons das Modell dreht.
+                        if (mesh.userData.animMesh) {
+                            mesh.userData.animMesh.position.copy(mesh.position);
+                            mesh.userData.animMesh.rotation.copy(mesh.rotation);
+                            mesh.userData.animMesh.scale.copy(mesh.scale);
+                        }
+
                         // Steuert die Sichtbarkeit (statisch vs. animiert)
                         if (mesh.userData.animMesh && mesh.userData.animMesh.visible) {
                             mesh.visible = false;
@@ -1643,7 +1654,7 @@
                     /* 
                      * REALE SKALIERUNG (1:1 METER-MAPPING)
                      */
-                    let finalScale = config.scale * 0.05;
+                    let finalScale = config.scale * 0.01;
                     
                     if (id === 1) {
                         finalScale = config.scale * 0.015; 
@@ -1658,6 +1669,8 @@
                     if (mesh.userData.animMesh) {
                         mesh.userData.animMesh.scale.copy(mesh.scale);
                         mesh.userData.animMesh.position.copy(mesh.position);
+                        // Rotation muss hier nicht kopiert werden, da das GPS Modell starr ist,
+                        // außer es wird manuell über die Buttons gedreht (das ist dort abgesichert)
                     }
                     
                     // Steuert, ob gerade das statische oder das springende Modell zu sehen ist
@@ -2133,12 +2146,19 @@
                              if (val.userData.animMesh && !val.userData.animMesh.visible) {
                                  // Blendet das statische Modell sofort aus
                                  val.visible = false;
+                                 
+                                 // Ultimative Absicherung: Kopiert die exakten Welt-Koordinaten im Moment des Klicks
+                                 // So erscheint das animierte Modell garantiert exakt dort, wo das statische war.
+                                 val.userData.animMesh.position.copy(val.position);
+                                 val.userData.animMesh.rotation.copy(val.rotation);
+                                 val.userData.animMesh.scale.copy(val.scale);
+                                 
                                  // Blendet das animierte Modell ein
                                  val.userData.animMesh.visible = true;
                                  
                                  if (val.userData.animAction) {
-                                     // Spult die Animation zurück auf 0
-                                     val.userData.animAction.reset();
+                                     // Stoppt eventuell noch hängende Reste der Animation
+                                     val.userData.animAction.stop();
                                      // Startet die Jump-Animation
                                      val.userData.animAction.play();
                                  }
