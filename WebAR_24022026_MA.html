@@ -720,7 +720,7 @@
             // camera.far gibt an, wie weit die Kamera in die Ferne blicken kann, bevor Objekte abgeschnitten werden.
             camera.far = 50000; camera.updateProjectionMatrix();
             
-            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für Bildschirm umrechnet
+            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für den Bildschirm umrechnet
             // setClearColor auf Transparenz (0), damit das Kameravideo im Hintergrund sichtbar bleibt
             renderer.setClearColor(0x000000, 0);
             
@@ -786,7 +786,7 @@
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = 0.0; // Exakt am Boden
+            gridHelper1m.position.y = 0.0; // Exakt am Boden (wurde vorher auf 0.0 korrigiert)
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
@@ -812,6 +812,7 @@
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
                         // Simulation NiederdeutscherBlumengarten (Trigger 4-6) aktivieren
+                        // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt.
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 9) {
                         // Lokale Platzierung des Borghesischen Fechters (Target 9) aktivieren
@@ -843,8 +844,8 @@
                             const camEuler = new THREE.Euler().setFromQuaternion(camera.quaternion, 'YXZ');
                             gnssMeshes[2].rotation.y = camEuler.y + THREE.MathUtils.degToRad(275);
                             
-                            // Korrekte Skalierung anwenden (1:1 Meter-Mapping für GNSS-Objekte)
-                            const finalScale = AR_MODELS[2].scale * 0.01;
+                            // Korrekte Skalierung anwenden
+                            const finalScale = AR_MODELS[2].scale * 0.05;
                             gnssMeshes[2].scale.set(finalScale, finalScale, finalScale);
                             
                             // Dieselben Werte auf das animierte Modell kopieren, damit der Wechsel unsichtbar ist
@@ -854,7 +855,7 @@
                                 gnssMeshes[2].userData.animMesh.scale.copy(gnssMeshes[2].scale);
                             }
                             
-                            // Ziel der Lampe (Sonne) exakt auf den neuen Fechter richten, damit der Schatten sitzt
+                            // Ziel der Lampe (Sonne) exakt auf den Fechter richten, damit der Schatten sitzt
                             dl.target.position.copy(placementPos);
                         }
                     } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8) {
@@ -1099,7 +1100,7 @@
                 }
 
                 // Aktualisierung des Richtungspfeils (falls ein Ziel gefunden wurde)
-                if (closestObjForArrow) updateArrow();
+                if (closestObjForArrow || isFechterPlacedLocally) updateArrow();
                 else arrowContainer.style.opacity = 0;
 
                 // Zum Schluss wird das fertige Bild gerendert und an den Bildschirm gesendet
@@ -1295,14 +1296,14 @@
                     if (config.lat && config.lon) {
                         const modelGNSS = gltf.scene.clone();
                         // Bei GNSS-Modellen wird die Skalierung deutlich reduziert, um echte Meter zu simulieren
-                        let gnssScale = config.scale * 0.01; 
+                        let finalScale = config.scale * 0.05; 
                         
                         // Spezielle Größenanpassung für die Blumengarten-Statue
                         if (id === 1) {
-                            gnssScale = config.scale * 0.015; 
+                            finalScale = config.scale * 0.015; 
                         }
                         
-                        modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
+                        modelGNSS.scale.set(finalScale, finalScale, finalScale);
                         
                         // Start-Drehung aus den Einstellungen auslesen und in Bogenmaß umwandeln.
                         let initRotDeg = config.initRotation || 0;
@@ -1367,7 +1368,7 @@
                                     // Das animierte Modell zum GNSS Grid hinzufügen
                                     gnssGroup.add(animGNSS);
 
-                                    // --- EXTREM WICHTIGER GRAFIKKARTEN-WARMUP ---
+                                    // --- WICHTIGER GRAFIKKARTEN-WARMUP ---
                                     // Um das Stottern oder Nicht-Abspielen beim ersten Klick zu verhindern,
                                     // wird das Gerät hier heimlich zu einer Vorab-Berechnung gezwungen.
                                     
@@ -1378,13 +1379,18 @@
                                     // 2. Die Knochen-Animation für den Bruchteil einer Sekunde starten
                                     mixer.update(0.01);
                                     
-                                    // 3. Dem System befehlen, die Shader zu übersetzen
+                                    // 3. Dem System befehlen, die Shader zu übersetzen und einmal stumm zu rendern
                                     renderer.compile(scene, camera);
+                                    renderer.render(scene, camera);
                                     
                                     // 4. Alles wieder sauber auf den Anfangszustand zurücksetzen
                                     animGNSS.visible = false;
                                     animGNSS.scale.copy(modelGNSS.scale);
-                                    action.stop(); // Stoppt die Animation wieder vollständig
+                                    
+                                    // Die Stoppuhr stoppen, damit sie nicht im Hintergrund weiterläuft
+                                    action.stop(); 
+                                    // Setzt die Animation für den späteren Klick sauber zurück auf 0
+                                    action.reset(); 
                                     // ------------------------------------------------
                                     
                                     // Event: Wenn die Animation vorbei ist, wieder auf statisch zurückschalten
@@ -1431,7 +1437,7 @@
                                 // Auch hier greift die Regel für 7 und 8 implizit, 
                                 // da id === 1 für das Blumengarten-Modell gilt und 7/8 in dessen Array liegen.
                                 // Die Modelle werden auf den Boden gesetzt (-2.0)
-                                if (id === 1 || [4,5,6].includes(targetIndex)) {
+                                if (id === 1 ||[4,5,6].includes(targetIndex)) {
                                      modelMind.position.y = -2.0; 
                                 }
 
@@ -1463,7 +1469,7 @@
                 closestObjForArrow = AR_MODELS[2];
                 const compassStr = Math.round(heading) + "°";
                 statusText.innerHTML = `
-                    <span class="label-small">Modus</span> <span class="val-highlight">AR (lokal in Sichtbereich)</span><br>
+                    <span class="label-small">Modus</span> <span class="val-highlight">AR (lokal auf Grid im Sichtbereich)</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
@@ -1522,13 +1528,13 @@
             if (isFechterPlacedLocally && Date.now() < localFechterEndTime && gnssMeshes[2]) {
                 arrowContainer.style.opacity = 1;
                 
-                // Position des virtuellen 3D-Modells im Raum auslesen
-                const targetPos = new THREE.Vector3();
-                gnssMeshes[2].getWorldPosition(targetPos);
-                
                 // Aktuelle Position der Kamera auslesen
                 const camPos = new THREE.Vector3();
                 camera.getWorldPosition(camPos);
+                
+                // Position des virtuellen 3D-Modells auslesen
+                const targetPos = new THREE.Vector3();
+                gnssMeshes[2].getWorldPosition(targetPos);
                 
                 // Vektor berechnen, der exakt von der Kamera zum Modell zeigt (Höhe Y wird ignoriert)
                 const toTarget = new THREE.Vector3().subVectors(targetPos, camPos);
@@ -1540,10 +1546,10 @@
                 camDir.applyQuaternion(camera.quaternion);
                 camDir.y = 0;
                 camDir.normalize();
-                
+
                 // Den Winkel zwischen der Blickrichtung und dem Modell berechnen
                 const angle = camDir.angleTo(toTarget);
-                // Mit einem Kreuzprodukt bestimmen wir, ob das Ziel links oder rechts von uns liegt
+                // Mit einem Kreuzprodukt bestimmen, ob das Ziel links oder rechts von uns liegt
                 const cross = new THREE.Vector3().crossVectors(camDir, toTarget);
                 let relativeAngle = THREE.MathUtils.radToDeg(angle);
                 
@@ -1651,10 +1657,7 @@
                     // WICHTIG: Berechnung des Offsets (in Metern) relativ zur aktuellen 'lastPos'.
                     const offset = calcOffset(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
                     
-                    /* 
-                     * REALE SKALIERUNG (1:1 METER-MAPPING)
-                     */
-                    let finalScale = config.scale * 0.01;
+                    let finalScale = config.scale * 0.05;
                     
                     if (id === 1) {
                         finalScale = config.scale * 0.015; 
@@ -1669,7 +1672,7 @@
                     if (mesh.userData.animMesh) {
                         mesh.userData.animMesh.scale.copy(mesh.scale);
                         mesh.userData.animMesh.position.copy(mesh.position);
-                        // Rotation muss hier nicht kopiert werden, da das GPS Modell starr ist,
+                        // Rotation muss hier nicht kopiert werden, da das GNSS Modell starr ist,
                         // außer es wird manuell über die Buttons gedreht (das ist dort abgesichert)
                     }
                     
@@ -2157,8 +2160,8 @@
                                  val.userData.animMesh.visible = true;
                                  
                                  if (val.userData.animAction) {
-                                     // Stoppt eventuell noch hängende Reste der Animation
-                                     val.userData.animAction.stop();
+                                     // Setzt die Animation absolut sauber auf den Anfang (Frame 0) zurück
+                                     val.userData.animAction.reset();
                                      // Startet die Jump-Animation
                                      val.userData.animAction.play();
                                  }
