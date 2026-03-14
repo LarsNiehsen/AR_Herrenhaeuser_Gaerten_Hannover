@@ -817,7 +817,7 @@
                     } else if (i === 9) {
                         // Lokale Platzierung des Borghesischen Fechters (Target 9) aktivieren
                         // Anstatt GNSS-Koordinaten zu nutzen, wird das Modell stabil
-                        // in 2 Metern Entfernung genau in der aktuellen Blickrichtung des Nutzers platziert.
+                        // in 20 Metern Entfernung genau in der aktuellen Blickrichtung des Nutzers platziert.
                         isFechterPlacedLocally = true;
                         localFechterEndTime = Date.now() + 30000; // Für 30 Sekunden anzeigen
                         activeMindARId = -1; // Image Tracking beenden, wir nutzen das stabile Grid
@@ -832,8 +832,8 @@
                             dir.y = 0; // Auf der horizontalen Ebene bleiben, damit das Modell am Boden steht
                             dir.normalize();
                             
-                            // Punkt exakt 25 Meter vor der aktuellen Blickrichtung ermitteln
-                            const placementPos = dir.multiplyScalar(25);
+                            // Punkt exakt 20 Meter vor der aktuellen Blickrichtung ermitteln
+                            const placementPos = dir.multiplyScalar(20);
                             
                             // Modell an dieser errechneten Position verankern
                             gnssMeshes[2].position.set(placementPos.x, 0, placementPos.z);
@@ -1364,6 +1364,26 @@
                                     
                                     // Das animierte Modell zum GNSS Grid hinzufügen
                                     gnssGroup.add(animGNSS);
+
+                                    // --- EXTREM WICHTIGER GRAFIKKARTEN-WARMUP ---
+                                    // Um das Stottern oder Nicht-Abspielen beim ersten Klick zu verhindern,
+                                    // wird das Gerät hier heimlich zu einer Vorab-Berechnung gezwungen.
+                                    
+                                    // 1. Modell extrem winzig machen, damit man es nicht bemerkt
+                                    animGNSS.scale.set(0.0001, 0.0001, 0.0001);
+                                    animGNSS.visible = true;
+                                    
+                                    // 2. Die Knochen-Animation für den Bruchteil einer Sekunde starten
+                                    mixer.update(0.01);
+                                    
+                                    // 3. Dem System befehlen, die Shader zu übersetzen
+                                    renderer.compile(scene, camera);
+                                    
+                                    // 4. Alles wieder sauber auf den Anfangszustand zurücksetzen
+                                    animGNSS.visible = false;
+                                    animGNSS.scale.copy(modelGNSS.scale);
+                                    action.reset();
+                                    // ------------------------------------------------
                                     
                                     // Event: Wenn die Animation vorbei ist, wieder auf statisch zurückschalten
                                     mixer.addEventListener('finished', () => {
@@ -1445,7 +1465,7 @@
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
-                    <span class="label-small">Entfernung</span> <span class="val-highlight">2 m (fixiert)</span>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">20 m (fixiert)</span>
                 `;
                 return; // Normalen GNSS-Text überspringen
             }
@@ -1497,12 +1517,38 @@
         // Dreht den grünen Navigations-Pfeil am unteren Rand in die richtige Richtung
         function updateArrow() {
             // SONDERFALL: Target 9 (Lokaler Modus)
-            if (isFechterPlacedLocally && Date.now() < localFechterEndTime) {
+            if (isFechterPlacedLocally && Date.now() < localFechterEndTime && gnssMeshes[2]) {
                 arrowContainer.style.opacity = 1;
-                // Berechnet den Winkel aus der gemerkten Start-Richtung und der aktuellen Blickrichtung.
-                // Da das Modell lokal vor dem Nutzer "eingefroren" ist, zeigt der Pfeil immer dorthin, 
-                // wo der Nutzer im Moment des Bild-Scans hingeschaut hat.
-                const relativeAngle = (localFechterHeading - heading + 360) % 360;
+                
+                // Position des virtuellen 3D-Modells auslesen
+                const targetPos = new THREE.Vector3();
+                gnssMeshes[2].getWorldPosition(targetPos);
+                
+                // Aktuelle Position der Kamera auslesen
+                const camPos = new THREE.Vector3();
+                camera.getWorldPosition(camPos);
+                
+                // Vektor berechnen, der von der Kamera zum Modell zeigt (Höhe Y wird ignoriert)
+                const toTarget = new THREE.Vector3().subVectors(targetPos, camPos);
+                toTarget.y = 0;
+                toTarget.normalize();
+                
+                // Aktuelle Blickrichtung der Kamera berechnen
+                const camDir = new THREE.Vector3(0, 0, -1);
+                camDir.applyQuaternion(camera.quaternion);
+                camDir.y = 0;
+                camDir.normalize();
+                
+                // Den Winkel zwischen Blickrichtung und Modell berechnen
+                const angle = camDir.angleTo(toTarget);
+                const cross = new THREE.Vector3().crossVectors(camDir, toTarget);
+                let relativeAngle = THREE.MathUtils.radToDeg(angle);
+                
+                // Falls das Modell links von der Kamera liegt, muss der Winkel umgekehrt werden
+                if (cross.y > 0) {
+                    relativeAngle = 360 - relativeAngle;
+                }
+                
                 arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
                 return; // Beendet die Funktion hier, ignoriert echte GNSS-Daten
             }
@@ -1515,7 +1561,7 @@
             arrowContainer.style.opacity = 1;
             // Berechnet, in welchem Himmelsrichtungs-Winkel das Ziel liegt
             const bearing = calculateBearing(lastPos.latitude, lastPos.longitude, closestObjForArrow.lat, closestObjForArrow.lon);
-            // Relativer Winkel: Zieht die aktuelle Blickrichtung des Nutzers ab, um den Pfeil auf dem Bildschirm zu drehen
+            // Relativer Winkel: Zieht die aktuelle Blickrichtung des Nutzer ab, um den Pfeil auf dem Bildschirm zu drehen
             const relativeAngle = (bearing - heading + 360) % 360;
             // CSS Transform wird genutzt, um die Grafik zu rotieren
             arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
