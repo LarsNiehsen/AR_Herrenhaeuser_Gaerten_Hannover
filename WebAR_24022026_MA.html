@@ -1137,7 +1137,7 @@
                     statusText.innerHTML = "<span style='color:#4f4'>Text erkannt:<br>Niederdeutscher Blumengarten!</span>";
                     
                     // Simulation starten
-                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                 }
             } catch (err) {
                 // Fängt Abstürze ab, falls die OCR-Engine crasht
@@ -1156,7 +1156,7 @@
             /* 
              * Kompasswerte (correctedHeading) laufen auf der Kompassrose immer im Uhrzeigersinn 
              * (0 Grad = Nord, 90 Grad = Ost). Das mathematische System der 3D-Engine erwartet 
-             * die Drehung um die sogenannte Hochachse (Z-Achse bzw. Alpha) jedoch gegen den Uhrzeigersinn.
+             * die Drehung um die Hochachse (Z-Achse bzw. Alpha) jedoch gegen den Uhrzeigersinn.
              * Aus diesem Grund wird der Winkel umgedreht, indem der Wert von 360 subtrahiert wird. 
              * Der Modulo-Operator (% 360) stellt zusätzlich sicher, dass der errechnete Wert 
              * sicher im Rahmen von 0 bis 359 Grad bleibt.
@@ -1333,7 +1333,7 @@
                         if (id === 2) {
                             loader.load('3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb', (gltfAnim) => {
                                 // Klonen des Modells
-                                const animGNSS = gltfAnim.scene.clone();
+                                const animGNSS = gltfAnim.scene;
                                 
                                 // Größe und Drehung direkt vom Basismodell kopieren
                                 animGNSS.scale.copy(modelGNSS.scale);

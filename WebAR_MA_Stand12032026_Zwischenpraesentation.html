@@ -673,7 +673,7 @@
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
                         // Simulation Blumengarten (Trigger 4-6)
-                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                        activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 1 || i === 2 || i === 3) {
                          // Standard-Timer für Image Tracking
                          activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
@@ -929,7 +929,7 @@
                     statusText.innerHTML = "<span style='color:#4f4'>Text erkannt:<br>Niederdeutscher Blumengarten!</span>";
                     
                     // Simulation starten
-                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 22);
+                    activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                 }
             } catch (err) {
                 console.warn("OCR Fehler:", err);
