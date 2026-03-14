@@ -785,7 +785,7 @@
                             dir.normalize();
                             
                             // Punkt exakt 2 Meter vor der aktuellen Blickrichtung ermitteln
-                            const placementPos = dir.multiplyScalar(2);
+                            const placementPos = dir.multiplyScalar(10);
                             
                             // Modell an dieser errechneten Position verankern
                             gnssMeshes[2].position.set(placementPos.x, 0, placementPos.z);
@@ -1452,7 +1452,7 @@
                             mesh.visible = true;
                             if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
                         }
-                        updateUIForModel(id, "Lokales AR"); 
+                        updateUIForModel(id, "AR / lokal im Sichtbereich"); 
                     } else {
                         mesh.visible = false;
                         if (mesh.userData.animMesh) mesh.userData.animMesh.visible = false;
