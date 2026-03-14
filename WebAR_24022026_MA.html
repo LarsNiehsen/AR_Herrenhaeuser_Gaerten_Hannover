@@ -373,7 +373,8 @@
     <!-- UI: Höhen-Slider Menü (Vertikal auf der linken Seite). Verstellt die Höhe der Kamera. -->
     <div id="height-control" class="ui-panel">
         <span>Höhe</span>
-        <input type="range" orient="vertical" id="heightSlider" min="-4.0" max="10.0" step="0.1" value="1.6">
+        <!-- Der Bereich geht von stark unterirdisch (-10.0) bis hoch (10.0) -->
+        <input type="range" orient="vertical" id="heightSlider" min="-10.0" max="10.0" step="0.1" value="1.6">
     </div>
 
     <!-- Externe Skripte für Mapping und AR-Funktionalität einbinden.
@@ -536,6 +537,7 @@
         // Stellt sicher, dass das Modell ohne GNSS Wackeln exakt vor der Kamera platziert wird
         let isFechterPlacedLocally = false;
         let localFechterEndTime = 0;
+        let localFechterHeading = 0; // Speichert die Blickrichtung beim Auslösen zur Steuerung des Pfeils
 
         // Eine virtuelle Stoppuhr, um Animationen in der exakt richtigen Geschwindigkeit abzuspielen
         let clock = new THREE.Clock(); 
@@ -717,20 +719,62 @@
 
             // camera.far gibt an, wie weit die Kamera in die Ferne blicken kann, bevor Objekte abgeschnitten werden.
             camera.far = 50000; camera.updateProjectionMatrix();
+            
+            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für den Bildschirm umrechnet
             // setClearColor auf Transparenz (0), damit das Kameravideo im Hintergrund sichtbar bleibt
             renderer.setClearColor(0x000000, 0);
+            
+            // Die Berechnung von Schatten wird generell für die Engine aktiviert
+            renderer.shadowMap.enabled = true;
+            // Die Art des Schattens wird auf "weich" gestellt (hohe Qualität)
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
             
             // Beleuchtung hinzufügen
             // AmbientLight beleuchtet alles gleichmäßig, ohne Schatten zu werfen.
             scene.add(new THREE.AmbientLight(0xffffff, 1.0)); 
+            
             // DirectionalLight funktioniert wie eine Sonne und gibt gerichtet Licht von oben.
             const dl = new THREE.DirectionalLight(0xffffff, 2.0); 
-            dl.position.set(0, 500, 1000);
+            // Angepasst für optimalen Schattenwurf im lokalen AR-Modus
+            dl.position.set(-3, 4, -1);
+            // Es wird eingestellt, dass diese Lampe Schatten werfen darf
+            dl.castShadow = true;
+            
+            // Die Qualität (Auflösung) des Schattens wird hochgesetzt
+            dl.shadow.mapSize.width = 1024;
+            dl.shadow.mapSize.height = 1024;
+            // Der Bereich, in dem Schatten berechnet werden, wird genau definiert, um Rechenleistung zu sparen
+            dl.shadow.camera.near = 0.5;
+            dl.shadow.camera.far = 50; 
+            dl.shadow.camera.left = -10;
+            dl.shadow.camera.right = 10;
+            dl.shadow.camera.top = 10;
+            dl.shadow.camera.bottom = -10;
+            // Ein kleiner Korrekturwert verhindert Grafikfehler beim Schatten ("Shadow Acne")
+            dl.shadow.bias = -0.001; 
+            // Die Lampe wird endgültig zur Szene hinzugefügt
             scene.add(dl);
+            
+            // Das Ziel der Lampe wird in der Szene verankert, damit es auf das 3D-Modell zeigen kann
+            scene.add(dl.target);
+            dl.target.position.set(0, 0, -2);
 
             // Gruppen erstellen, um Marker und GNSS-Modelle sauber zu trennen
             markerGroup = new THREE.Group(); markerGroup.visible = false; scene.add(markerGroup);
             gnssGroup = new THREE.Group(); gnssGroup.visible = true; scene.add(gnssGroup);
+
+            // Eine unsichtbare Fläche (Boden) wird erstellt, um Schatten aufzufangen
+            const floorGeometry = new THREE.PlaneGeometry(200, 200);
+            // Ein spezielles Material wird gewählt, das nur Schatten darstellt und sonst unsichtbar ist
+            const floorMaterial = new THREE.ShadowMaterial({ opacity: 0.5 }); 
+            const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+            // Die Fläche wird flach auf den Boden gelegt
+            floorMesh.rotation.x = -Math.PI / 2; 
+            floorMesh.position.y = 0;
+            // Die Fläche wird angewiesen, Schatten zu empfangen
+            floorMesh.receiveShadow = true; 
+            // Die Schattenfläche wird in die GNSS-Gruppe gelegt, damit sie sich immer passend verhält
+            gnssGroup.add(floorMesh);
 
             // --- KORREKTUR: VISUELLES METRISCHES GITTER (AM BODEN BEI DEN FÜSSEN) ---
             /*
@@ -742,7 +786,7 @@
             
             // 1-Meter Raster (grau, 200 Kästchen)
             const gridHelper1m = new THREE.GridHelper(200, 200, 0x444444, 0x444444); 
-            gridHelper1m.position.y = 0.0; // Exakt am Boden
+            gridHelper1m.position.y = 0.0; // Exakt am Boden (wurde vorher auf 0.0 korrigiert)
             gnssGroup.add(gridHelper1m);
 
             // 10-Meter Raster (blau, 20 Kästchen -> also genau jede 10. Linie des grauen Gitters)
@@ -768,6 +812,7 @@
                         activateSimulation(target0Lat, target0Lon, 335);
                     } else if (i === 4 || i === 5 || i === 6) {
                         // Simulation NiederdeutscherBlumengarten (Trigger 4-6) aktivieren
+                        // Blickrichtung auf exakt 12.2 Grad (Bearing zur Statue) gesetzt.
                         activateSimulation(targetBlumengartenLat, targetBlumengartenLon, 12.2);
                     } else if (i === 9) {
                         // Lokale Platzierung des Borghesischen Fechters (Target 9) aktivieren
@@ -777,6 +822,9 @@
                         localFechterEndTime = Date.now() + 30000; // Für 30 Sekunden anzeigen
                         activeMindARId = -1; // Image Tracking beenden, wir nutzen das stabile Grid
                         
+                        // Wir merken uns exakt die Himmelsrichtung, in die wir beim Auslösen gerade schauen
+                        localFechterHeading = heading; 
+                        
                         if (gnssMeshes[2]) {
                             // Blickrichtung der Kamera im 3D-Raum auslesen
                             const dir = new THREE.Vector3(0, 0, -1);
@@ -785,7 +833,7 @@
                             dir.normalize();
                             
                             // Punkt exakt 2 Meter vor der aktuellen Blickrichtung ermitteln
-                            const placementPos = dir.multiplyScalar(10);
+                            const placementPos = dir.multiplyScalar(2);
                             
                             // Modell an dieser errechneten Position verankern
                             gnssMeshes[2].position.set(placementPos.x, 0, placementPos.z);
@@ -806,6 +854,9 @@
                                 gnssMeshes[2].userData.animMesh.rotation.copy(gnssMeshes[2].rotation);
                                 gnssMeshes[2].userData.animMesh.scale.copy(gnssMeshes[2].scale);
                             }
+                            
+                            // Ziel der Lampe (Sonne) exakt auf den neuen Fechter richten, damit der Schatten sitzt
+                            dl.target.position.copy(placementPos);
                         }
                     } else if (i === 1 || i === 2 || i === 3 || i === 7 || i === 8) {
                          // Standard-Timer für reines Image Tracking aktivieren (Bild klebt an Kamera).
@@ -1198,6 +1249,17 @@
         function loadModels() {
             const loader = new GLTFLoader(); // Hilfsprogramm von Three.js, das glb/gltf-Dateien lesen kann.
             const ids = Object.keys(AR_MODELS); // Holt alle Modell-IDs (0, 1, 2, 3, 33)
+            
+            // Hilfsfunktion zum Aktivieren von Schatten auf allen Modell-Teilen
+            const enableShadows = (modelObj) => {
+                modelObj.traverse((child) => {
+                    // Prüft, ob es sich um ein darstellbares 3D-Gitter (Mesh) handelt
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true; 
+                    }
+                });
+            };
 
             // Geht jedes Modell einzeln durch
             ids.forEach(idStr => {
@@ -1244,7 +1306,13 @@
                         modelGNSS.scale.set(gnssScale, gnssScale, gnssScale);
                         
                         // Start-Drehung aus den Einstellungen auslesen und in Bogenmaß umwandeln.
-                        const initRotDeg = config.initRotation || 0;
+                        let initRotDeg = config.initRotation || 0;
+                        
+                        // Spezieller Check, falls das Modell fertig lädt, während Target 9 (Simulation) bereits läuft
+                        if (id === 2 && isSimulatedPos && simulatedBaseCoords && simulatedBaseCoords.lat === targetFechterLat) {
+                            initRotDeg = 275;
+                        }
+                        
                         modelGNSS.rotation.y = THREE.MathUtils.degToRad(initRotDeg); 
 
                         if (id === 3 || id === 33) {
@@ -1256,6 +1324,9 @@
                              modelGNSS.add(measureBar);
                              modelGNSS.userData.measureBar = measureBar;
                         }
+                        
+                        // Aktiviert den Schattenwurf für das GNSS-Modell (speziell für Fechter ID 2 wichtig)
+                        enableShadows(modelGNSS);
                         
                         // --- ANIMIERTES MODELL LADEN FÜR TARGET 9 (GNSS / Simulation) ---
                         // Da das Modell nun in der Grid-Simulation steht, laden wir das Animationsmodell hier rein!
@@ -1270,6 +1341,9 @@
                                 
                                 // Das Modell ist zu Beginn unsichtbar, bis der Nutzer es antippt
                                 animGNSS.visible = false;
+                                
+                                // Aktiviert den Schattenwurf auch für das animierte Modell
+                                enableShadows(animGNSS);
                                 
                                 // Prüfen, ob Animationen (Knochen) existieren
                                 if (gltfAnim.animations && gltfAnim.animations.length > 0) {
@@ -1422,6 +1496,18 @@
         
         // Dreht den grünen Navigations-Pfeil am unteren Rand in die richtige Richtung
         function updateArrow() {
+            // SONDERFALL: Target 9 (Lokaler Modus)
+            if (isFechterPlacedLocally && Date.now() < localFechterEndTime) {
+                arrowContainer.style.opacity = 1;
+                // Berechnet den Winkel aus der gemerkten Start-Richtung und der aktuellen Blickrichtung.
+                // Da das Modell lokal vor dem Nutzer "eingefroren" ist, zeigt der Pfeil immer dorthin, 
+                // wo der Nutzer im Moment des Bild-Scans hingeschaut hat.
+                const relativeAngle = (localFechterHeading - heading + 360) % 360;
+                arrowEl.style.transform = `rotate(${relativeAngle}deg)`;
+                return; // Beendet die Funktion hier, ignoriert echte GNSS-Daten
+            }
+
+            // NORMALFALL: Standortbasiertes GNSS
             if (!lastPos || !closestObjForArrow) {
                 arrowContainer.style.opacity = 0; // Unsichtbar machen, wenn keine Daten da sind
                 return;
