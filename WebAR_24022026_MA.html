@@ -832,8 +832,8 @@
                             dir.y = 0; // Auf der horizontalen Ebene bleiben, damit das Modell am Boden steht
                             dir.normalize();
                             
-                            // Punkt exakt 2 Meter vor der aktuellen Blickrichtung ermitteln
-                            const placementPos = dir.multiplyScalar(2);
+                            // Punkt exakt 25 Meter vor der aktuellen Blickrichtung ermitteln
+                            const placementPos = dir.multiplyScalar(25);
                             
                             // Modell an dieser errechneten Position verankern
                             gnssMeshes[2].position.set(placementPos.x, 0, placementPos.z);
@@ -1441,7 +1441,7 @@
                 closestObjForArrow = AR_MODELS[2];
                 const compassStr = Math.round(heading) + "°";
                 statusText.innerHTML = `
-                    <span class="label-small">Modus</span> <span class="val-highlight">Lokales AR</span><br>
+                    <span class="label-small">Modus</span> <span class="val-highlight">AR (lokal in sichbereich)</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
