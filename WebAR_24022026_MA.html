@@ -240,7 +240,9 @@
             border: 1px solid rgba(255, 255, 255, 0.2);
             border-radius: 50%; z-index: 95;
             display: flex; justify-content: center; align-items: center;
-            backdrop-filter: blur(4px); pointer-events: none; transition: opacity 0.5s; opacity: 0;
+            backdrop-filter: blur(4px); transition: opacity 0.5s; opacity: 0;
+            /* Neu: pointer-events auf auto, damit er anklickbar wird */
+            pointer-events: auto; cursor: pointer;
         }
         
         /* Das CSS-Dreieck für den Richtungspfeil. 
@@ -251,6 +253,19 @@
             transform-origin: center 20px;
             filter: drop-shadow(0 0 4px #00ff00); transform: rotate(0deg); transition: transform 0.2s ease-out;
         }
+
+        /* NEU: Styling für die Tour-Auswahl (Verstecktes Menü, das beim Klick auf den Pfeil erscheint) */
+        #tourSelection {
+            position: absolute; bottom: 120px; left: 50%; transform: translateX(-50%);
+            display: none; flex-direction: column; gap: 8px; z-index: 200; width: 85%; max-width: 300px;
+        }
+        .tour-btn {
+            background: rgba(40, 100, 200, 0.85); color: white; border: 1px solid rgba(100, 150, 255, 0.5);
+            padding: 12px; border-radius: 12px; text-align: center; font-size: 14px; font-weight: bold; cursor: pointer;
+            backdrop-filter: blur(8px); box-shadow: 0 4px 10px rgba(0,0,0,0.5); transition: transform 0.1s;
+        }
+        .tour-btn:active { transform: scale(0.95); }
+        .tour-cancel { background: rgba(200, 40, 40, 0.85); border-color: rgba(255, 100, 100, 0.5); margin-top: 5px; }
 
         /* Hilfsklassen zur Formatierung von Text in Info-Panels */
         .label-small { font-size: 11px; color: #bbb; margin-right: 5px; text-transform: uppercase; }
@@ -330,6 +345,12 @@
     <div id="historicalInfo" class="ui-panel">
         <h4>Kupferstich Große Fontäne um 1800</h4>
         <img src="https://herrenhaeuser-gaerten.hannover.de/var/storage/images/_aliases/alias_1600xVariabel/9/4/8/5/25555849-2-ger-DE/a12171440e88-Stich_Grosse_Fontaene.jpg" alt="Historischer Stich">
+    </div>
+
+    <!-- NEU: UI für die Tour-Auswahl (öffnet sich beim Klick auf den Pfeil) -->
+    <div id="tourSelection">
+        <div id="tourOptions"></div>
+        <div class="tour-btn tour-cancel" id="cancelTourBtn">Tour abbrechen (Auto-Modus)</div>
     </div>
 
     <!-- UI: Richtungspfeil. Ein Container für den rotierenden Pfeil. -->
@@ -473,6 +494,11 @@
         const arrowEl = document.getElementById('arrow');
         const historicalInfo = document.getElementById('historicalInfo');
 
+        // NEU: Referenzen für die Tour-Auswahl UI
+        const tourSelection = document.getElementById('tourSelection');
+        const tourOptions = document.getElementById('tourOptions');
+        const cancelTourBtn = document.getElementById('cancelTourBtn');
+
         const switchCamBtn = document.getElementById('switchCamBtn');
         const toggleMapBtn = document.getElementById('toggleMapBtn');
         const rotLeftBtn = document.getElementById('rotLeftBtn');
@@ -512,6 +538,9 @@
         let hintTimeout = null; // Speichert den Timer für den "Tippe auf das Modell"-Hinweis
         let isMarkerTracking = false; // Status, ob gerade per Bild/Marker getrackt wird
         let closestObjForArrow = null; // Das nächstgelegene Objekt für den Navigations-Pfeil
+        
+        // NEU: Speichert das manuell ausgewählte Ziel für die Tour
+        let manualTargetId = null;
 
         /*
          * Variablen für die relative GNSS-Simulation.
@@ -1028,7 +1057,7 @@
                 const handleParticles = (meshList, listType) => {
                     Object.entries(meshList).forEach(([key, m]) => {
                         let id = parseInt(key);
-                        let meshes = Array.isArray(m) ? m : [m];
+                        let meshes = Array.isArray(m) ? m :[m];
                         
                         meshes.forEach(mesh => {
                             if (mesh.userData.particles) {
@@ -1473,7 +1502,7 @@
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
-                    <span class="label-small">Entfernung</span> <span class="val-highlight">20 m (fixiert)</span>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">20 m (lokal fixiert)</span>
                 `;
                 return; // Normalen GNSS-Text überspringen
             }
@@ -1482,21 +1511,31 @@
                  statusText.innerHTML = "Warte auf GNSS Signal...";
                  return;
             }
+            
             let closestDist = 99999; // Startwert extrem hoch ansetzen, damit alles näher ist
             let closestObj = null;
+            let isManualMode = false;
             
-            // Schleife geht durch alle Modelle und rechnet die Distanz zwischen GNSS-Standort und Modell aus
-            Object.keys(AR_MODELS).forEach(key => {
-                const m = AR_MODELS[key];
-                if(m.lat && m.lon) {
-                    const dist = haversineDist(lastPos.latitude, lastPos.longitude, m.lat, m.lon);
-                    // Wenn die Distanz kleiner als der bisherige Rekord ist, neuen Rekord setzen
-                    if(dist < closestDist) {
-                        closestDist = dist;
-                        closestObj = m;
+            // NEU: Wenn ein manuelles Ziel im Tour-Modus gewählt wurde, beachte NUR dieses Modell
+            if (manualTargetId !== null && AR_MODELS[manualTargetId] && AR_MODELS[manualTargetId].lat) {
+                closestObj = AR_MODELS[manualTargetId];
+                closestDist = haversineDist(lastPos.latitude, lastPos.longitude, closestObj.lat, closestObj.lon);
+                isManualMode = true;
+            } else {
+                // STANDARD LOGIK (Immer aktiv, wenn kein Tour-Ziel gesetzt ist)
+                Object.keys(AR_MODELS).forEach(key => {
+                    const m = AR_MODELS[key];
+                    if(m.lat && m.lon) {
+                        const dist = haversineDist(lastPos.latitude, lastPos.longitude, m.lat, m.lon);
+                        // Wenn die Distanz kleiner als der bisherige Rekord ist, neuen Rekord setzen
+                        if(dist < closestDist) {
+                            closestDist = dist;
+                            closestObj = m;
+                        }
                     }
-                }
-            });
+                });
+            }
+            
             closestObjForArrow = closestObj; // Dem Pfeil mitteilen, wo er hinzeigen soll
             
             // String-Interpolation mit Backticks (`) erlaubt es, Variablen direkt in den Text zu schreiben (${...})
@@ -1510,13 +1549,14 @@
                 let sourceLabel = isSimulatedPos ? "Pos. (Simuliert)" : "Pos. (GNSS)";
                 let offsetInfo = (isSimulatedPos && compassOffset !== 0) ? `<br><span class="label-small">Kompass-Korrektur</span> <span class="val-green">${Math.round(compassOffset)}°</span>` : "";
 
-                // HTML-String wird in das Panel geschrieben
+                // HTML-String wird in das Panel geschrieben. 
+                // NEU: Kleiner Hinweis (Tour fixiert) oder (Auto-nächste) damit sofort ersichtlich ist, welcher Modus greift!
                 statusText.innerHTML = `
                     <span class="label-small">${sourceLabel}</span> <span class="val-highlight">${latStr}, ${lonStr}</span><br>
                     <span class="label-small">Genauigkeit</span> <span class="val-highlight">${accStr}</span><br>
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span>${offsetInfo}<br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
-                    <span class="label-small">POI</span> <span class="val-green">${closestObj.title}</span><br>
+                    <span class="label-small">POI ${isManualMode ? '<span style="color:#ffda85">(Tour fixiert)</span>' : '(Auto-nächste)'}</span> <span class="val-green">${closestObj.title}</span><br>
                     <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
                 `;
             }
@@ -1647,8 +1687,21 @@
                 const config = AR_MODELS[id];
                 const dist = item.dist;
 
-                // Wenn noch kein nahes gefunden wurde und es innerhalb der Sichtweite ist
-                if (!closestModelFound && dist < VISIBILITY_DISTANCE) {
+                // NEU: Tour-Modus Logik überschreibt das Standard-Verhalten
+                let isAllowedToShow = false;
+                if (manualTargetId !== null) {
+                    // Im Tour-Modus wird NUR das gewählte Ziel ab 75 Metern geladen, alles andere bleibt unsichtbar
+                    if (id === manualTargetId && dist < VISIBILITY_DISTANCE) {
+                        isAllowedToShow = true;
+                    }
+                } else {
+                    // Standard-Verhalten (Immer aktiv wenn keine Tour ausgewählt ist): Das nächste Modell wird ab 75 Metern geladen
+                    if (!closestModelFound && dist < VISIBILITY_DISTANCE) {
+                        isAllowedToShow = true;
+                    }
+                }
+
+                if (isAllowedToShow) {
                     closestModelFound = true; // Markierung, dass ein Modell angezeigt wird
 
                     // Basis-Höhe für Objekte ist jetzt exakt 0.0 (der echte Boden).
@@ -2034,6 +2087,58 @@
         initMap();
         startAR();
 
+        // NEU: Klick auf den Richtungspfeil öffnet das Menü für die nächsten zwei Stationen
+        arrowContainer.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!lastPos) return;
+
+            // Distanzen zu allen Stationen (außer 0/Referenzmodell) berechnen
+            let modelsWithDist =[];
+            Object.keys(AR_MODELS).forEach(key => {
+                const id = parseInt(key);
+                const config = AR_MODELS[id];
+                if (id !== 0 && config.lat && config.lon) {
+                    const dist = haversineDist(lastPos.latitude, lastPos.longitude, config.lat, config.lon);
+                    modelsWithDist.push({ id: id, dist: dist, title: config.title });
+                }
+            });
+
+            // Nach Distanz sortieren und die zwei nächsten nehmen
+            modelsWithDist.sort((a, b) => a.dist - b.dist);
+            const top2 = modelsWithDist.slice(0, 2);
+
+            // HTML für die Buttons generieren
+            tourOptions.innerHTML = '';
+            top2.forEach(item => {
+                const btn = document.createElement('div');
+                btn.className = 'tour-btn';
+                const distStr = item.dist < 1000 ? Math.round(item.dist) + " m" : (item.dist/1000).toFixed(1) + " km";
+                btn.innerHTML = `🚶 ${item.title} (${distStr})`;
+                // Klick auf den Button aktiviert das manuelle Ziel
+                btn.onclick = (ev) => {
+                    ev.stopPropagation();
+                    manualTargetId = item.id;
+                    tourSelection.style.display = 'none'; // Menü schließen
+                    updateGNSSUI(); // UI sofort auf neues Ziel zentrieren
+                    if(gnssGroup.visible) updateGNSSObjects(); // 3D Logik aktualisieren
+                };
+                tourOptions.appendChild(btn);
+            });
+
+            // Menü ein-/ausblenden
+            tourSelection.style.display = tourSelection.style.display === 'flex' ? 'none' : 'flex';
+        });
+
+        // NEU: Abbrechen der manuellen Tour und Zurückkehren zur Auto-Erkennung
+        cancelTourBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            manualTargetId = null;
+            tourSelection.style.display = 'none';
+            updateGNSSUI();
+            if(gnssGroup.visible) updateGNSSObjects();
+        });
+
+
         // Texterkennung-Button Event-Listener (Öffnet eine neue HTML-Datei, falls vorhanden)
         document.getElementById('ocrBtn').addEventListener('click', () => {
             window.open('Texterkennung_Informationstafeln.html', '_blank');
@@ -2098,7 +2203,8 @@
             if (event.target.closest('.ui-panel') || 
                 event.target.closest('#mapControls') || 
                 event.target.closest('.leaflet-container') ||
-                event.target.closest('.icon-btn')) {
+                event.target.closest('.icon-btn') ||
+                event.target.closest('#tourSelection')) { // NEU: Tour Auswahlbereich ignoriert
                 return;
             }
 
