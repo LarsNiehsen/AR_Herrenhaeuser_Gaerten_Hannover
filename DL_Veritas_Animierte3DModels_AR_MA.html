@@ -1,0 +1,673 @@
+<!-- Deklariert das Dokument als HTML5-Standard für den Browser -->
+<!DOCTYPE html>
+<!-- Startet das HTML-Dokument und setzt die Hauptsprache auf Deutsch -->
+<html lang="de">
+<!-- Der Kopfbereich enthält versteckte Metadaten und Einstellungen -->
+<head>
+    <!-- Legt die Zeichenkodierung fest, damit Umlaute korrekt dargestellt werden -->
+    <meta charset="UTF-8">
+    <!-- Passt das Bild an die Bildschirmgröße von Smartphones an und verhindert manuelles Zoomen -->
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <!-- Setzt den Titel, der im Tab des Webbrowsers angezeigt wird -->
+    <title>WebAR - Animierte 3D-Modelle mit Deep-Learning Objekterkennung</title>
+    
+    <!-- Hier beginnt der Bereich für das Aussehen (CSS-Design) -->
+    <style>
+        /* Design für den gesamten sichtbaren Hintergrund (body) */
+        body {
+            /* Entfernt alle äußeren Ränder */
+            margin: 0;
+            /* Verhindert, dass man auf der Seite scrollen kann */
+            overflow: hidden;
+            /* Setzt die Hintergrundfarbe auf Schwarz */
+            background-color: #000;
+            /* Bestimmt die Schriftart für Texte auf der Seite */
+            font-family: sans-serif;
+            /* Verhindert versehentliches Wischen oder Wisch-Gesten auf dem Smartphone */
+            touch-action: none; 
+        }
+        
+        /* Design für das Videobild der Kamera */
+        #webcam {
+            /* Positioniert das Video losgelöst von anderen Elementen */
+            position: absolute;
+            /* Befestigt es ganz oben links */
+            top: 0; left: 0;
+            /* Nimmt die volle Breite und Höhe des Bildschirms ein */
+            width: 100vw; height: 100vh;
+            /* Sorgt dafür, dass das Video den Platz füllt, ohne verzerrt zu werden */
+            object-fit: cover;
+            /* Legt das Video in die unterste Ebene (Hintergrund) */
+            z-index: 1;
+        }
+        
+        /* Container für die virtuelle 3D-Welt */
+        #container {
+            /* Losgelöste Positionierung */
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            /* Legt die 3D-Welt ÜBER das Kamera-Video (Ebene 2) */
+            z-index: 2;
+        }
+
+        /* NEU: Ein unsichtbarer Zeichenblock (Canvas) für die KI-Rahmen (Bounding Boxes) */
+        #box-canvas {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh; 
+            /* Liegt GANZ OBEN auf Ebene 3, über der 3D Welt und dem Video */
+            z-index: 3;
+            /* EXTREM WICHTIG: Das hier macht die Box klick-durchlässig! 
+               So kannst du weiterhin dein 3D-Modell antippen, obwohl das Zeichenbrett darüber liegt. */
+            pointer-events: none; 
+        }
+        
+        /* Der abgedunkelte Startbildschirm mit dem Button */
+        #ui {
+            position: absolute; top: 0; left: 0;
+            width: 100vw; height: 100vh;
+            /* Legt das Menü ganz nach vorne */
+            z-index: 10;
+            display: flex; justify-content: center; align-items: center;
+            background: rgba(0, 0, 0, 0.85);
+        }
+        
+        /* Design für alle klickbaren Knöpfe (Buttons) */
+        button {
+            padding: 15px 40px; font-size: 20px; cursor: pointer;
+            background-color: #ff0000; color: white; border: none;
+            border-radius: 8px; font-weight: bold;
+        }
+        
+        /* Design für die Info-Textbox (z.B. Ladebildschirm-Text) */
+        #info {
+            position: absolute; top: 10px; left: 10px; color: white;
+            z-index: 5; background: rgba(0,0,0,0.5); padding: 5px 10px;
+            border-radius: 4px; display: none; pointer-events: none;
+        }
+
+        /* Das Steuerkreuz (Laufen) unten rechts */
+        #walk-controls {
+            position: absolute; bottom: 20px; right: 20px; z-index: 10;
+            display: none; grid-template-columns: 45px 45px 45px; grid-template-rows: 45px 45px 45px; gap: 5px;
+        }
+        
+        /* Aussehen der einzelnen Lauf-Tasten im Steuerkreuz */
+        .ctrl-btn {
+            background: rgba(255, 255, 255, 0.3); border: 2px solid white; border-radius: 50%;
+            color: white; font-size: 20px; display: flex; justify-content: center; align-items: center; user-select: none;
+        }
+        /* Roter Hintergrund beim Drücken */
+        .ctrl-btn:active { background: rgba(255, 0, 0, 0.6); }
+        
+        /* Platzierung der einzelnen Tasten im Gitter */
+        #btn-up { grid-column: 2; grid-row: 1; }
+        #btn-left { grid-column: 1; grid-row: 2; }
+        #btn-right { grid-column: 3; grid-row: 2; }
+        #btn-down { grid-column: 2; grid-row: 3; }
+
+        /* Der Höhen-Regler, vertikal positioniert in der linken Mitte */
+        #height-control {
+            position: absolute; top: 50%; left: 20px; transform: translateY(-50%); 
+            z-index: 10; display: none; flex-direction: column; align-items: center;
+            background: rgba(0, 0, 0, 0.6); padding: 20px 10px; border-radius: 30px;
+        }
+
+        /* Der Rotations-Regler (Drehen) am unteren Bildschirmrand mittig */
+        #rotation-control {
+            position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); 
+            z-index: 10; display: none; flex-direction: column; align-items: center;
+            background: rgba(0, 0, 0, 0.6); padding: 10px 15px; border-radius: 30px;
+        }
+
+        /* Aussehen der Beschriftungen (Text) in den Slider-Menüs */
+        #rotation-control span, #height-control span { color: white; font-weight: bold; margin-bottom: 5px; font-size: 14px; }
+        #rotationSlider { width: 25vw; max-width: 120px; margin: 0; }
+        #heightSlider { -webkit-appearance: slider-vertical; appearance: slider-vertical; width: 8px; height: 120px; margin: 10px 0; cursor: pointer; }
+    </style>
+    
+    <!-- Weist den Browser an, wo die benötigten 3D-Bibliotheken heruntergeladen werden sollen -->
+    <script type="importmap">
+        {
+            "imports": {
+                "three": "https://unpkg.com/three@0.133.0/build/three.module.js",
+                "GLTFLoader": "https://unpkg.com/three@0.133.0/examples/jsm/loaders/GLTFLoader.js",
+                "DeviceOrientationControls": "https://unpkg.com/three@0.133.0/examples/jsm/controls/DeviceOrientationControls.js"
+            }
+        }
+    </script>
+</head>
+<body>
+
+    <!-- Das Startmenü mit dem Button -->
+    <div id="ui"><button id="startButton" type="button">AR Starten</button></div>
+    
+    <!-- Hier wird das Live-Video der Kamera eingefügt (automatisch startend) -->
+    <video id="webcam" autoplay playsinline></video>
+    
+    <!-- Dieser leere Container wird später durch JavaScript mit der 3D-Welt gefüllt -->
+    <div id="container"></div>
+    
+    <!-- NEU: Hier zeichnet die KI ihre grünen Boxen hinein -->
+    <canvas id="box-canvas"></canvas> 
+    
+    <!-- Ein Textfeld für Systemmeldungen (z.B. "Lädt...") -->
+    <div id="info">Lade...</div>
+
+    <!-- Steuerkreuz HTML-Elemente -->
+    <div id="walk-controls">
+        <div class="ctrl-btn" id="btn-up">⬆️</div>
+        <div class="ctrl-btn" id="btn-left">⬅️</div>
+        <div class="ctrl-btn" id="btn-right">➡️</div>
+        <div class="ctrl-btn" id="btn-down">⬇️</div>
+    </div>
+    
+    <!-- Höhen-Slider Menü (Vertikal auf der linken Seite) -->
+    <div id="height-control"><span>Höhe</span><input type="range" orient="vertical" id="heightSlider" min="-3.0" max="8.0" step="0.1" value="1.6"></div>
+    
+    <!-- Drehen-Slider Menü (Horizontal unten in der Mitte) -->
+    <div id="rotation-control"><span>⟲ Drehen ⟳</span><input type="range" id="rotationSlider" min="-180" max="180" value="0"></div>
+
+    <!-- Der Haupt-Programmcode in JavaScript -->
+    <script type="module">
+        // Importiert die Kernfunktionen der Three.js Bibliothek
+        import * as THREE from 'three';
+        // Importiert das Werkzeug zum Laden von 3D-Modellen (.gltf oder .glb)
+        import { GLTFLoader } from 'GLTFLoader';
+        // Importiert das Werkzeug zum Auslesen der Smartphone-Bewegungssensoren
+        import { DeviceOrientationControls } from 'DeviceOrientationControls';
+
+        // Platzhalter für zentrale Elemente der 3D-Welt werden definiert
+        let camera, scene, renderer, controls;
+        // Platzhalter für die geladenen 3D-Modelle und Animations-Komponenten
+        let staticModel, animatedModel, mixer, animationAction;
+        // Eine virtuelle Stoppuhr wird gestartet, die für flüssige Animationen gebraucht wird
+        let clock = new THREE.Clock();
+        // Ein Objekt speichert den aktuellen Zustand der Lauf-Tasten (gedrückt oder nicht)
+        let moveState = { forward: false, backward: false, left: false, right: false };
+        // Legt die Geschwindigkeit fest, mit der virtuell gelaufen wird
+        const MOVE_SPEED = 0.05;
+
+        // NEU: Platzhalter für die Künstliche Intelligenz (KI)
+        // aiWorker ist unser Helfer im Hintergrund
+        let aiWorker;
+        // isDetecting merkt sich, ob die KI gerade rechnet (um sie nicht zu überlasten)
+        let isDetecting = false;
+        // Wir suchen uns das Zeichenbrett für die Boxen aus dem HTML
+        const boxCanvas = document.getElementById('box-canvas');
+        const boxCtx = boxCanvas.getContext('2d');
+        
+        // Wir brauchen eine unsichtbare Leinwand, um Fotos vom Video für die KI zu knipsen
+        const hiddenCanvas = document.createElement('canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+
+        // HTML-Elemente werden im Programmcode verknüpft, um sie ansteuern zu können
+        const startButton = document.getElementById('startButton');
+        const ui = document.getElementById('ui');
+        const webcam = document.getElementById('webcam');
+        const info = document.getElementById('info');
+
+        // Dateipfade zu den 3D-Modellen werden festgelegt
+        const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
+        const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb';
+
+        // Wenn auf "AR Starten" geklickt wird, startet dieser Ablaufblock
+        startButton.addEventListener('click', async () => {
+            // Es wird geprüft, ob das Gerät eine Freigabe für Sensoren braucht (meist bei iPhones nötig)
+            if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
+                try {
+                    const permission = await DeviceOrientationEvent.requestPermission();
+                    if (permission !== 'granted') { alert('Zugriff verweigert.'); return; }
+                } catch (error) { console.error(error); }
+            }
+
+            // Es wird versucht, Zugriff auf die Rückkamera des Geräts zu bekommen
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                webcam.srcObject = stream;
+            } catch (error) {
+                alert('Kamera konnte nicht gestartet werden.'); return;
+            }
+
+            // Das schwarze Startmenü wird unsichtbar gemacht
+            ui.style.display = 'none';
+            info.style.display = 'block';
+
+            // Menüs werden eingeblendet
+            document.getElementById('walk-controls').style.display = 'grid';
+            document.getElementById('height-control').style.display = 'flex';
+            document.getElementById('rotation-control').style.display = 'flex';
+
+            // NEU: Die künstliche Intelligenz (der Hintergrund-Helfer) wird aufgeweckt!
+            initAI();
+            
+            // Die 3D Welt wird aufgebaut und die Laufen-Tasten werden scharfgeschaltet
+            initThreeJS();
+            setupVirtualWalking();
+        });
+
+        // ==========================================
+        // NEU: KÜNSTLICHE INTELLIGENZ (KI) FUNKTIONEN
+        // ==========================================
+        
+        // Diese Funktion startet den unsichtbaren Hintergrund-Helfer (Web Worker)
+        function initAI() {
+            // Passt das Zeichenbrett für die KI-Boxen genau an die Bildschirmgröße an
+            boxCanvas.width = window.innerWidth;
+            boxCanvas.height = window.innerHeight;
+
+            info.innerText = 'Lade Modelle & KI...';
+
+            // Wir wecken die Datei "worker.js" auf
+            aiWorker = new Worker('worker.js');
+            
+            // Wir hören zu, was der Worker uns sagt
+            aiWorker.onmessage = function(event) {
+                // Wenn er sagt "Ich habe geladen und bin ready!"
+                if (event.data.type === 'ready') {
+                    console.log("KI bereit!");
+                    // Wir starten eine Schleife: Sende ca. 15 Mal pro Sekunde ein Bild an die KI
+                    // 1000 Millisekunden / 15 = ca. alle 66 Millisekunden
+                    setInterval(requestNextFrame, 1000 / 15); 
+                } 
+                // Wenn er sagt "Hier ist ein Ergebnis (result)!"
+                else if (event.data.type === 'result') {
+                    // Wir zeichnen die empfangenen Boxen
+                    drawBoxes(event.data.data);
+                    // Wir merken uns: KI ist fertig, sie darf das nächste Bild bekommen
+                    isDetecting = false;
+                }
+            };
+        }
+
+        // Diese Funktion knipst ein Foto von der Kamera und schickt es an die KI
+        function requestNextFrame() {
+            // Wenn die KI noch rechnet ODER die Kamera noch nicht läuft, machen wir nichts
+            if (isDetecting || webcam.readyState < 2) return;
+            
+            // Das unsichtbare Foto-Leinwand auf die exakte Videoauflösung einstellen
+            hiddenCanvas.width = webcam.videoWidth;
+            hiddenCanvas.height = webcam.videoHeight;
+            // Bild vom Video auf die Leinwand stempeln
+            hiddenCtx.drawImage(webcam, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            
+            // Die reinen Farbpixel aus der Leinwand auslesen
+            const imageData = hiddenCtx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            
+            // Sperren: Die KI ist jetzt beschäftigt
+            isDetecting = true;
+            
+            // Pixel-Daten als Paket an den Helfer in den Hintergrund schicken
+            aiWorker.postMessage({ type: 'predict', image: imageData });
+        }
+
+        // Diese Funktion zeichnet die grünen Boxen auf den Bildschirm
+        function drawBoxes(predictions) {
+            // Das Zeichenbrett für das neue Bild erstmal komplett radieren (löschen)
+            boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+            
+            // Wenn keine Boxen gefunden wurden, sind wir direkt fertig
+            if (!predictions || !predictions.boxes) return;
+
+            // --- WICHTIGE MATHEMATIK (object-fit: cover Umrechnung) ---
+            // Da das Video den Bildschirm füllt, wird oft ein Teil vom Rand abgeschnitten. 
+            // Diese Mathematik berechnet den Versatz, damit der KI-Rahmen trotzdem exakt auf dem echten Objekt liegt.
+            const videoW = webcam.videoWidth;
+            const videoH = webcam.videoHeight;
+            const screenW = boxCanvas.width;
+            const screenH = boxCanvas.height;
+
+            // Berechnet den Zoom-Faktor des Videos
+            const scale = Math.max(screenW / videoW, screenH / videoH);
+            // Berechnet, wie weit das Bild nach links/rechts oder oben/unten verschoben wurde
+            const offsetX = (screenW - (videoW * scale)) / 2;
+            const offsetY = (screenH - (videoH * scale)) / 2;
+
+            // Design für den Stift einstellen (Neon-Grün, 4px dick, leicht durchsichtige Füllung)
+            boxCtx.strokeStyle = '#00FF00';
+            boxCtx.lineWidth = 4;
+            boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+
+            // Wir gehen alle gefundenen Objekte einzeln durch
+            for (let i = 0; i < predictions.boxes.length; i++) {
+                // Wir zeichnen nur, wenn die Sicherheit über 60% (0.6) liegt
+                if (predictions.scores[i] > 0.6) {
+                    let [x_center, y_center, width, height] = predictions.boxes[i];
+
+                    // 1. Die KI hat das Bild auf 640x640 verkleinert gehabt. 
+                    // Wir rechnen die Koordinaten zurück auf die Original-Kamera-Größe.
+                    const origX = (x_center / 640) * videoW;
+                    const origY = (y_center / 640) * videoH;
+                    const origBoxW = (width / 640) * videoW;
+                    const origBoxH = (height / 640) * videoH;
+
+                    // 2. Wir rechnen die Koordinaten auf den (oft abgeschnittenen) Handy-Bildschirm um.
+                    const finalBoxW = origBoxW * scale;
+                    const finalBoxH = origBoxH * scale;
+                    // X und Y geben die obere linke Ecke an (YOLO gibt den Mittelpunkt, daher wird die halbe Box abgezogen)
+                    const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
+                    const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
+
+                    // Den eigentlichen Rahmen zeichnen und ausfüllen
+                    boxCtx.beginPath();
+                    boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
+                    boxCtx.stroke();
+                    boxCtx.fill();
+                    
+                    // Den Text (z.B. "Statue: 95%") über die Box schreiben
+                    boxCtx.fillStyle = '#00FF00';
+                    boxCtx.font = '20px Arial';
+                    boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                    // Die Farbe wieder für die nächste Box auf Durchsichtig zurücksetzen
+                    boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
+                }
+            }
+        }
+        // ==========================================
+        // ENDE KI FUNKTIONEN
+        // ==========================================
+
+        // Diese Funktion baut die eigentliche 3D-Umgebung auf
+        function initThreeJS() {
+            // Sucht den leeren Bereich (Container) im HTML
+            const container = document.getElementById('container');
+
+            // Erstellt eine neue, komplett leere virtuelle Bühne (Szene)
+            scene = new THREE.Scene();
+
+            // Erstellt eine Kamera, ähnlich wie in der realen Welt (Sichtfeld, Seitenverhältnis, Nähe, Ferne)
+            camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 1000000);
+            // Positioniert die Kamera auf einer Standardhöhe von 1.6 Metern
+            camera.position.set(0, 1.6, 0);
+
+            // Ein System (Renderer) wird erstellt, das die 3D-Welt in ein 2D-Bild für den Bildschirm umrechnet
+            renderer = new THREE.WebGLRenderer({ alpha: true, antialias: true });
+            // Das Bild wird auf die volle Größe des Fensters skaliert
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            // Die Auflösung wird an den Bildschirm des jeweiligen Geräts angepasst
+            renderer.setPixelRatio(window.devicePixelRatio);
+            // Die Berechnung von Schatten wird generell aktiviert
+            renderer.shadowMap.enabled = true;
+            // Die Art des Schattens wird auf "weich" gestellt
+            renderer.shadowMap.type = THREE.PCFSoftShadowMap; 
+            // Das erzeugte Bild wird in die Webseite eingefügt
+            container.appendChild(renderer.domElement);
+
+            // Eine allgemeine, schwache Umgebungsbeleuchtung wird erstellt und der Szene hinzugefügt
+            const ambientLight = new THREE.AmbientLight(0xffffff, 0.6); 
+            scene.add(ambientLight);
+
+            // Eine starke, gerichtete Lichtquelle (wie eine Sonne) wird erstellt
+            const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+            // Das Licht wird schräg oben links neben das Modell gesetzt
+            dirLight.position.set(-3, 4, -1);
+            // Es wird eingestellt, dass diese Lampe Schatten werfen darf
+            dirLight.castShadow = true;
+
+            // Das Ziel der Lampe wird genau auf die Position des Modells gerichtet
+            dirLight.target.position.set(0, 0, -2);
+            scene.add(dirLight.target);
+
+            // Die Qualität (Auflösung) des Schattens wird hochgesetzt
+            dirLight.shadow.mapSize.width = 1024;
+            dirLight.shadow.mapSize.height = 1024;
+            // Der Bereich, in dem Schatten berechnet werden, wird genau definiert, um Rechenleistung zu sparen
+            dirLight.shadow.camera.near = 0.5;
+            dirLight.shadow.camera.far = 15;
+            dirLight.shadow.camera.left = -5;
+            dirLight.shadow.camera.right = 5;
+            dirLight.shadow.camera.top = 5;
+            dirLight.shadow.camera.bottom = -5;
+            // Ein kleiner Korrekturwert verhindert Grafikfehler beim Schatten ("Shadow Acne")
+            dirLight.shadow.bias = -0.001; 
+            // Die Lampe wird endgültig zur Szene hinzugefügt
+            scene.add(dirLight);
+
+            // Eine unsichtbare Fläche (Boden) wird erstellt, um Schatten aufzufangen
+            const floorGeometry = new THREE.PlaneGeometry(100, 100);
+            // Ein spezielles Material wird gewählt, das nur Schatten darstellt und sonst unsichtbar ist
+            const floorMaterial = new THREE.ShadowMaterial({ opacity: 0.5 }); 
+            const floorMesh = new THREE.Mesh(floorGeometry, floorMaterial);
+            // Die Fläche wird flach auf den Boden gelegt
+            floorMesh.rotation.x = -Math.PI / 2; 
+            floorMesh.position.y = 0;
+            // Die Fläche wird angewiesen, Schatten zu empfangen
+            floorMesh.receiveShadow = true; 
+            scene.add(floorMesh);
+
+            // Ein feines graues Rastermuster (1-Meter-Kacheln) wird zur Orientierung auf den Boden gezeichnet
+            const grid1m = new THREE.GridHelper(100, 100, 0x888888, 0x555555);
+            grid1m.position.y = 0;
+            scene.add(grid1m);
+
+            // Ein dickeres rotes Raster (5-Meter-Kacheln) wird zur zusätzlichen Orientierung hinzugefügt
+            for (let xOffset = -0.02; xOffset <= 0.02; xOffset += 0.02) {
+                for (let zOffset = -0.02; zOffset <= 0.02; zOffset += 0.02) {
+                    const grid5m = new THREE.GridHelper(100, 20, 0xff0000, 0xff0000);
+                    grid5m.position.set(xOffset, 0.01, zOffset);
+                    scene.add(grid5m);
+                }
+            }
+
+            // Das Werkzeug zum Laden von 3D-Modellen wird vorbereitet
+            const loader = new GLTFLoader();
+            // Die Basis-Größe für die Modelle wird festgelegt
+            const modelScale = 200.0;
+
+            // Eine Hilfsfunktion wird erstellt, die alle Einzelteile eines Modells anweist, Schatten zu werfen
+            const enableShadows = (modelObj) => {
+                modelObj.traverse((child) => {
+                    if (child.isMesh) {
+                        child.castShadow = true;
+                        child.receiveShadow = true; 
+                    }
+                });
+            };
+
+            // Das Laden des unbewegten (statischen) Modells wird gestartet
+            loader.load(URL_STATIC_MODEL, (gltf) => {
+                staticModel = gltf.scene;
+                staticModel.scale.set(modelScale, modelScale, modelScale);
+                staticModel.position.set(0, 0, -2);
+                enableShadows(staticModel); 
+                scene.add(staticModel);
+
+                info.innerText = 'Statisches Modell geladen. Lade animiertes...';
+
+                // Danach wird sofort versucht, das zweite, bewegte Modell herunterzuladen
+                loader.load(URL_ANIMATED_MODEL, (gltfAnim) => {
+                    animatedModel = gltfAnim.scene;
+                    animatedModel.scale.set(modelScale, modelScale, modelScale);
+                    animatedModel.position.set(0, 0, -2);
+                    enableShadows(animatedModel); 
+                    animatedModel.visible = false;
+                    scene.add(animatedModel);
+
+                    if (gltfAnim.animations && gltfAnim.animations.length > 0) {
+                        mixer = new THREE.AnimationMixer(animatedModel);
+                        animationAction = mixer.clipAction(gltfAnim.animations[0]);
+                        animationAction.setLoop(THREE.LoopOnce, 1);
+                        animationAction.clampWhenFinished = true;
+
+                        mixer.addEventListener('finished', () => {
+                            animatedModel.visible = false;
+                            if (staticModel) {
+                                staticModel.visible = true;
+                            }
+                            
+                            const rControl = document.getElementById('rotation-control');
+                            if (rControl) rControl.style.display = 'flex';
+                            
+                            const hControl = document.getElementById('height-control');
+                            if (hControl) hControl.style.display = 'flex';
+                        });
+
+                        // Um den Absturz beim ersten Klick zu verhindern,
+                        // zwingen wir das Handy hier heimlich zu einer Vorab-Berechnung.
+                        animatedModel.scale.set(0.0001, 0.0001, 0.0001);
+                        animatedModel.visible = true;
+                        mixer.update(0.01);
+                        renderer.compile(scene, camera);
+                        renderer.render(scene, camera);
+                        animatedModel.visible = false;
+                        animatedModel.scale.set(modelScale, modelScale, modelScale);
+                        animationAction.reset();
+                    }
+
+                    // Der Benutzer wird angewiesen, was zu tun ist
+                    info.innerText = '1. Modell drehen\n2. Modell antippen!';
+                    setTimeout(() => info.style.display = 'none', 4000);
+                }, undefined, (error) => {
+                    console.error("Fehler beim Laden des animierten Modells", error);
+                    info.innerText = 'Statisches Modell bereit. (Animiertes Modell nicht gefunden)';
+                });
+
+            }, undefined, (error) => {
+                console.error("Fehler beim Laden des statischen Modells:", error);
+                info.innerText = 'Fehler beim Laden des Modells!';
+            });
+
+            // Die Sensorensteuerung (Gyroskop des Smartphones) wird an die Kamera gebunden
+            controls = new DeviceOrientationControls(camera);
+            // Das System wird auf Fingertipps oder Mausklicks aufmerksam gemacht
+            window.addEventListener('pointerdown', onPointerDown);
+            // Das System reagiert, wenn das Fenster in der Größe verändert oder das Handy gedreht wird
+            window.addEventListener('resize', onWindowResize);
+
+            // Der HTML-Schieberegler für die Höhe wird mit dem Code verknüpft
+            const hSlider = document.getElementById('heightSlider');
+            if (hSlider) {
+                hSlider.addEventListener('input', (e) => {
+                    camera.position.y = parseFloat(e.target.value);
+                });
+            }
+
+            // Der HTML-Schieberegler für das Drehen wird eingebunden
+            const rSlider = document.getElementById('rotationSlider');
+            if (rSlider) {
+                rSlider.addEventListener('input', (e) => {
+                    const radians = parseFloat(e.target.value) * (Math.PI / 180);
+                    if (staticModel) staticModel.rotation.y = radians;
+                    if (animatedModel) animatedModel.rotation.y = radians;
+                });
+            }
+
+            // Die endlose Bildwiederholungsschleife wird gestartet
+            animate();
+        }
+
+        // Diese Funktion verknüpft die Knöpfe auf dem Bildschirm mit Bewegungsbefehlen
+        function setupVirtualWalking() {
+            const bindBtn = (id, action) => {
+                const btn = document.getElementById(id);
+                if (!btn) return;
+                btn.addEventListener('touchstart', (e) => { e.preventDefault(); e.stopPropagation(); moveState[action] = true; }, {passive: false});
+                btn.addEventListener('mousedown', (e) => { e.stopPropagation(); moveState[action] = true; });
+                btn.addEventListener('touchend', (e) => { e.preventDefault(); e.stopPropagation(); moveState[action] = false; }, {passive: false});
+                btn.addEventListener('mouseup', (e) => { e.stopPropagation(); moveState[action] = false; });
+                btn.addEventListener('mouseleave', () => { moveState[action] = false; });
+            };
+            
+            bindBtn('btn-up', 'forward');
+            bindBtn('btn-down', 'backward');
+            bindBtn('btn-left', 'left');
+            bindBtn('btn-right', 'right');
+        }
+
+        // Ein Werkzeug (Raycaster) wird erstellt, das virtuelle Strahlen von der Kamera aussendet, um Klicks zu erkennen
+        const raycaster = new THREE.Raycaster();
+        const mouse = new THREE.Vector2();
+
+        // Diese Funktion wird immer dann ausgelöst, wenn auf den Bildschirm getippt/geklickt wird
+        function onPointerDown(event) {
+            // Robuste Prüfung: Verhindert, dass der Klick auf einen Schieberegler oder Lauf-Knopf versehentlich das Modell auslöst
+            if ((event.target.classList && event.target.classList.contains('ctrl-btn')) || 
+                event.target.tagName === 'INPUT' || 
+                event.target.closest('#rotation-control') || 
+                event.target.closest('#height-control')) {
+                return;
+            }
+
+            // Die X- und Y-Bildschirmkoordinaten werden in Werte zwischen -1 und +1 umgerechnet
+            mouse.x = (event.clientX / window.innerWidth) * 2 - 1;
+            mouse.y = -(event.clientY / window.innerHeight) * 2 + 1;
+
+            // Der virtuelle Strahl wird von der Kamera in Richtung der berechneten Klickposition geschossen
+            raycaster.setFromCamera(mouse, camera);
+
+            // Es wird geprüft, ob das statische Modell gerade sichtbar ist
+            if (staticModel && staticModel.visible) {
+                // Es wird gemessen, ob der Strahl das statische Modell berührt
+                const intersects = raycaster.intersectObject(staticModel, true);
+                
+                if (intersects.length > 0) {
+                    // Das unbewegte Modell wird sofort versteckt
+                    staticModel.visible = false;
+                    
+                    if (animatedModel) {
+                        animatedModel.visible = true;
+                        
+                        if (animationAction) {
+                            animationAction.reset();
+                            animationAction.play();
+                        }
+                    }
+                    
+                    // Die Menüs für Höhe und Drehung ausblenden
+                    const rControl = document.getElementById('rotation-control');
+                    if (rControl) rControl.style.display = 'none';
+                    
+                    const hControl = document.getElementById('height-control');
+                    if (hControl) hControl.style.display = 'none';
+                }
+            }
+        }
+
+        // Diese Funktion wird in jedem einzelnen Bildberechnungs-Durchlauf aufgerufen, um Bewegung zu simulieren
+        function applyMovement() {
+            if(!moveState.forward && !moveState.backward && !moveState.left && !moveState.right) return;
+            
+            const dir = new THREE.Vector3();
+            camera.getWorldDirection(dir);
+            dir.y = 0; 
+            dir.normalize();
+            
+            const right = new THREE.Vector3().crossVectors(dir, new THREE.Vector3(0,1,0)).normalize();
+
+            if (moveState.forward) camera.position.addScaledVector(dir, MOVE_SPEED);
+            if (moveState.backward) camera.position.addScaledVector(dir, -MOVE_SPEED);
+            if (moveState.left) camera.position.addScaledVector(right, -MOVE_SPEED);
+            if (moveState.right) camera.position.addScaledVector(right, MOVE_SPEED);
+        }
+
+        // Wird ausgelöst, wenn das Fenster seine Größe ändert (z.B. Handy wird quer gehalten)
+        function onWindowResize() {
+            // Das Seitenverhältnis der Kamera wird an die neuen Bildschirmmaße angepasst
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            // Grafik-Ausgabesystem wird auf neue Größe eingestellt
+            renderer.setSize(window.innerWidth, window.innerHeight);
+            
+            // NEU: Auch das Zeichenbrett für die KI-Rahmen muss angepasst werden!
+            boxCanvas.width = window.innerWidth;
+            boxCanvas.height = window.innerHeight;
+        }
+
+        // Das ist die Hauptschleife, die das 3D-Bild viele Male pro Sekunde neu malt (ähnlich einem Daumenkino)
+        function animate() {
+            requestAnimationFrame(animate);
+            const delta = clock.getDelta();
+            
+            if (mixer && animatedModel && animatedModel.visible) {
+                mixer.update(delta);
+            }
+
+            if (controls) {
+                controls.update();
+            }
+
+            applyMovement();
+            renderer.render(scene, camera);
+        }
+    </script>
+</body>
+</html>
