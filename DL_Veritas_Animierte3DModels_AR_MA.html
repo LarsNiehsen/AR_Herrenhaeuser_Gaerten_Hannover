@@ -340,7 +340,7 @@
             // Wir gehen alle gefundenen Objekte einzeln durch
             for (let i = 0; i < predictions.boxes.length; i++) {
                 // Wir zeichnen nur, wenn die Sicherheit über 60% (0.6) liegt
-                if (predictions.scores[i] > 0.6) {
+                if (predictions.scores[i] > 0.9) {
                     let[x_center, y_center, width, height] = predictions.boxes[i];
 
                     // 1. Die KI hat das Bild auf 640x640 verkleinert gehabt. 
