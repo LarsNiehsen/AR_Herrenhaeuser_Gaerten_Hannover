@@ -50,7 +50,7 @@
             z-index: 2;
         }
 
-        /* NEU: Ein unsichtbarer Zeichenblock (Canvas) für die KI-Rahmen (Bounding Boxes) */
+        /* Ein unsichtbarer Zeichenblock (Canvas) für die KI-Rahmen (Bounding Boxes) */
         #box-canvas {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh; 
@@ -147,7 +147,7 @@
     <!-- Dieser leere Container wird später durch JavaScript mit der 3D-Welt gefüllt -->
     <div id="container"></div>
     
-    <!-- NEU: Hier zeichnet die KI ihre grünen Boxen hinein -->
+    <!-- Hier zeichnet die KI ihre grünen Boxen hinein -->
     <canvas id="box-canvas"></canvas> 
     
     <!-- Ein Textfeld für Systemmeldungen (z.B. "Lädt...") -->
@@ -187,7 +187,7 @@
         // Legt die Geschwindigkeit fest, mit der virtuell gelaufen wird
         const MOVE_SPEED = 0.05;
 
-        // NEU: Platzhalter für die Künstliche Intelligenz (KI)
+        // Platzhalter für die Künstliche Intelligenz (KI)
         // aiWorker ist unser Helfer im Hintergrund
         let aiWorker;
         // isDetecting merkt sich, ob die KI gerade rechnet (um sie nicht zu überlasten)
@@ -237,7 +237,7 @@
             document.getElementById('height-control').style.display = 'flex';
             document.getElementById('rotation-control').style.display = 'flex';
 
-            // NEU: Die künstliche Intelligenz (der Hintergrund-Helfer) wird aufgeweckt!
+            // Die künstliche Intelligenz (der Hintergrund-Helfer) wird aufgeweckt!
             initAI();
             
             // Die 3D Welt wird aufgebaut und die Laufen-Tasten werden scharfgeschaltet
@@ -246,7 +246,7 @@
         });
 
         // ==========================================
-        // NEU: KÜNSTLICHE INTELLIGENZ (KI) FUNKTIONEN
+        // KÜNSTLICHE INTELLIGENZ (KI) FUNKTIONEN
         // ==========================================
         
         // Diese Funktion startet den unsichtbaren Hintergrund-Helfer (Web Worker)
@@ -265,16 +265,22 @@
                 // Wenn er sagt "Ich habe geladen und bin ready!"
                 if (event.data.type === 'ready') {
                     console.log("KI bereit!");
-                    // Wir starten eine Schleife: Sende ca. 15 Mal pro Sekunde ein Bild an die KI
-                    // 1000 Millisekunden / 15 = ca. alle 66 Millisekunden
-                    setInterval(requestNextFrame, 1000 / 15); 
+                    // WICHTIG: Wir nutzen KEIN Dauerfeuer mehr (setInterval), 
+                    // sondern starten das allererste Bild manuell.
+                    requestNextFrame(); 
                 } 
                 // Wenn er sagt "Hier ist ein Ergebnis (result)!"
                 else if (event.data.type === 'result') {
                     // Wir zeichnen die empfangenen Boxen
                     drawBoxes(event.data.data);
-                    // Wir merken uns: KI ist fertig, sie darf das nächste Bild bekommen
-                    isDetecting = false;
+                    
+                    // CLEVERE ATEMPAUSE: 
+                    // Wir warten 100 Millisekunden (Atempause für den Handy-Akku und RAM), 
+                    // bevor wir der KI erlauben, das nächste Bild anzufordern.
+                    setTimeout(() => {
+                        isDetecting = false; // Sperre aufheben
+                        requestNextFrame();  // Nächstes Foto knipsen!
+                    }, 100); 
                 }
             };
         }
@@ -284,14 +290,18 @@
             // Wenn die KI noch rechnet ODER die Kamera noch nicht läuft, machen wir nichts
             if (isDetecting || webcam.readyState < 2) return;
             
-            // Das unsichtbare Foto-Leinwand auf die exakte Videoauflösung einstellen
-            hiddenCanvas.width = webcam.videoWidth;
-            hiddenCanvas.height = webcam.videoHeight;
-            // Bild vom Video auf die Leinwand stempeln
-            hiddenCtx.drawImage(webcam, 0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            // RAM-SCHUTZ: 
+            // Die KI braucht nur 640x640 Pixel. Wir schrumpfen das riesige 
+            // Handy-Kamera-Bild (oft 4K) genau auf diese Größe, BEVOR wir es verschicken.
+            const WORKER_SIZE = 640;
+            hiddenCanvas.width = WORKER_SIZE;
+            hiddenCanvas.height = WORKER_SIZE;
             
-            // Die reinen Farbpixel aus der Leinwand auslesen
-            const imageData = hiddenCtx.getImageData(0, 0, hiddenCanvas.width, hiddenCanvas.height);
+            // Das Bild wird beim Zeichnen automatisch auf 640x640 gequetscht
+            hiddenCtx.drawImage(webcam, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            
+            // Wir lesen nur dieses winzige Bild aus (Spart massiv Arbeitsspeicher!)
+            const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
             
             // Sperren: Die KI ist jetzt beschäftigt
             isDetecting = true;
@@ -331,7 +341,7 @@
             for (let i = 0; i < predictions.boxes.length; i++) {
                 // Wir zeichnen nur, wenn die Sicherheit über 60% (0.6) liegt
                 if (predictions.scores[i] > 0.6) {
-                    let [x_center, y_center, width, height] = predictions.boxes[i];
+                    let[x_center, y_center, width, height] = predictions.boxes[i];
 
                     // 1. Die KI hat das Bild auf 640x640 verkleinert gehabt. 
                     // Wir rechnen die Koordinaten zurück auf die Original-Kamera-Größe.
@@ -647,7 +657,7 @@
             // Grafik-Ausgabesystem wird auf neue Größe eingestellt
             renderer.setSize(window.innerWidth, window.innerHeight);
             
-            // NEU: Auch das Zeichenbrett für die KI-Rahmen muss angepasst werden!
+            // Auch das Zeichenbrett für die KI-Rahmen muss angepasst werden!
             boxCanvas.width = window.innerWidth;
             boxCanvas.height = window.innerHeight;
         }
