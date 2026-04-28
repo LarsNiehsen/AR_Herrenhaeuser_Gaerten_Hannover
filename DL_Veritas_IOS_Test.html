@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+    <title>iOS DL Tester</title>
+    
+    <style>
+        body { margin: 0; overflow: hidden; background-color: #000; font-family: sans-serif; touch-action: none; }
+        
+        /* Kamera Video */
+        #webcam { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; object-fit: cover; z-index: 1; }
+        
+        /* Rahmen Canvas */
+        #box-canvas { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 3; pointer-events: none; }
+        
+        /* UI & Button */
+        #ui { position: absolute; top: 0; left: 0; width: 100vw; height: 100vh; z-index: 10; display: flex; justify-content: center; align-items: center; background: rgba(0, 0, 0, 0.85); }
+        button { padding: 15px 40px; font-size: 20px; cursor: pointer; background-color: #ff0000; color: white; border: none; border-radius: 8px; font-weight: bold; }
+        
+        /* On-Screen Debugger für iOS */
+        #debug-log { position: absolute; top: 10px; left: 10px; z-index: 20; color: #00FF00; background: rgba(0,0,0,0.7); padding: 10px; border-radius: 5px; font-size: 14px; max-width: 80vw; pointer-events: none; }
+    </style>
+</head>
+<body>
+
+    <!-- Start Screen -->
+    <div id="ui"><button id="startButton" type="button">KI Test Starten</button></div>
+    
+    <!-- Debug Log für iOS -->
+    <div id="debug-log">Warte auf Start...</div>
+
+    <!-- WICHTIG FÜR iOS: 'muted' hinzugefügt, sonst blockiert Safari oft das autoplay/canvas-drawing -->
+    <video id="webcam" autoplay playsinline muted></video>
+    
+    <canvas id="box-canvas"></canvas> 
+
+    <script>
+        // --- Debug-Funktion für iOS ---
+        const debugDiv = document.getElementById('debug-log');
+        function log(message) {
+            console.log(message);
+            debugDiv.innerText = message;
+        }
+
+        // --- iOS Erkennung ---
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+        const WORKER_SIZE = isIOS ? 320 : 640;
+        const AI_DELAY = isIOS ? 300 : 100;
+
+        let aiWorker;
+        let isDetecting = false;
+        
+        const boxCanvas = document.getElementById('box-canvas');
+        const boxCtx = boxCanvas.getContext('2d');
+        
+        const hiddenCanvas = document.createElement('canvas');
+        const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
+
+        const startButton = document.getElementById('startButton');
+        const ui = document.getElementById('ui');
+        const webcam = document.getElementById('webcam');
+
+        // --- 1. Kamera starten ---
+        startButton.addEventListener('click', async () => {
+            log("Fordere Kamera an...");
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'environment' } });
+                webcam.srcObject = stream;
+                
+                // Warten, bis Video wirklich läuft
+                webcam.onloadedmetadata = () => {
+                    webcam.play();
+                    ui.style.display = 'none';
+                    log("Kamera läuft. Starte KI...");
+                    initAI();
+                };
+            } catch (error) {
+                log('Kamera-Fehler: ' + error.message);
+                alert('Kamera konnte nicht gestartet werden.');
+            }
+        });
+
+        // --- 2. Worker initialisieren ---
+        function initAI() {
+            boxCanvas.width = window.innerWidth;
+            boxCanvas.height = window.innerHeight;
+
+            try {
+                aiWorker = new Worker('worker.js');
+                log("Worker geladen. Warte auf 'ready'...");
+
+                aiWorker.onmessage = function(event) {
+                    if (event.data.type === 'ready') {
+                        log("KI ist bereit! Sende ersten Frame...");
+                        requestNextFrame(); 
+                    } 
+                    else if (event.data.type === 'result') {
+                        log("Ergebnis empfangen: " + (event.data.data && event.data.data.boxes ? event.data.data.boxes.length + " Objekte" : "0 Objekte"));
+                        drawBoxes(event.data.data);
+                        
+                        setTimeout(() => {
+                            isDetecting = false;
+                            requestNextFrame(); 
+                        }, AI_DELAY); 
+                    }
+                };
+
+                aiWorker.onerror = function(error) {
+                    log("Worker-Fehler: " + error.message);
+                };
+            } catch (e) {
+                log("Fehler beim Erstellen des Workers: " + e.message);
+            }
+        }
+
+        // --- 3. Bild aus Video extrahieren und an Worker senden ---
+        function requestNextFrame() {
+            if (isDetecting || webcam.readyState < 2) return;
+            
+            hiddenCanvas.width = WORKER_SIZE;
+            hiddenCanvas.height = WORKER_SIZE;
+            hiddenCtx.drawImage(webcam, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            
+            try {
+                const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
+                isDetecting = true;
+                
+                // iOS FEHLERQUELLE NR. 1: Transferable Objects
+                // Wenn das Skript hier bei iOS abstürzt (Worker antwortet nicht mehr), 
+                // entferne den Teil `,[imageData.data.buffer]` aus der Zeile unten!
+                aiWorker.postMessage({ type: 'predict', image: imageData },[imageData.data.buffer]);
+                
+            } catch (e) {
+                log("Fehler beim Senden an Worker: " + e.message);
+                isDetecting = false;
+            }
+        }
+
+        // --- 4. Bounding Boxes zeichnen ---
+        function drawBoxes(predictions) {
+            boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+            
+            if (!predictions || !predictions.boxes) return;
+
+            const videoW = webcam.videoWidth;
+            const videoH = webcam.videoHeight;
+            const screenW = boxCanvas.width;
+            const screenH = boxCanvas.height;
+
+            const scale = Math.max(screenW / videoW, screenH / videoH);
+            const offsetX = (screenW - (videoW * scale)) / 2;
+            const offsetY = (screenH - (videoH * scale)) / 2;
+
+            boxCtx.strokeStyle = '#00FF00';
+            boxCtx.lineWidth = 4;
+            boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+
+            for (let i = 0; i < predictions.boxes.length; i++) {
+                if (predictions.scores[i] > 0.9) {
+                    let [x_center, y_center, width, height] = predictions.boxes[i];
+
+                    const origX = (x_center / WORKER_SIZE) * videoW;
+                    const origY = (y_center / WORKER_SIZE) * videoH;
+                    const origBoxW = (width / WORKER_SIZE) * videoW;
+                    const origBoxH = (height / WORKER_SIZE) * videoH;
+
+                    const finalBoxW = origBoxW * scale;
+                    const finalBoxH = origBoxH * scale;
+                    
+                    const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
+                    const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
+
+                    boxCtx.beginPath();
+                    boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
+                    boxCtx.stroke();
+                    boxCtx.fill();
+                    
+                    boxCtx.fillStyle = '#00FF00';
+                    boxCtx.font = '20px Arial';
+                    boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                    boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
+                }
+            }
+        }
+
+        // --- Resize Event ---
+        window.addEventListener('resize', () => {
+            boxCanvas.width = window.innerWidth;
+            boxCanvas.height = window.innerHeight;
+        });
+    </script>
+</body>
+</html>
