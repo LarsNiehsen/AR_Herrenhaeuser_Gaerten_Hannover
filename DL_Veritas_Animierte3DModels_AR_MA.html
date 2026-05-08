@@ -228,6 +228,10 @@
         const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
         const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb';
 
+        // NEU: Bild-Objekt für den roten Vorhang erstellen
+        const curtainImg = new Image();
+        curtainImg.src = 'ImageMatching/Vorhang_rot.png'; 
+
         // Event-Listener für den Start-Button
         startButton.addEventListener('click', async () => {
             // Prüfung und Anforderung von Berechtigungen für Bewegungssensoren (häufig bei iOS erforderlich)
@@ -367,18 +371,49 @@
                     const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
                     const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
 
-                    // Zeichnen des Rahmens
-                    boxCtx.beginPath();
-                    boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
-                    boxCtx.stroke();
-                    boxCtx.fill();
-                    
-                    // Zeichnen der Textbeschriftung inklusive Prozentangabe
-                    boxCtx.fillStyle = '#00FF00';
-                    boxCtx.font = '20px Arial';
-                    boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
-                    // Zurücksetzen der Füllfarbe für Folgeiterationen
-                    boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
+                    // Auslesen der erkannten Klasse durch die KI
+                    let detectedClass = 'Statue';
+                    if (predictions.classes && predictions.classes[i] !== undefined) {
+                        detectedClass = predictions.classes[i].toString();
+                    } else if (predictions.labels && predictions.labels[i] !== undefined) {
+                        detectedClass = predictions.labels[i].toString();
+                    }
+
+                    // Erkennen, ob es sich um eine "sonstige" Statue handelt
+                    const isSonstige = detectedClass.toLowerCase().includes('sonstige') || 
+                                       (detectedClass !== 'Statue' && !detectedClass.toLowerCase().includes('veritas'));
+
+                    if (isSonstige) {
+                        // Vorhang einblenden statt Rahmen für "sonstige" Statuen
+                        if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
+                            boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
+                        } else {
+                            // Fallback, wenn das Vorhang-Bild noch geladen wird
+                            boxCtx.fillStyle = '#8B0000';
+                            boxCtx.fillRect(finalX, finalY, finalBoxW, finalBoxH);
+                        }
+
+                        // Textbeschriftung für verdeckte Statuen
+                        boxCtx.fillStyle = '#FFFFFF';
+                        boxCtx.font = '20px Arial';
+                        boxCtx.fillText(`Zensiert: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        
+                        // Zurücksetzen der Füllfarbe für Folgeiterationen
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                    } else {
+                        // Zeichnen des Rahmens
+                        boxCtx.beginPath();
+                        boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
+                        boxCtx.stroke();
+                        boxCtx.fill();
+                        
+                        // Zeichnen der Textbeschriftung inklusive Prozentangabe
+                        boxCtx.fillStyle = '#00FF00';
+                        boxCtx.font = '20px Arial';
+                        boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        // Zurücksetzen der Füllfarbe für Folgeiterationen
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
+                    }
                 }
             }
         }
