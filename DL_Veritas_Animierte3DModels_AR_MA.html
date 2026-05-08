@@ -380,8 +380,8 @@
                     }
 
                     // Erkennen, ob es sich um eine "sonstige" Statue handelt
-                    const isSonstige = detectedClass.toLowerCase().includes('sonstige') || 
-                                       (detectedClass !== 'Statue' && !detectedClass.toLowerCase().includes('veritas'));
+                    // Wir checken auf den Namen "statue" ODER auf die ID "1" (für Web-Export)
+                    const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
 
                     if (isSonstige) {
                         // Vorhang einblenden statt Rahmen für "sonstige" Statuen
@@ -396,7 +396,7 @@
                         // Textbeschriftung für verdeckte Statuen
                         boxCtx.fillStyle = '#FFFFFF';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Zensiert: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
                         
                         // Zurücksetzen der Füllfarbe für Folgeiterationen
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
@@ -410,7 +410,7 @@
                         // Zeichnen der Textbeschriftung inklusive Prozentangabe
                         boxCtx.fillStyle = '#00FF00';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Statue: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        boxCtx.fillText(`Veritas: ${Math.round(predictions.scores[i] * 100)}%`, finalX, finalY - 10);
                         // Zurücksetzen der Füllfarbe für Folgeiterationen
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
                     }
