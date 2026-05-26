@@ -79,11 +79,19 @@
             border-radius: 8px; font-weight: bold;
         }
         
-        /* Design für das Informations-Textfeld */
+        /* Design für das Informations-Textfeld (leicht nach unten verschoben wegen Distanz-Anzeige) */
         #info {
-            position: absolute; top: 10px; left: 10px; color: white;
+            position: absolute; top: 50px; left: 10px; color: white;
             z-index: 5; background: rgba(0,0,0,0.5); padding: 5px 10px;
             border-radius: 4px; display: none; pointer-events: none;
+        }
+
+        /* NEU: Anzeige der KI-Entfernung oben links */
+        #distance-info {
+            position: absolute; top: 10px; left: 10px; color: white;
+            z-index: 5; background: rgba(0,0,0,0.7); padding: 5px 10px;
+            border-radius: 4px; display: none; pointer-events: none;
+            font-weight: bold; font-size: 18px; border: 1px solid rgba(255,255,255,0.3);
         }
 
         /* Virtuelles Steuerkreuz für Bewegungen */
@@ -152,6 +160,9 @@
     <!-- Canvas-Element zur Darstellung der KI-Begrenzungsrahmen -->
     <canvas id="box-canvas"></canvas> 
     
+    <!-- Anzeige für die berechnete Entfernung -->
+    <div id="distance-info">Entfernung: -- m</div>
+
     <!-- Informations-Textfeld für Systemstatus-Meldungen -->
     <div id="info">Lade...</div>
 
@@ -209,6 +220,10 @@
         // Variablen für den Hintergrundprozess (Web Worker) und den Berechnungsstatus
         let aiWorker;
         let isDetecting = false;
+
+        // Variablen für Distanzberechnung
+        let aiStatueDistance = null;
+        let aiStatueDistanceTime = 0;
         
         // Referenzierung des Canvas-Elements für die Rahmenzeichnung
         const boxCanvas = document.getElementById('box-canvas');
@@ -223,6 +238,7 @@
         const ui = document.getElementById('ui');
         const webcam = document.getElementById('webcam');
         const info = document.getElementById('info');
+        const distanceInfo = document.getElementById('distance-info'); // UI für Distanz
 
         // Dateipfade der 3D-Modelle
         const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
@@ -331,8 +347,13 @@
             // Leerung des vorherigen Canvas-Inhalts
             boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
             
-            // Abbruch bei fehlenden Daten
-            if (!predictions || !predictions.boxes) return;
+            // Abbruch bei fehlenden Daten, aber Timeout für Entfernungsanzeige prüfen
+            if (!predictions || !predictions.boxes) {
+                if (aiStatueDistance && (Date.now() - aiStatueDistanceTime >= 2000)) {
+                    distanceInfo.style.display = 'none';
+                }
+                return;
+            }
 
             // Extraktion der Dimensionen für die Skalierungsberechnung
             const videoW = webcam.videoWidth;
@@ -384,6 +405,12 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
 
                     if (isSonstige) {
+                        // ENTFERNUNGSBERECHNUNG (Lochkamera-Modell / Strahlensatz)
+                        // Annahme: Statue ist 3,2 Meter groß, Brennweite (focal length) ca. 80% der Bildhöhe
+                        const focalLength = videoH * 0.8;
+                        aiStatueDistance = (3.2 * focalLength) / origBoxH;
+                        aiStatueDistanceTime = Date.now();
+
                         // Vorhang einblenden statt Rahmen für "sonstige" Statuen
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
                             boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
@@ -415,6 +442,14 @@
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
                     }
                 }
+            }
+
+            // Distanz-Anzeige oben links aktualisieren und einblenden
+            if (aiStatueDistance && (Date.now() - aiStatueDistanceTime < 2000)) {
+                distanceInfo.innerText = `Entfernung: ${aiStatueDistance.toFixed(1)} m`;
+                distanceInfo.style.display = 'block';
+            } else {
+                distanceInfo.style.display = 'none';
             }
         }
         // ==========================================
