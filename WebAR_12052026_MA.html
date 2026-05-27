@@ -400,24 +400,24 @@
         // ==========================================
         // SYSTEM-ERKENNUNG FÜR SPEICHER-OPTIMIERUNG
         // ==========================================
-        // Überprüfung des User-Agents zur Identifikation von iOS-Geräten.
-        // iOS besitzt strikte Limits für den Arbeitsspeicher pro Tab.
+        // Es wird überprüft, ob ein iOS-Betriebssystem verwendet wird.
+        // iPhones und iPads haben oftmals striktere Arbeitsspeicher-Limits im Browser.
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
-        // Die Auflösung des Bildes, das an das Deep-Learning-Modell übergeben wird.
-        // Auf iOS-Geräten wird eine reduzierte Größe verwendet, um Rechenkapazitäten zu schonen.
+        // Auflösung des Bildes, das an das Deep-Learning-Modell übergeben wird.
+        // Bei iOS wird die Auflösung verringert, um den Arbeitsspeicher zu schonen.
         const WORKER_SIZE = isIOS ? 320 : 640;
 
-        // Wartezeit in Millisekunden zwischen zwei Deep-Learning-Auswertungen.
-        // Eine längere Pause bei iOS verhindert eine Überlastung der Systemressourcen.
+        // Wartezeit in Millisekunden zwischen zwei Auswertungen.
+        // Eine längere Pause bei iOS verhindert eine schnelle Überlastung der Rechenressourcen.
         const DL_DELAY = isIOS ? 300 : 100;
 
-        // Deep-Learning Konstanten und Variablen
+        // Deep-Learning Konstanten und Variablen.
         let aiWorker;
         let isDetectingDL = false;
         
-        // Schalter für die Deep-Learning-Erkennung. Startet deaktiviert, um Ressourcen zu schonen.
+        // Schalter für die Deep-Learning-Erkennung. Das System startet deaktiviert, um Rechenleistung zu sparen.
         let isDLDetectorEnabled = false; 
         
         // Variablen zur Speicherung der geschätzten Entfernung zur erkannten Statue.
@@ -428,8 +428,8 @@
         const curtainImg = new Image();
         curtainImg.src = 'ImageMatching/Vorhang_rot.png'; 
 
-        // Die verborgene Zeichenfläche wird einmalig global angelegt.
-        // Würde diese für jedes Bild neu erstellt, entstünde ein enormes Speicherleck, welches iPhones massiv verlangsamt.
+        // Die verborgene Zeichenfläche zur Bildübertragung wird einmalig global angelegt.
+        // Ein ständiges Neuanlegen würde den Speicher volllaufen lassen und mobile Geräte sehr langsam machen.
         const hiddenCanvas = document.createElement('canvas');
         const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
 
@@ -448,7 +448,7 @@
                 else if (event.data.type === 'result') {
                     latestDLPredictions = event.data.data;
                     
-                    // Implementierung einer Verzögerung, bevor das nächste Bild analysiert werden darf.
+                    // Einbau der Verzögerung, bevor das nächste Bild analysiert werden darf.
                     setTimeout(() => {
                         isDetectingDL = false; 
                     }, DL_DELAY); 
@@ -456,127 +456,127 @@
             };
         }
 
-        // Bereitet den aktuellen Frame auf und sendet ihn zur Analyse.
+        // Sendet den aktuellen Video-Ausschnitt an das Deep-Learning-Modell.
         function requestNextFrame(video) {
-            // Wird abgebrochen, falls Deep-Learning deaktiviert ist, eine Abfrage läuft oder das Video nicht existiert.
+            // Wird beendet, falls Deep-Learning deaktiviert ist, eine Abfrage läuft oder das Video nicht existiert.
             if (!isDLDetectorEnabled || isDetectingDL || !video || video.readyState < 2) return;
             
-            const cw = window.innerWidth;
-            const ch = window.innerHeight;
-            const vw = video.videoWidth; 
-            const vh = video.videoHeight;
-            if(!vw || !vh) return;
-
-            // Zuweisung der berechneten Dimensionen, um Speicherplatz zu sparen.
             hiddenCanvas.width = WORKER_SIZE;
             hiddenCanvas.height = WORKER_SIZE;
-
-            // Das Seitenverhältnis des originalen Videos und des Bildschirms wird verglichen.
-            const rV = vw / vh; 
-            const rC = cw / ch;
-            let sx, sy, sw, sh;
             
-            // Berechnung des sichtbaren Bildschirmausschnitts (Zuschneiden analog zu 'object-fit: cover').
-            // Dies ist ein kritischer Schritt: Anstatt das verzerrte Video zu analysieren,
-            // wird exakt der Bereich ausgeschnitten, der auch dem Nutzer angezeigt wird.
-            // Dadurch werden Positionsfehler am Bildschirmrand unter iOS vollständig behoben.
-            if (rV < rC) { 
-                sw = vw; 
-                sh = vw / rC; 
-                sx = 0; 
-                sy = (vh - sh) / 2; 
-            } else { 
-                sh = vh; 
-                sw = vh * rC; 
-                sx = (vw - sw) / 2; 
-                sy = 0; 
-            }
-
-            // Zeichnen des korrigierten Ausschnitts auf das Analyse-Canvas.
-            hiddenCtx.drawImage(video, sx, sy, sw, sh, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            // Die Logik aus dem funktionierenden Testskript: 
+            // Das gesamte Kamerabild wird auf das quadratische Analyse-Raster "gequetscht".
+            // Die Proportionen werden hierbei bewusst ignoriert. Die Rückrechnung auf das korrekte 
+            // Seitenverhältnis erfolgt erst beim Zeichnen der Boxen. Dies löst das Skalierungsproblem auf iPhones.
+            hiddenCtx.drawImage(video, 0, 0, WORKER_SIZE, WORKER_SIZE);
             const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
             
             isDetectingDL = true;
-            // Die Pixeldaten werden als Transferable Object übergeben, um ein Kopieren im Speicher zu vermeiden.
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // Verarbeitet die Auswertungsdaten und visualisiert die Bounding-Boxes.
-        function drawDeepLearningBoxes() {
+        // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
+        function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
             
-            // Wenn das Deep-Learning deaktiviert wurde, wird die visuelle Anzeige sofort geleert.
+            // Wenn das Deep-Learning deaktiviert ist, wird die Zeichenfläche geleert.
             if (!isDLDetectorEnabled) {
                 boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
                 return;
             }
             
-            const cw = window.innerWidth;
-            const ch = window.innerHeight;
-
-            // Fortlaufende Synchronisierung der Canvas-Größe mit dem Bildschirm.
-            if(boxCanvas.width !== cw || boxCanvas.height !== ch){
-                boxCanvas.width = cw;
-                boxCanvas.height = ch;
+            // Fortlaufende Anpassung der Canvas-Größe an die Fenstergröße.
+            if(boxCanvas.width !== window.innerWidth || boxCanvas.height !== window.innerHeight){
+                boxCanvas.width = window.innerWidth;
+                boxCanvas.height = window.innerHeight;
             }
             
-            boxCtx.clearRect(0, 0, cw, ch);
+            boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
             
-            // Beenden, falls keine Resultate bereitstehen.
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            // Schleife durch alle gefundenen Objekte.
+            const videoW = video.videoWidth;
+            const videoH = video.videoHeight;
+            const screenW = boxCanvas.width;
+            const screenH = boxCanvas.height;
+            if(!videoW || !videoH) return;
+
+            // Hier wird die "object-fit: cover"-Skalierung mathematisch abgebildet.
+            // Der Faktor bestimmt, wie stark das Video vergrößert wurde, um den Bildschirm zu füllen.
+            const scale = Math.max(screenW / videoW, screenH / videoH);
+            
+            // Da das Bild bei "cover" zentriert wird, entsteht ein Versatz für die abgeschnittenen Ränder.
+            const offsetX = (screenW - (videoW * scale)) / 2;
+            const offsetY = (screenH - (videoH * scale)) / 2;
+
+            boxCtx.strokeStyle = '#00FF00';
+            boxCtx.lineWidth = 4;
+            boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+
+            // Durchläuft alle vom Deep-Learning-Modell erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
-                // Berücksichtigung von Treffern mit einem Konfidenzwert von über 60%.
-                if (latestDLPredictions.scores[i] > 0.6) {
+                // Nur Treffer mit über 90% Zuverlässigkeit werden berücksichtigt.
+                if (latestDLPredictions.scores[i] > 0.9) {
+                    
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // Durch das vorherige Zuschneiden auf den sichtbaren Bereich können die Koordinaten
-                    // nun ohne komplexe Skalierungs-Versätze direkt auf die Bildschirmbreite umgerechnet werden.
-                    const mappedW = (width / WORKER_SIZE) * cw;
-                    const mappedH = (height / WORKER_SIZE) * ch;
-                    const mappedX = (x_center / WORKER_SIZE) * cw - (mappedW / 2);
-                    const mappedY = (y_center / WORKER_SIZE) * ch - (mappedH / 2);
+                    // Die vom Modell ausgegebenen Koordinaten werden auf die Originalauflösung des Videos zurückgerechnet.
+                    const origX = (x_center / WORKER_SIZE) * videoW;
+                    const origY = (y_center / WORKER_SIZE) * videoH;
+                    const origBoxW = (width / WORKER_SIZE) * videoW;
+                    const origBoxH = (height / WORKER_SIZE) * videoH;
+
+                    // Anschließend wird die Skalierung angewandt.
+                    const finalBoxW = origBoxW * scale;
+                    const finalBoxH = origBoxH * scale;
+                    
+                    // Der Startpunkt (oben links) wird unter Einbezug des Bildschirm-Versatzes ermittelt.
+                    const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
+                    const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
 
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
-                        detectedClass = latestDLPredictions.classes[i].toString().toLowerCase();
+                        detectedClass = latestDLPredictions.classes[i].toString();
+                    } else if (latestDLPredictions.labels && latestDLPredictions.labels[i] !== undefined) {
+                        detectedClass = latestDLPredictions.labels[i].toString();
                     }
 
-                    // Eindeutige Klassifizierung der erkannten Objekte.
-                    const isStatue = detectedClass.includes('statue') || detectedClass === '1';
-                    const isVeritas = detectedClass.includes('veritas') || detectedClass === '0';
+                    const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
+                    const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Distanzberechnung unter Annahme einer Statuehöhe von 3,20 Metern mithilfe des Strahlensatzes.
-                    if (isStatue || isVeritas) {
-                        const focalLength = ch * 0.8; 
-                        dlStatueDistance = (3.2 * focalLength) / mappedH;
+                    // Berechnet die Entfernung unter der Annahme, dass Statuen im Mittel 3,2 Meter hoch sind.
+                    if (isSonstige || isVeritas) {
+                        const focalLength = videoH * 0.8; 
+                        dlStatueDistance = (3.2 * focalLength) / origBoxH;
                         dlStatueDistanceTime = Date.now();
                     }
 
-                    if (isStatue && !isVeritas) {
-                        // Ein Vorhang-Bild wird für eine allgemeine Statue zur Verdedeckung visualisiert.
+                    if (isSonstige && !isVeritas) {
+                        // Ein Vorhang-Bild wird zur Verdeckung der realen Statue angezeigt.
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
-                            boxCtx.drawImage(curtainImg, mappedX, mappedY, mappedW, mappedH);
+                            boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
                         } else {
-                            boxCtx.fillStyle = 'rgba(139, 0, 0, 0.8)';
-                            boxCtx.fillRect(mappedX, mappedY, mappedW, mappedH);
+                            boxCtx.fillStyle = '#8B0000';
+                            boxCtx.fillRect(finalX, finalY, finalBoxW, finalBoxH);
                         }
                         boxCtx.fillStyle = '#FFFFFF';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Statue: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, mappedX, mappedY - 10);
+                        boxCtx.fillText(`Statue: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
                     } else if (isVeritas) {
-                        // Für das spezifische Modell "Veritas" wird lediglich ein grüner Fokusrahmen gezeichnet.
-                        boxCtx.strokeStyle = '#00FF00';
-                        boxCtx.lineWidth = 4;
+                        // Für das spezielle "Veritas"-Modell wird lediglich eine grüne Markierung gezeichnet.
                         boxCtx.beginPath();
-                        boxCtx.rect(mappedX, mappedY, mappedW, mappedH);
+                        boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
                         boxCtx.stroke();
+                        boxCtx.fill();
                         
                         boxCtx.fillStyle = '#00FF00';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Veritas: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, mappedX, mappedY - 10);
+                        boxCtx.fillText(`Veritas: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
                     }
                 }
             }
@@ -942,18 +942,17 @@
 
                 const video = mindarThree.video;
                 
-                // Sobald die Deep-Learning Erkennung aktiviert ist, wird die aufwändige ArUco-Analyse übersprungen.
-                // Das führt zu einer massiven Schonung der Hardware-Ressourcen.
+                // ArUco-Erkennung wird übersprungen, solange das Deep-Learning aktiv ist.
                 const arucoFound = isDLDetectorEnabled ? false : processArucoFrame(video);
                 
                 // Der aktuelle Bildausschnitt wird an die Deep-Learning Funktion weitergeleitet.
                 requestNextFrame(video);
-                drawDeepLearningBoxes();
+                drawDeepLearningBoxes(video);
 
                 let showSimulation = false;
                 let showStandardMindAR = false;
 
-                // MindAR-Image-Tracking wird pausiert und Modelle versteckt, solange das Deep-Learning System aktiv ist.
+                // MindAR-Image-Tracking wird pausiert und Modelle versteckt, solange Deep-Learning aktiv ist.
                 if (isDLDetectorEnabled) {
                     activeMindARId = -1; 
                 } else {
@@ -1340,7 +1339,7 @@
         // Aktualisiert die Anzeige der GNSS-Werte auf dem Bildschirm.
         function updateGNSSUI() {
             // Der String zur Anzeige der berechneten Entfernung via Deep-Learning wird vorbereitet.
-            // Sobald eine Statue erkannt wird und der Messwert aktuell ist, wird dieser hier formatiert.
+            // Der Wert wird nur berücksichtigt, wenn die letzte Berechnung weniger als zwei Sekunden her ist.
             let dlDistStr = "";
             if (isDLDetectorEnabled && dlStatueDistance && (Date.now() - dlStatueDistanceTime < 2000)) {
                 dlDistStr = ` (DL: ${Math.round(dlStatueDistance)} m)`;
@@ -1846,14 +1845,14 @@
             isDLDetectorEnabled = !isDLDetectorEnabled;
             
             if (isDLDetectorEnabled) {
-                // Grüner Hintergrund signalisiert den aktiven Zustand.
+                // Ein grüner Hintergrund weist auf die aktive Deep-Learning-Erkennung hin.
                 this.style.background = 'rgba(40, 180, 100, 0.85)';
                 this.title = "Deep-Learning Objekterkennung (Bounding Boxes) deaktivieren";
             } else {
                 // Der orangefarbene Ursprungszustand wird wiederhergestellt.
                 this.style.background = 'rgba(255, 140, 0, 0.85)';
                 this.title = "Deep-Learning Objekterkennung (Bounding Boxes) aktivieren";
-                // Bei Deaktivierung muss die Anzeige sofort bereinigt werden, damit keine Rahmen auf dem Bildschirm verbleiben.
+                // Löscht die Zeichnungen sofort vom Bildschirm, wenn die Funktion deaktiviert wird.
                 const boxCanvas = document.getElementById('box-canvas');
                 const boxCtx = boxCanvas.getContext('2d');
                 boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
