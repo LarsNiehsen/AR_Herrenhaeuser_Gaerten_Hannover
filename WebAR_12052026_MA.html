@@ -476,6 +476,7 @@
         }
 
         // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
+        // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
@@ -496,17 +497,30 @@
             
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            const videoW = video.videoWidth;
-            const videoH = video.videoHeight;
-            const screenW = boxCanvas.width;
-            const screenH = boxCanvas.height;
+            let videoW = video.videoWidth;
+            let videoH = video.videoHeight;
             if(!videoW || !videoH) return;
 
+            // ==========================================
+            // FIX: iOS Safari Rotation-Bug beheben
+            // ==========================================
+            // Wenn der Bildschirm im Hochformat ist, die Kamera aber Querformat meldet,
+            // (oder umgekehrt), müssen Breite und Höhe getauscht werden.
+            if (window.innerWidth < window.innerHeight && videoW > videoH) {
+                videoW = video.videoHeight;
+                videoH = video.videoWidth;
+            } else if (window.innerWidth > window.innerHeight && videoW < videoH) {
+                videoW = video.videoHeight;
+                videoH = video.videoWidth;
+            }
+
+            const screenW = boxCanvas.width;
+            const screenH = boxCanvas.height;
+
             // Hier wird die "object-fit: cover"-Skalierung mathematisch abgebildet.
-            // Der Faktor bestimmt, wie stark das Video vergrößert wurde, um den Bildschirm zu füllen.
             const scale = Math.max(screenW / videoW, screenH / videoH);
             
-            // Da das Bild bei "cover" zentriert wird, entsteht ein Versatz für die abgeschnittenen Ränder.
+            // Versatz für die abgeschnittenen Ränder (Margin).
             const offsetX = (screenW - (videoW * scale)) / 2;
             const offsetY = (screenH - (videoH * scale)) / 2;
 
@@ -516,24 +530,23 @@
 
             // Durchläuft alle vom Deep-Learning-Modell erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
-                // Nur Treffer mit über 90% Zuverlässigkeit werden berücksichtigt.
                 if (latestDLPredictions.scores[i] > 0.9) {
                     
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // Die vom Modell ausgegebenen Koordinaten werden auf die Originalauflösung des Videos zurückgerechnet.
+                    // Die Koordinaten werden auf die (nun sicher korrekte) Videoauflösung hochgerechnet.
                     const origX = (x_center / WORKER_SIZE) * videoW;
                     const origY = (y_center / WORKER_SIZE) * videoH;
                     const origBoxW = (width / WORKER_SIZE) * videoW;
                     const origBoxH = (height / WORKER_SIZE) * videoH;
 
-                    // Anschließend wird die Skalierung angewandt.
+                    // Anschließend wird die Bildschirmskalierung angewandt.
                     const finalBoxW = origBoxW * scale;
                     const finalBoxH = origBoxH * scale;
                     
-                    // Der Startpunkt (oben links) wird unter Einbezug des Bildschirm-Versatzes ermittelt.
-                    const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
-                    const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
+                    // Startpunkt (oben links) wird unter Einbezug des Versatzes ermittelt.
+                    let finalX = (origX * scale) + offsetX - (finalBoxW / 2);
+                    let finalY = (origY * scale) + offsetY - (finalBoxH / 2);
 
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
@@ -545,7 +558,7 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Berechnet die Entfernung unter der Annahme, dass Statuen im Mittel 3,2 Meter hoch sind.
+                    // Berechnet die Entfernung
                     if (isSonstige || isVeritas) {
                         const focalLength = videoH * 0.8; 
                         dlStatueDistance = (3.2 * focalLength) / origBoxH;
@@ -566,7 +579,7 @@
                         
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
                     } else if (isVeritas) {
-                        // Für das spezielle "Veritas"-Modell wird lediglich eine grüne Markierung gezeichnet.
+                        // Für das spezielle "Veritas"-Modell
                         boxCtx.beginPath();
                         boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
                         boxCtx.stroke();
