@@ -1,3 +1,4 @@
+
 <!DOCTYPE html>
 <!-- Deklariert das Dokument als HTML5-Standard -->
 <html lang="de">
@@ -29,8 +30,6 @@
     }
     </script>
     
-    <!-- ANPASSUNG 4: Tesseract-Bibliothek wurde entfernt, da die Live-Auswertung im Code entfernt wurde. -->
-
     <!-- CSS Styles: Festlegung der visuellen Gestaltung der Benutzeroberfläche. -->
     <style>
         /* Basis-Layout: Hintergrundfarbe Schwarz, Scrollleisten ausgeblendet. */
@@ -50,7 +49,7 @@
             z-index: 30; pointer-events: none;
         }
 
-        /* Canvas-Element für die KI-Rahmen (Bounding Boxes) */
+        /* Canvas-Element für die Deep-Learning-Rahmen (Bounding Boxes) */
         #box-canvas {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             z-index: 35; pointer-events: none; 
@@ -117,6 +116,18 @@
             box-shadow: 0 4px 10px rgba(0,0,0,0.5); padding: 0; line-height: 1;
         }
         #viewerBtn:active { transform: scale(0.95); }
+
+        /* Deep-Learning Aktivierungs-Button. Wird direkt unter dem 3D-Viewer platziert. */
+        #dlToggleBtn {
+            top: 155px; right: 20px; width: 30px; height: 30px; 
+            display: flex; align-items: center; justify-content: center;
+            font-weight: bold; font-size: 16px; cursor: pointer;
+            background: rgba(100, 40, 180, 0.85); /* Standard: Violett (deaktiviert) */
+            border: 1px solid rgba(150, 100, 255, 0.5);
+            box-shadow: 0 4px 10px rgba(0,0,0,0.5); padding: 0; line-height: 1;
+            transition: background 0.3s, transform 0.1s;
+        }
+        #dlToggleBtn:active { transform: scale(0.95); }
 
         /* Informationsfeld für 3D-Modelle. Mittig am unteren Rand platziert. */
         #modelInfo {
@@ -295,7 +306,7 @@
     <!-- 2D-Overlay Canvas für Debugging (ArUco Erkennung) -->
     <canvas id="videoCanvas"></canvas>
 
-    <!-- 2D-Overlay Canvas für Deep-Learning Erkennung (KI-Boxen) -->
+    <!-- 2D-Overlay Canvas für Deep-Learning Erkennung (Deep-Learning-Boxen) -->
     <canvas id="box-canvas"></canvas>
 
     <!-- Debug-Informationen -->
@@ -312,6 +323,9 @@
     
     <!-- 3D-Viewer-Button -->
     <div id="viewerBtn" class="ui-panel" title="3D-Modell Viewer öffnen">🧊</div>
+
+    <!-- Deep-Learning-Aktivierungs-Button -->
+    <div id="dlToggleBtn" class="ui-panel" title="Deep-Learning Objekterkennung (Bounding Boxes) aktivieren">🤖</div>
 
     <!-- Historisches Bild -->
     <div id="historicalInfo" class="ui-panel">
@@ -384,11 +398,19 @@
         const WORKER_SIZE = 640; 
         let aiWorker;
         let isDetectingDL = false;
+        
+        // Schalter für die Deep-Learning-Erkennung. Deaktiviert gestartet, um Ressourcen zu schonen.
+        let isDLDetectorEnabled = false; 
+        // Speichert die aus der Deep-Learning-Erkennung berechnete Entfernung in Metern.
+        let dlStatueDistance = null;
+        // Speichert den Zeitpunkt der letzten Entfernungsberechnung, um veraltete Werte später auszublenden.
+        let dlStatueDistanceTime = 0;
+        
         let latestDLPredictions = null;
         const curtainImg = new Image();
         curtainImg.src = 'ImageMatching/Vorhang_rot.png'; 
 
-        // Initialisierung des Web-Workers für die KI
+        // Initialisierung des Web-Workers für das Deep-Learning
         function initAI() {
             const boxCanvas = document.getElementById('box-canvas');
             boxCanvas.width = window.innerWidth;
@@ -398,7 +420,7 @@
             
             aiWorker.onmessage = function(event) {
                 if (event.data.type === 'ready') {
-                    console.log("KI bereit!");
+                    console.log("Deep-Learning bereit!");
                 } 
                 else if (event.data.type === 'result') {
                     latestDLPredictions = event.data.data;
@@ -407,9 +429,11 @@
             };
         }
 
-        // Sendet den aktuellen Video-Frame an die KI zur Analyse
+        // Sendet den aktuellen Video-Frame an das Deep-Learning-Modell zur Analyse
         function requestNextFrame(video) {
-            if (isDetectingDL || !video || video.readyState < 2) return;
+            // Ausführung wird abgebrochen, wenn Deep-Learning deaktiviert ist, 
+            // bereits ein Bild analysiert wird oder das Video nicht bereit ist.
+            if (!isDLDetectorEnabled || isDetectingDL || !video || video.readyState < 2) return;
             
             const hiddenCanvas = document.createElement('canvas');
             hiddenCanvas.width = WORKER_SIZE;
@@ -423,10 +447,17 @@
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // ANPASSUNG 2: Zeichnet die KI-Auswertungen (Bounding Boxes) und unterscheidet zwischen Statue und Veritas.
+        // ANPASSUNG 2: Zeichnet die Deep-Learning-Auswertungen (Bounding Boxes) und unterscheidet zwischen Statue und Veritas.
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
+            
+            // Wird die Deep-Learning-Erkennung deaktiviert, wird die Zeichenfläche geleert 
+            // und die Funktion sofort beendet.
+            if (!isDLDetectorEnabled) {
+                boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+                return;
+            }
             
             if(boxCanvas.width !== window.innerWidth || boxCanvas.height !== window.innerHeight){
                 boxCanvas.width = window.innerWidth;
@@ -471,6 +502,14 @@
                     // Logik zur genauen Unterscheidung zwischen generischer Statue und Veritas
                     const isStatue = detectedClass.includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.includes('veritas') || detectedClass === '0';
+
+                    // Berechnet die geschätzte Entfernung zur Statue auf Basis der Bounding-Box-Höhe im Videobild. 
+                    // Dabei wird das Lochkameramodell angewandt und eine reale Höhe von 3,2 Metern angenommen.
+                    if (isStatue || isVeritas) {
+                        const focalLength = vh * 0.8; 
+                        dlStatueDistance = (3.2 * focalLength) / origBoxH;
+                        dlStatueDistanceTime = Date.now();
+                    }
 
                     if (isStatue && !isVeritas) {
                         // Vorhang zeichnen für generische Statue
@@ -858,7 +897,10 @@
                 mixers.forEach(mixer => mixer.update(delta));
 
                 const video = mindarThree.video;
-                const arucoFound = processArucoFrame(video);
+                
+                // ArUco-Erkennung wird deaktiviert (übersprungen), solange Deep-Learning aktiv ist, 
+                // um die Rechenlast des Prozessors zu verringern und den Akku zu schonen.
+                const arucoFound = isDLDetectorEnabled ? false : processArucoFrame(video);
                 
                 requestNextFrame(video);
                 drawDeepLearningBoxes(video);
@@ -866,10 +908,15 @@
                 let showSimulation = false;
                 let showStandardMindAR = false;
 
-                // ANPASSUNG 3: Erweiterung um Indizes 10, 11, 12 in der Zeitprüfung.
-                if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8 || activeMindARId === 10 || activeMindARId === 11 || activeMindARId === 12) {
-                    if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
-                        activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
+                // MindAR-Image-Tracking wird ausgesetzt und Modelle versteckt, wenn Deep-Learning aktiviert ist.
+                if (isDLDetectorEnabled) {
+                    activeMindARId = -1; 
+                } else {
+                    // ANPASSUNG 3: Erweiterung um Indizes 10, 11, 12 in der Zeitprüfung.
+                    if ((activeMindARId >= 1 && activeMindARId <= 3) || activeMindARId === 7 || activeMindARId === 8 || activeMindARId === 10 || activeMindARId === 11 || activeMindARId === 12) {
+                        if (mindarAnchors[activeMindARId] && mindarAnchors[activeMindARId].group.visible) {
+                            activeMindAREndTime = Date.now() + STANDARD_PERSISTENCE;
+                        }
                     }
                 }
                 
@@ -1247,6 +1294,13 @@
 
         // Aktualisiert die Anzeige der GNSS-Werte auf dem Bildschirm.
         function updateGNSSUI() {
+            // Bereitet den Textteil für die berechnete Deep-Learning-Entfernung vor.
+            // Der Wert wird nur angezeigt, wenn die letzte Berechnung weniger als zwei Sekunden her ist.
+            let dlDistStr = "";
+            if (isDLDetectorEnabled && dlStatueDistance && (Date.now() - dlStatueDistanceTime < 2000)) {
+                dlDistStr = ` (DL: ${Math.round(dlStatueDistance)} m)`;
+            }
+
             // ANPASSUNG 1: Standard Debug-Struktur wird beibehalten, Entfernungs-Text bei Target 9 modifiziert.
             if (isFechterPlacedLocally && Date.now() < localFechterEndTime) {
                 closestObjForArrow = AR_MODELS[2];
@@ -1261,13 +1315,17 @@
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span><br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI</span> <span class="val-green">${AR_MODELS[2].title}</span><br>
-                    <span class="label-small">Entfernung</span> <span class="val-highlight">20 m im Sichtfeld</span>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">20 m im Sichtfeld${dlDistStr}</span>
                 `;
                 return; 
             }
 
             if (!lastPos) {
-                 statusText.innerHTML = "Warte auf GNSS Signal...";
+                 if (dlDistStr !== "") {
+                     statusText.innerHTML = `Warte auf GNSS Signal...<br><div style="margin-top:6px; padding-top:5px; border-top:1px solid rgba(255,255,255,0.2);"><span class="label-small">Entfernung</span> <span class="val-highlight">unbekannt${dlDistStr}</span></div>`;
+                 } else {
+                     statusText.innerHTML = "Warte auf GNSS Signal...";
+                 }
                  return;
             }
             
@@ -1310,7 +1368,7 @@
                     <span class="label-small">Kompass</span> <span class="val-highlight">${compassStr}</span>${offsetInfo}<br>
                     <div style="margin: 6px 0; border-bottom: 1px solid rgba(255,255,255,0.2);"></div>
                     <span class="label-small">POI ${isManualMode ? '<span style="color:#ffda85">(Tour fixiert)</span>' : '(Auto-nächste)'}</span> <span class="val-green">${closestObj.title}</span><br>
-                    <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}</span>
+                    <span class="label-small">Entfernung</span> <span class="val-highlight">${distStr}${dlDistStr}</span>
                 `;
             }
         }
@@ -1737,6 +1795,25 @@
                 markerGroup.quaternion.slerp(quat, 0.2);
             }
         }
+
+        // Verknüpft die Schaltfläche mit einer Funktion zum Umschalten der Deep-Learning-Erkennung.
+        document.getElementById('dlToggleBtn').addEventListener('click', function() {
+            isDLDetectorEnabled = !isDLDetectorEnabled;
+            
+            if (isDLDetectorEnabled) {
+                // Grüner Hintergrund signalisiert den aktiven Zustand.
+                this.style.background = 'rgba(40, 180, 100, 0.85)';
+                this.title = "Deep-Learning Objekterkennung (Bounding Boxes) deaktivieren";
+            } else {
+                // Violetter Hintergrund signalisiert den inaktiven Zustand.
+                this.style.background = 'rgba(100, 40, 180, 0.85)';
+                this.title = "Deep-Learning Objekterkennung (Bounding Boxes) aktivieren";
+                // Löscht die Zeichnungen sofort vom Bildschirm, wenn die Funktion deaktiviert wird.
+                const boxCanvas = document.getElementById('box-canvas');
+                const boxCtx = boxCanvas.getContext('2d');
+                boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
+            }
+        });
 
         detector = new AR.Detector({ dictionaryName: selectedDictionary });
         posit = new POS.Posit(markerSize, window.innerWidth);
