@@ -476,7 +476,6 @@
         }
 
         // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
-        // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
@@ -497,32 +496,16 @@
             
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            let videoW = video.videoWidth;
-            let videoH = video.videoHeight;
+            const videoW = video.videoWidth;
+            const videoH = video.videoHeight;
             if(!videoW || !videoH) return;
 
-            // ==========================================
-            // FIX: iOS Safari Rotation-Bug beheben
-            // ==========================================
-            // Wenn der Bildschirm im Hochformat ist, die Kamera aber Querformat meldet,
-            // (oder umgekehrt), müssen Breite und Höhe getauscht werden.
-            if (window.innerWidth < window.innerHeight && videoW > videoH) {
-                videoW = video.videoHeight;
-                videoH = video.videoWidth;
-            } else if (window.innerWidth > window.innerHeight && videoW < videoH) {
-                videoW = video.videoHeight;
-                videoH = video.videoWidth;
-            }
-
-            const screenW = boxCanvas.width;
-            const screenH = boxCanvas.height;
-
-            // Hier wird die "object-fit: cover"-Skalierung mathematisch abgebildet.
-            const scale = Math.max(screenW / videoW, screenH / videoH);
-            
-            // Versatz für die abgeschnittenen Ränder (Margin).
-            const offsetX = (screenW - (videoW * scale)) / 2;
-            const offsetY = (screenH - (videoH * scale)) / 2;
+            // =========================================================
+            // DIE LÖSUNG FÜR iOS: getBoundingClientRect()
+            // Fragt ab, wo und wie groß das Video exakt auf dem Screen gerendert wird.
+            // Beinhaltet automatisch Skalierung und alle Offsets!
+            // =========================================================
+            const rect = video.getBoundingClientRect();
 
             boxCtx.strokeStyle = '#00FF00';
             boxCtx.lineWidth = 4;
@@ -530,23 +513,28 @@
 
             // Durchläuft alle vom Deep-Learning-Modell erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
+                // Nur Treffer mit über 90% Zuverlässigkeit
                 if (latestDLPredictions.scores[i] > 0.9) {
                     
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // Die Koordinaten werden auf die (nun sicher korrekte) Videoauflösung hochgerechnet.
-                    const origX = (x_center / WORKER_SIZE) * videoW;
-                    const origY = (y_center / WORKER_SIZE) * videoH;
-                    const origBoxW = (width / WORKER_SIZE) * videoW;
-                    const origBoxH = (height / WORKER_SIZE) * videoH;
+                    // 1. Position relativ zum Originalbild berechnen (Werte von 0.0 bis 1.0)
+                    const relX = x_center / WORKER_SIZE;
+                    const relY = y_center / WORKER_SIZE;
+                    const relW = width / WORKER_SIZE;
+                    const relH = height / WORKER_SIZE;
 
-                    // Anschließend wird die Bildschirmskalierung angewandt.
-                    const finalBoxW = origBoxW * scale;
-                    const finalBoxH = origBoxH * scale;
+                    // 2. Mit der echten gerenderten Pixel-Größe multiplizieren
+                    const finalBoxW = relW * rect.width;
+                    const finalBoxH = relH * rect.height;
                     
-                    // Startpunkt (oben links) wird unter Einbezug des Versatzes ermittelt.
-                    let finalX = (origX * scale) + offsetX - (finalBoxW / 2);
-                    let finalY = (origY * scale) + offsetY - (finalBoxH / 2);
+                    // 3. Den Startpunkt (oben links) exakt auf dem Bildschirm setzen. 
+                    // rect.left und rect.top berücksichtigen bereits abgeschnittene Ränder!
+                    let finalX = rect.left + (relX * rect.width) - (finalBoxW / 2);
+                    let finalY = rect.top + (relY * rect.height) - (finalBoxH / 2);
+
+                    // Wird nur für deine spätere Entfernungsberechnung gebraucht:
+                    const origBoxH = relH * videoH; 
 
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
@@ -558,7 +546,7 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Berechnet die Entfernung
+                    // Berechnet die Entfernung unter der Annahme, dass Statuen im Mittel 3,2 Meter hoch sind.
                     if (isSonstige || isVeritas) {
                         const focalLength = videoH * 0.8; 
                         dlStatueDistance = (3.2 * focalLength) / origBoxH;
@@ -566,7 +554,6 @@
                     }
 
                     if (isSonstige && !isVeritas) {
-                        // Ein Vorhang-Bild wird zur Verdeckung der realen Statue angezeigt.
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
                             boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
                         } else {
@@ -579,7 +566,6 @@
                         
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
                     } else if (isVeritas) {
-                        // Für das spezielle "Veritas"-Modell
                         boxCtx.beginPath();
                         boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
                         boxCtx.stroke();
