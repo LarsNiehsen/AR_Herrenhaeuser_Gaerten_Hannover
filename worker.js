@@ -13,7 +13,7 @@ let model;
 async function loadModel() {
     // ACHTUNG: Hier muss der genaue Pfad zu deiner model.json stehen!
     // TensorFlow sucht dann automatisch nach den zugehörigen .bin Dateien.
-    model = await tf.loadGraphModel('./model/model.json'); //('./model/DL_Veritas_Statue/model.json')
+    model = await tf.loadGraphModel('./model/DL_Veritas_Statue/model.json'); //('./model/DL_Veritas_Statue/model.json')
     console.log("✅ YOLO11 KI-Modell im Hintergrund-Helfer erfolgreich geladen!");
     
     // Wir rufen dem Haupt-Programm (HTML) zu: "Ich bin bereit!"
