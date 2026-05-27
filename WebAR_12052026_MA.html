@@ -28,6 +28,8 @@
       }
     }
     </script>
+    
+    <!-- ANPASSUNG 4: Tesseract-Bibliothek wurde entfernt, da die Live-Auswertung im Code entfernt wurde. -->
 
     <!-- CSS Styles: Festlegung der visuellen Gestaltung der Benutzeroberfläche. -->
     <style>
@@ -118,7 +120,7 @@
 
         /* Deep-Learning Aktivierungs-Button. Wird direkt unter dem 3D-Viewer platziert. */
         #dlToggleBtn {
-            top: 155px; right: 20px; width: 34px; height: 34px; 
+            top: 155px; right: 20px; width: 30px; height: 30px; 
             display: flex; align-items: center; justify-content: center;
             font-weight: bold; font-size: 16px; cursor: pointer;
             background: rgba(255, 140, 0, 0.85); /* Standard: Orange (deaktiviert) */
@@ -323,9 +325,9 @@
     <!-- 3D-Viewer-Button -->
     <div id="viewerBtn" class="ui-panel" title="3D-Modell Viewer öffnen">🧊</div>
 
-    <!-- Deep-Learning-Aktivierungs-Button: Beinhaltet als Symbol einen gerahmten König -->
+    <!-- Deep-Learning-Aktivierungs-Button: Beinhaltet als Symbol einen gerahmten König im Hochformat -->
     <div id="dlToggleBtn" class="ui-panel" title="Deep-Learning Objekterkennung (Bounding Boxes) aktivieren">
-        <span style="border: 1px solid white; padding: 1px 3px; border-radius: 4px; display: inline-block; line-height: 1;">🤴</span>
+        <div style="border: 1.5px solid white; border-radius: 2px; width: 14px; height: 20px; display: flex; align-items: center; justify-content: center; font-size: 12px;">🤴</div>
     </div>
 
     <!-- Historisches Bild -->
@@ -408,14 +410,14 @@
         const WORKER_SIZE = isIOS ? 320 : 640;
 
         // Wartezeit in Millisekunden zwischen zwei Deep-Learning-Auswertungen.
-        // Eine kurze Pause verhindert die Überlastung des Prozessors auf mobilen Geräten.
-        const DL_DELAY = isIOS ? 150 : 50;
+        // Eine längere Pause bei iOS verhindert eine Überlastung der Systemressourcen.
+        const DL_DELAY = isIOS ? 300 : 100;
 
-        // Variablen für den Hintergrundprozess (Web Worker) und die Status-Überwachung.
+        // Deep-Learning Konstanten und Variablen
         let aiWorker;
         let isDetectingDL = false;
         
-        // Schalter für die Deep-Learning-Erkennung. Das System startet ressourcenschonend im deaktivierten Zustand.
+        // Schalter für die Deep-Learning-Erkennung. Startet deaktiviert, um Ressourcen zu schonen.
         let isDLDetectorEnabled = false; 
         
         // Variablen zur Speicherung der geschätzten Entfernung zur erkannten Statue.
@@ -946,7 +948,7 @@
                 
                 // Der aktuelle Bildausschnitt wird an die Deep-Learning Funktion weitergeleitet.
                 requestNextFrame(video);
-                drawDeepLearningBoxes(video);
+                drawDeepLearningBoxes();
 
                 let showSimulation = false;
                 let showStandardMindAR = false;
@@ -1839,12 +1841,12 @@
             }
         }
 
-        // Umschalt-Funktion zur Ausführung der Deep-Learning Logik auf Knopfdruck.
+        // Verknüpft die Schaltfläche mit einer Funktion zum Umschalten der Deep-Learning-Erkennung.
         document.getElementById('dlToggleBtn').addEventListener('click', function() {
             isDLDetectorEnabled = !isDLDetectorEnabled;
             
             if (isDLDetectorEnabled) {
-                // Ein grüner Hintergrund weist auf die aktive Deep-Learning-Erkennung hin.
+                // Grüner Hintergrund signalisiert den aktiven Zustand.
                 this.style.background = 'rgba(40, 180, 100, 0.85)';
                 this.title = "Deep-Learning Objekterkennung (Bounding Boxes) deaktivieren";
             } else {
