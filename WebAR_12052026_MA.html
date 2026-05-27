@@ -1,4 +1,3 @@
-
 <!DOCTYPE html>
 <!-- Deklariert das Dokument als HTML5-Standard -->
 <html lang="de">
@@ -30,6 +29,8 @@
     }
     </script>
     
+    <!-- ANPASSUNG 4: Tesseract-Bibliothek wurde entfernt, da die Live-Auswertung im Code entfernt wurde. -->
+
     <!-- CSS Styles: Festlegung der visuellen Gestaltung der Benutzeroberfläche. -->
     <style>
         /* Basis-Layout: Hintergrundfarbe Schwarz, Scrollleisten ausgeblendet. */
@@ -394,16 +395,29 @@
         import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
         import { MindARThree } from 'mindar-image-three';
 
-        // Deep Learning Konstanten und Variablen
-        const WORKER_SIZE = 640; 
+        // System-Erkennung für Speicher-Optimierung
+        // Es wird überprüft, ob das Gerät ein iOS-Betriebssystem verwendet.
+        const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
+                      (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
+
+        // Auflösung des Bildes, das an das Deep-Learning-Modell übergeben wird.
+        // Bei iOS wird die Auflösung reduziert, um den Arbeitsspeicher zu schonen.
+        const WORKER_SIZE = isIOS ? 320 : 640;
+
+        // Wartezeit in Millisekunden zwischen zwei Deep-Learning-Auswertungen.
+        // Eine längere Pause bei iOS verhindert eine Überlastung der Systemressourcen.
+        const DL_DELAY = isIOS ? 300 : 100;
+
+        // Deep-Learning Konstanten und Variablen
         let aiWorker;
         let isDetectingDL = false;
         
-        // Schalter für die Deep-Learning-Erkennung. Deaktiviert gestartet, um Ressourcen zu schonen.
+        // Schalter für die Deep-Learning-Erkennung. Startet deaktiviert, um Ressourcen zu schonen.
         let isDLDetectorEnabled = false; 
+        
         // Speichert die aus der Deep-Learning-Erkennung berechnete Entfernung in Metern.
         let dlStatueDistance = null;
-        // Speichert den Zeitpunkt der letzten Entfernungsberechnung, um veraltete Werte später auszublenden.
+        // Speichert den Zeitpunkt der letzten Entfernungsberechnung, um veraltete Werte auszublenden.
         let dlStatueDistanceTime = 0;
         
         let latestDLPredictions = null;
@@ -424,7 +438,12 @@
                 } 
                 else if (event.data.type === 'result') {
                     latestDLPredictions = event.data.data;
-                    isDetectingDL = false; 
+                    
+                    // Eine Pause wird eingefügt, bevor das nächste Bild analysiert wird.
+                    // Dies verhindert eine Überlastung des Prozessors.
+                    setTimeout(() => {
+                        isDetectingDL = false; 
+                    }, DL_DELAY); 
                 }
             };
         }
@@ -447,92 +466,120 @@
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // ANPASSUNG 2: Zeichnet die Deep-Learning-Auswertungen (Bounding Boxes) und unterscheidet zwischen Statue und Veritas.
+        // Die Funktion übernimmt das Zeichnen der Rahmen und die Auswertung der Deep-Learning-Daten.
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
             
-            // Wird die Deep-Learning-Erkennung deaktiviert, wird die Zeichenfläche geleert 
-            // und die Funktion sofort beendet.
+            // Falls die Erkennung deaktiviert ist, wird die Zeichenfläche geleert und die Funktion beendet.
             if (!isDLDetectorEnabled) {
                 boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
                 return;
             }
             
+            // Die Größe der Zeichenfläche wird fortlaufend an die Bildschirmgröße angepasst.
             if(boxCanvas.width !== window.innerWidth || boxCanvas.height !== window.innerHeight){
                 boxCanvas.width = window.innerWidth;
                 boxCanvas.height = window.innerHeight;
             }
             
+            // Leert das Bild für den neuen Frame.
             boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
             
+            // Es wird geprüft, ob überhaupt Ergebnisse vorliegen. Andernfalls bricht die Funktion ab.
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            const cw = boxCanvas.width; const ch = boxCanvas.height;
-            const vw = video.videoWidth; const vh = video.videoHeight;
-            if(!vw || !vh) return;
+            // Auslesen der Dimensionen für die spätere Skalierung.
+            // Dies gewährleistet, dass die Deep-Learning-Rahmen deckungsgleich zum Kamerabild dargestellt werden.
+            const screenW = boxCanvas.width; 
+            const screenH = boxCanvas.height;
+            const videoW = video.videoWidth; 
+            const videoH = video.videoHeight;
+            
+            if(!videoW || !videoH) return;
 
-            const rV = vw / vh; const rC = cw / ch;
-            let sx, sy, sw, sh;
-            if (rV < rC) { sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; }
-            else { sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; }
+            // Die Skalierung wird so berechnet, dass das Videobild den Bildschirm vollständig und ohne Verzerrung ausfüllt.
+            const scale = Math.max(screenW / videoW, screenH / videoH);
+            
+            // Durch das Ausfüllen des Bildschirms können Ränder entstehen, die abgeschnitten werden.
+            // Dieser Versatz wird berechnet, um die Koordinaten später zu korrigieren.
+            const offsetX = (screenW - (videoW * scale)) / 2;
+            const offsetY = (screenH - (videoH * scale)) / 2;
 
-            const scaleX = cw / sw;
-            const scaleY = ch / sh;
+            // Festlegen der Zeichenstile für die Rahmen.
+            boxCtx.strokeStyle = '#00FF00';
+            boxCtx.lineWidth = 4;
+            boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
 
+            // Eine Schleife durchläuft alle erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
-                if (latestDLPredictions.scores[i] > 0.6) {
+                // Nur Ergebnisse mit einer Zuverlässigkeit von über 90% werden beachtet.
+                if (latestDLPredictions.scores[i] > 0.9) {
+                    
+                    // Die Koordinaten werden aus der Analyse extrahiert.
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    const origX = (x_center / WORKER_SIZE) * vw;
-                    const origY = (y_center / WORKER_SIZE) * vh;
-                    const origBoxW = (width / WORKER_SIZE) * vw;
-                    const origBoxH = (height / WORKER_SIZE) * vh;
+                    // Rückrechnung der Koordinaten aus der verkleinerten Analyse-Auflösung auf die Originalgröße des Videos.
+                    const origX = (x_center / WORKER_SIZE) * videoW;
+                    const origY = (y_center / WORKER_SIZE) * videoH;
+                    const origBoxW = (width / WORKER_SIZE) * videoW;
+                    const origBoxH = (height / WORKER_SIZE) * videoH;
 
-                    const mappedX = (origX - sx) * scaleX - ((origBoxW * scaleX) / 2);
-                    const mappedY = (origY - sy) * scaleY - ((origBoxH * scaleY) / 2);
-                    const mappedW = origBoxW * scaleX;
-                    const mappedH = origBoxH * scaleY;
+                    // Anpassung der Größe des Rahmens an die aktuelle Skalierung des Bildschirms.
+                    const finalBoxW = origBoxW * scale;
+                    const finalBoxH = origBoxH * scale;
+                    
+                    // Berechnung des finalen Startpunkts unter Berücksichtigung des Versatzes (abgeschnittene Ränder).
+                    const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
+                    const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
 
+                    // Die erkannte Objektklasse wird ermittelt.
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
-                        detectedClass = latestDLPredictions.classes[i].toString().toLowerCase();
+                        detectedClass = latestDLPredictions.classes[i].toString();
+                    } else if (latestDLPredictions.labels && latestDLPredictions.labels[i] !== undefined) {
+                        detectedClass = latestDLPredictions.labels[i].toString();
                     }
 
-                    // Logik zur genauen Unterscheidung zwischen generischer Statue und Veritas
-                    const isStatue = detectedClass.includes('statue') || detectedClass === '1';
-                    const isVeritas = detectedClass.includes('veritas') || detectedClass === '0';
+                    // Eine Unterscheidung findet statt: Ist das erkannte Objekt die Klasse "Statue" (oder ID 1)?
+                    const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
 
-                    // Berechnet die geschätzte Entfernung zur Statue auf Basis der Bounding-Box-Höhe im Videobild. 
-                    // Dabei wird das Lochkameramodell angewandt und eine reale Höhe von 3,2 Metern angenommen.
-                    if (isStatue || isVeritas) {
-                        const focalLength = vh * 0.8; 
+                    if (isSonstige) {
+                        // Die Entfernung wird durch den Strahlensatz (Lochkameramodell) geschätzt.
+                        // Dabei wird eine reale Höhe des Objekts von 3,2 Metern angenommen.
+                        // Die Brennweite wird vereinfacht als 80% der Bildhöhe angesetzt.
+                        const focalLength = videoH * 0.8;
                         dlStatueDistance = (3.2 * focalLength) / origBoxH;
                         dlStatueDistanceTime = Date.now();
-                    }
 
-                    if (isStatue && !isVeritas) {
-                        // Vorhang zeichnen für generische Statue
+                        // Für das gefundene Objekt wird ein Vorhang-Bild als Überlagerung gezeichnet.
+                        // Ist das Bild noch nicht vollständig geladen, wird als Ersatz ein roter Rahmen verwendet.
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
-                            boxCtx.drawImage(curtainImg, mappedX, mappedY, mappedW, mappedH);
+                            boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
                         } else {
-                            boxCtx.fillStyle = 'rgba(139, 0, 0, 0.8)';
-                            boxCtx.fillRect(mappedX, mappedY, mappedW, mappedH);
+                            boxCtx.fillStyle = '#8B0000';
+                            boxCtx.fillRect(finalX, finalY, finalBoxW, finalBoxH);
                         }
+
+                        // Ein Text mit dem Klassennamen und der Zuverlässigkeit in Prozent wird hinzugefügt.
                         boxCtx.fillStyle = '#FFFFFF';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Statue: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, mappedX, mappedY - 10);
-                    } else if (isVeritas) {
-                        // Grüner Rahmen für Veritas
-                        boxCtx.strokeStyle = '#00FF00';
-                        boxCtx.lineWidth = 4;
+                        boxCtx.fillText(`Statue: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        
+                        // Die Füllfarbe wird für das nächste Objekt zurückgesetzt.
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
+                    } else {
+                        // Falls das erkannte Objekt die spezielle Klasse "Veritas" ist, wird ein grüner Rahmen gezeichnet.
                         boxCtx.beginPath();
-                        boxCtx.rect(mappedX, mappedY, mappedW, mappedH);
+                        boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
                         boxCtx.stroke();
+                        boxCtx.fill();
                         
                         boxCtx.fillStyle = '#00FF00';
                         boxCtx.font = '20px Arial';
-                        boxCtx.fillText(`Veritas: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, mappedX, mappedY - 10);
+                        boxCtx.fillText(`Veritas: ${Math.round(latestDLPredictions.scores[i] * 100)}%`, finalX, finalY - 10);
+                        
+                        boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)'; 
                     }
                 }
             }
@@ -1294,8 +1341,8 @@
 
         // Aktualisiert die Anzeige der GNSS-Werte auf dem Bildschirm.
         function updateGNSSUI() {
-            // Bereitet den Textteil für die berechnete Deep-Learning-Entfernung vor.
-            // Der Wert wird nur angezeigt, wenn die letzte Berechnung weniger als zwei Sekunden her ist.
+            // Der Textteil für die berechnete Deep-Learning-Entfernung wird vorbereitet.
+            // Der Wert wird nur berücksichtigt, wenn die letzte Berechnung weniger als zwei Sekunden her ist.
             let dlDistStr = "";
             if (isDLDetectorEnabled && dlStatueDistance && (Date.now() - dlStatueDistanceTime < 2000)) {
                 dlDistStr = ` (DL: ${Math.round(dlStatueDistance)} m)`;
