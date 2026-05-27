@@ -456,37 +456,59 @@
             };
         }
 
-        // Sendet den aktuellen Video-Ausschnitt an das Deep-Learning-Modell.
+        // Sendet exakt den sichtbaren Bildausschnitt an das Deep-Learning-Modell.
         function requestNextFrame(video) {
-            // Wird beendet, falls Deep-Learning deaktiviert ist, eine Abfrage läuft oder das Video nicht existiert.
             if (!isDLDetectorEnabled || isDetectingDL || !video || video.readyState < 2) return;
             
             hiddenCanvas.width = WORKER_SIZE;
             hiddenCanvas.height = WORKER_SIZE;
             
-            // Die Logik aus dem funktionierenden Testskript: 
-            // Das gesamte Kamerabild wird auf das quadratische Analyse-Raster "gequetscht".
-            // Die Proportionen werden hierbei bewusst ignoriert. Die Rückrechnung auf das korrekte 
-            // Seitenverhältnis erfolgt erst beim Zeichnen der Boxen. Dies löst das Skalierungsproblem auf iPhones.
-            hiddenCtx.drawImage(video, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            // DIE LÖSUNG: Wir berechnen den sichtbaren Bildschirmausschnitt exakt so, 
+            // wie es auch die ArUco-Erkennung in deinem Code erfolgreich tut!
+            const cw = window.innerWidth;
+            const ch = window.innerHeight;
+            const vw = video.videoWidth; 
+            const vh = video.videoHeight;
+            
+            if (!vw || !vh) return;
+
+            const rV = vw / vh; 
+            const rC = cw / ch;
+            let sx, sy, sw, sh;
+            
+            // "object-fit: cover" Simulation für den Crop
+            if (rV < rC) { 
+                sw = vw; 
+                sh = vw / rC; 
+                sx = 0; 
+                sy = (vh - sh) / 2; 
+            } else { 
+                sh = vh; 
+                sw = vh * rC; 
+                sx = (vw - sw) / 2; 
+                sy = 0; 
+            }
+            
+            // Nur den exakt sichtbaren Teil des Videos an die KI senden
+            hiddenCtx.clearRect(0, 0, WORKER_SIZE, WORKER_SIZE);
+            hiddenCtx.drawImage(video, sx, sy, sw, sh, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            
             const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
             
             isDetectingDL = true;
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
+        // Zeichnet die Bounding Boxes 1:1 auf den Bildschirm
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
             
-            // Wenn das Deep-Learning deaktiviert ist, wird die Zeichenfläche geleert.
             if (!isDLDetectorEnabled) {
                 boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
                 return;
             }
             
-            // Fortlaufende Anpassung der Canvas-Größe an die Fenstergröße.
             if(boxCanvas.width !== window.innerWidth || boxCanvas.height !== window.innerHeight){
                 boxCanvas.width = window.innerWidth;
                 boxCanvas.height = window.innerHeight;
@@ -496,45 +518,26 @@
             
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            const videoW = video.videoWidth;
-            const videoH = video.videoHeight;
-            if(!videoW || !videoH) return;
-
-            // =========================================================
-            // DIE LÖSUNG FÜR iOS: getBoundingClientRect()
-            // Fragt ab, wo und wie groß das Video exakt auf dem Screen gerendert wird.
-            // Beinhaltet automatisch Skalierung und alle Offsets!
-            // =========================================================
-            const rect = video.getBoundingClientRect();
+            const screenW = boxCanvas.width;
+            const screenH = boxCanvas.height;
 
             boxCtx.strokeStyle = '#00FF00';
             boxCtx.lineWidth = 4;
             boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
 
-            // Durchläuft alle vom Deep-Learning-Modell erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
-                // Nur Treffer mit über 90% Zuverlässigkeit
                 if (latestDLPredictions.scores[i] > 0.9) {
                     
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // 1. Position relativ zum Originalbild berechnen (Werte von 0.0 bis 1.0)
-                    const relX = x_center / WORKER_SIZE;
-                    const relY = y_center / WORKER_SIZE;
-                    const relW = width / WORKER_SIZE;
-                    const relH = height / WORKER_SIZE;
-
-                    // 2. Mit der echten gerenderten Pixel-Größe multiplizieren
-                    const finalBoxW = relW * rect.width;
-                    const finalBoxH = relH * rect.height;
+                    // DA DIE KI NUN NUR DEN SICHTBAREN AUSSCHNITT BEKOMMT:
+                    // Keine Offsets mehr! Wir können den relativen Wert direkt
+                    // mit der Bildschirmbreite multiplizieren.
+                    const finalBoxW = (width / WORKER_SIZE) * screenW;
+                    const finalBoxH = (height / WORKER_SIZE) * screenH;
                     
-                    // 3. Den Startpunkt (oben links) exakt auf dem Bildschirm setzen. 
-                    // rect.left und rect.top berücksichtigen bereits abgeschnittene Ränder!
-                    let finalX = rect.left + (relX * rect.width) - (finalBoxW / 2);
-                    let finalY = rect.top + (relY * rect.height) - (finalBoxH / 2);
-
-                    // Wird nur für deine spätere Entfernungsberechnung gebraucht:
-                    const origBoxH = relH * videoH; 
+                    const finalX = (x_center / WORKER_SIZE) * screenW - (finalBoxW / 2);
+                    const finalY = (y_center / WORKER_SIZE) * screenH - (finalBoxH / 2);
 
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
@@ -546,10 +549,10 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Berechnet die Entfernung unter der Annahme, dass Statuen im Mittel 3,2 Meter hoch sind.
+                    // Entfernung mit der neuen Bildschirmskalierung berechnen
                     if (isSonstige || isVeritas) {
-                        const focalLength = videoH * 0.8; 
-                        dlStatueDistance = (3.2 * focalLength) / origBoxH;
+                        const focalLength = screenH * 0.8; 
+                        dlStatueDistance = (3.2 * focalLength) / finalBoxH;
                         dlStatueDistanceTime = Date.now();
                     }
 
@@ -580,7 +583,7 @@
                 }
             }
         }
-
+        
         // Allgemeine Konfiguration
         const markerSize = 100.0; 
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
