@@ -456,42 +456,43 @@
             };
         }
 
-        // Sendet exakt den sichtbaren Bildausschnitt an das Deep-Learning-Modell.
+       // Sendet exakt den sichtbaren Bildausschnitt an das Deep-Learning-Modell (ohne Verzerrung!).
         function requestNextFrame(video) {
             if (!isDLDetectorEnabled || isDetectingDL || !video || video.readyState < 2) return;
             
-            hiddenCanvas.width = WORKER_SIZE;
-            hiddenCanvas.height = WORKER_SIZE;
-            
-            // DIE LÖSUNG: Wir berechnen den sichtbaren Bildschirmausschnitt exakt so, 
-            // wie es auch die ArUco-Erkennung in deinem Code erfolgreich tut!
             const cw = window.innerWidth;
             const ch = window.innerHeight;
             const vw = video.videoWidth; 
             const vh = video.videoHeight;
-            
             if (!vw || !vh) return;
 
+            // 1. Dieselbe Berechnung des sichtbaren Ausschnitts wie bei ArUco
             const rV = vw / vh; 
             const rC = cw / ch;
             let sx, sy, sw, sh;
             
-            // "object-fit: cover" Simulation für den Crop
             if (rV < rC) { 
-                sw = vw; 
-                sh = vw / rC; 
-                sx = 0; 
-                sy = (vh - sh) / 2; 
+                sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; 
             } else { 
-                sh = vh; 
-                sw = vh * rC; 
-                sx = (vw - sw) / 2; 
-                sy = 0; 
+                sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; 
             }
             
-            // Nur den exakt sichtbaren Teil des Videos an die KI senden
-            hiddenCtx.clearRect(0, 0, WORKER_SIZE, WORKER_SIZE);
-            hiddenCtx.drawImage(video, sx, sy, sw, sh, 0, 0, WORKER_SIZE, WORKER_SIZE);
+            hiddenCanvas.width = WORKER_SIZE;
+            hiddenCanvas.height = WORKER_SIZE;
+            
+            // 2. Hintergrund schwarz färben (Letterboxing-Balken vorbereiten)
+            hiddenCtx.fillStyle = '#000000';
+            hiddenCtx.fillRect(0, 0, WORKER_SIZE, WORKER_SIZE);
+
+            // 3. Proportionale Skalierung in das Quadrat berechnen (verhindert das Quetschen!)
+            const scaleFit = Math.min(WORKER_SIZE / sw, WORKER_SIZE / sh);
+            const drawW = sw * scaleFit;
+            const drawH = sh * scaleFit;
+            const drawX = (WORKER_SIZE - drawW) / 2;
+            const drawY = (WORKER_SIZE - drawH) / 2;
+            
+            // Bild exakt proportional und mittig einfügen
+            hiddenCtx.drawImage(video, sx, sy, sw, sh, drawX, drawY, drawW, drawH);
             
             const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
             
@@ -499,7 +500,7 @@
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // Zeichnet die Bounding Boxes 1:1 auf den Bildschirm
+        // Zeichnet die Bounding Boxes millimetergenau auf Basis der ArUco-Mathematik
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
@@ -518,8 +519,29 @@
             
             if (!latestDLPredictions || !latestDLPredictions.boxes) return;
 
-            const screenW = boxCanvas.width;
-            const screenH = boxCanvas.height;
+            const cw = window.innerWidth;
+            const ch = window.innerHeight;
+            const vw = video.videoWidth; 
+            const vh = video.videoHeight;
+            if (!vw || !vh) return;
+
+            // 1. Erneute Berechnung wie bei ArUco
+            const rV = vw / vh; 
+            const rC = cw / ch;
+            let sx, sy, sw, sh;
+            
+            if (rV < rC) { 
+                sw = vw; sh = vw / rC; sx = 0; sy = (vh - sh) / 2; 
+            } else { 
+                sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; 
+            }
+
+            // 2. Erneute Skalierungs-Parameter für die Rückrechnung
+            const scaleFit = Math.min(WORKER_SIZE / sw, WORKER_SIZE / sh);
+            const drawW = sw * scaleFit;
+            const drawH = sh * scaleFit;
+            const drawX = (WORKER_SIZE - drawW) / 2;
+            const drawY = (WORKER_SIZE - drawH) / 2;
 
             boxCtx.strokeStyle = '#00FF00';
             boxCtx.lineWidth = 4;
@@ -530,14 +552,16 @@
                     
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // DA DIE KI NUN NUR DEN SICHTBAREN AUSSCHNITT BEKOMMT:
-                    // Keine Offsets mehr! Wir können den relativen Wert direkt
-                    // mit der Bildschirmbreite multiplizieren.
-                    const finalBoxW = (width / WORKER_SIZE) * screenW;
-                    const finalBoxH = (height / WORKER_SIZE) * screenH;
+                    // 3. Entferne den schwarzen Balken (Offset) von den KI-Koordinaten
+                    const real_x = x_center - drawX;
+                    const real_y = y_center - drawY;
+
+                    // 4. Skaliere die reinen Koordinaten auf den echten Bildschirm (cw, ch)
+                    const finalBoxW = (width / drawW) * cw;
+                    const finalBoxH = (height / drawH) * ch;
                     
-                    const finalX = (x_center / WORKER_SIZE) * screenW - (finalBoxW / 2);
-                    const finalY = (y_center / WORKER_SIZE) * screenH - (finalBoxH / 2);
+                    const finalX = (real_x / drawW) * cw - (finalBoxW / 2);
+                    const finalY = (real_y / drawH) * ch - (finalBoxH / 2);
 
                     let detectedClass = 'Statue'; 
                     if (latestDLPredictions.classes && latestDLPredictions.classes[i] !== undefined) {
@@ -549,9 +573,9 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Entfernung mit der neuen Bildschirmskalierung berechnen
+                    // Entfernung berechnen
                     if (isSonstige || isVeritas) {
-                        const focalLength = screenH * 0.8; 
+                        const focalLength = ch * 0.8; 
                         dlStatueDistance = (3.2 * focalLength) / finalBoxH;
                         dlStatueDistanceTime = Date.now();
                     }
@@ -583,7 +607,7 @@
                 }
             }
         }
-        
+
         // Allgemeine Konfiguration
         const markerSize = 100.0; 
         const selectedDictionary = 'ARUCO_MIP_36h12'; 
