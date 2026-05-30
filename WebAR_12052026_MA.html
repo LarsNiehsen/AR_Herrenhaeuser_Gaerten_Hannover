@@ -456,17 +456,21 @@
             };
         }
 
-       // Sendet exakt den sichtbaren Bildausschnitt an das Deep-Learning-Modell (ohne Verzerrung!).
+        // Sendet exakt den sichtbaren Bildausschnitt an das Deep-Learning-Modell.
         function requestNextFrame(video) {
+            // Wird beendet, falls Deep-Learning deaktiviert ist, eine Abfrage läuft oder das Video nicht existiert.
             if (!isDLDetectorEnabled || isDetectingDL || !video || video.readyState < 2) return;
             
+            // DIE LÖSUNG: Wir berechnen den sichtbaren Bildschirmausschnitt exakt so, 
+            // wie es auch die ArUco-Erkennung in deinem Code erfolgreich tut!
             const cw = window.innerWidth;
             const ch = window.innerHeight;
             const vw = video.videoWidth; 
             const vh = video.videoHeight;
+            
             if (!vw || !vh) return;
 
-            // 1. Dieselbe Berechnung des sichtbaren Ausschnitts wie bei ArUco
+            // "object-fit: cover" Simulation für den Crop
             const rV = vw / vh; 
             const rC = cw / ch;
             let sx, sy, sw, sh;
@@ -480,11 +484,12 @@
             hiddenCanvas.width = WORKER_SIZE;
             hiddenCanvas.height = WORKER_SIZE;
             
-            // 2. Hintergrund schwarz färben (Letterboxing-Balken vorbereiten)
+            // Füllt das Quadrat für die KI mit schwarzen Rändern (Letterboxing) auf.
+            // Dadurch behält das Bild seine korrekten Proportionen und verzerrt nicht!
             hiddenCtx.fillStyle = '#000000';
             hiddenCtx.fillRect(0, 0, WORKER_SIZE, WORKER_SIZE);
-
-            // 3. Proportionale Skalierung in das Quadrat berechnen (verhindert das Quetschen!)
+            
+            // Proportionale Skalierung in das Quadrat berechnen (verhindert das Quetschen!)
             const scaleFit = Math.min(WORKER_SIZE / sw, WORKER_SIZE / sh);
             const drawW = sw * scaleFit;
             const drawH = sh * scaleFit;
@@ -500,16 +505,18 @@
             aiWorker.postMessage({ type: 'predict', image: imageData }, [imageData.data.buffer]);
         }
 
-        // Zeichnet die Bounding Boxes millimetergenau auf Basis der ArUco-Mathematik
+        // Verarbeitet die Auswertungsdaten und zeichnet die entsprechenden Boxen über das Bild.
         function drawDeepLearningBoxes(video) {
             const boxCanvas = document.getElementById('box-canvas');
             const boxCtx = boxCanvas.getContext('2d');
             
+            // Wenn das Deep-Learning deaktiviert ist, wird die Zeichenfläche geleert.
             if (!isDLDetectorEnabled) {
                 boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
                 return;
             }
             
+            // Fortlaufende Anpassung der Canvas-Größe an die Fenstergröße.
             if(boxCanvas.width !== window.innerWidth || boxCanvas.height !== window.innerHeight){
                 boxCanvas.width = window.innerWidth;
                 boxCanvas.height = window.innerHeight;
@@ -525,7 +532,7 @@
             const vh = video.videoHeight;
             if (!vw || !vh) return;
 
-            // 1. Erneute Berechnung wie bei ArUco
+            // ArUco-Logik wiederholen, um die exakten Skalierungsfaktoren zu erhalten
             const rV = vw / vh; 
             const rC = cw / ch;
             let sx, sy, sw, sh;
@@ -536,7 +543,7 @@
                 sh = vh; sw = vh * rC; sx = (vw - sw) / 2; sy = 0; 
             }
 
-            // 2. Erneute Skalierungs-Parameter für die Rückrechnung
+            // Erneute Skalierungs-Parameter für die Rückrechnung
             const scaleFit = Math.min(WORKER_SIZE / sw, WORKER_SIZE / sh);
             const drawW = sw * scaleFit;
             const drawH = sh * scaleFit;
@@ -547,16 +554,30 @@
             boxCtx.lineWidth = 4;
             boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
 
+            // Durchläuft alle vom Deep-Learning-Modell erkannten Objekte.
             for (let i = 0; i < latestDLPredictions.boxes.length; i++) {
+                // Nur Treffer mit über 90% Zuverlässigkeit werden berücksichtigt.
                 if (latestDLPredictions.scores[i] > 0.9) {
                     
                     let [x_center, y_center, width, height] = latestDLPredictions.boxes[i];
 
-                    // 3. Entferne den schwarzen Balken (Offset) von den KI-Koordinaten
+                    // SICHERHEITS-KORREKTUR: Falls das KI Modell auf dem iPhone stur 
+                    // Koordinaten auf einer 640er-Skala ausgibt, passen wir es hier automatisch an.
+                    let modelOutputSize = WORKER_SIZE;
+                    if (x_center > WORKER_SIZE || y_center > WORKER_SIZE) {
+                        modelOutputSize = 640; 
+                    }
+                    const scaleFactor = WORKER_SIZE / modelOutputSize;
+                    x_center *= scaleFactor;
+                    y_center *= scaleFactor;
+                    width *= scaleFactor;
+                    height *= scaleFactor;
+
+                    // 1. Abzug der schwarzen Balken (Letterbox-Offset)
                     const real_x = x_center - drawX;
                     const real_y = y_center - drawY;
 
-                    // 4. Skaliere die reinen Koordinaten auf den echten Bildschirm (cw, ch)
+                    // 2. Umrechnung von der Modell-Größe zurück auf die reale Bildschirmgröße (cw, ch)
                     const finalBoxW = (width / drawW) * cw;
                     const finalBoxH = (height / drawH) * ch;
                     
@@ -573,7 +594,7 @@
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
                     const isVeritas = detectedClass.toLowerCase().includes('veritas') || detectedClass === '0';
 
-                    // Entfernung berechnen
+                    // Berechnet die Entfernung unter der Annahme, dass Statuen im Mittel 3,2 Meter hoch sind.
                     if (isSonstige || isVeritas) {
                         const focalLength = ch * 0.8; 
                         dlStatueDistance = (3.2 * focalLength) / finalBoxH;
@@ -581,6 +602,7 @@
                     }
 
                     if (isSonstige && !isVeritas) {
+                        // Ein Vorhang-Bild wird zur Verdeckung der realen Statue angezeigt.
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
                             boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
                         } else {
@@ -593,6 +615,7 @@
                         
                         boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
                     } else if (isVeritas) {
+                        // Für das spezielle "Veritas"-Modell wird lediglich eine grüne Markierung gezeichnet.
                         boxCtx.beginPath();
                         boxCtx.rect(finalX, finalY, finalBoxW, finalBoxH);
                         boxCtx.stroke();
