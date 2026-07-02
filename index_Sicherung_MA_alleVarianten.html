@@ -12,7 +12,7 @@
   of the copyright holder, for both private and commercial purposes.
 -->
 
-// HTML-Dokument Abschnitt: Grundlegendes Design der Website
+// HTML-Dokument grundlegendes Design
 <!DOCTYPE html>
 <html lang="de">
 <head>
@@ -74,7 +74,7 @@
         <h2>Explore the Herrenhäuser Gardens in Hanover - virtually with Augmented Reality (AR)!</h2>
       </div>
 
-      <!-- Info-Block zwecks notwendiger Hardware -->
+      <!-- Info-Block zwecks notweniger Hardware -->
       <div style="background:#0b3a66; border-radius:10px; margin-top: 12px; margin-bottom:12px; color:#fff;">
         <div style="text-align:center;padding:18px;">
           <div style="font-weight:700;font-size:18px;margin-bottom:6px;">AR-Experience startet in neuem Browsertab</div>
@@ -84,9 +84,9 @@
       </div>
 
       <div id="viewWindow">
-        <!-- Einbindung des finalen Prototyps Prototyp_WebAR_HerrenhaeuserGaerten_Juni2026 via IFrame -->
+        <!-- Einbindung des finalen Prototyps WebAR_10022026_MA.html via IFrame -->
         <iframe 
-          src="Prototyp_WebAR_HerrenhaeuserGaerten_Juni2026.html" 
+          src="WebAR_10022026_MA.html" 
           style="width:100%; height:100%; border:none;" 
           allow="camera; gyroscope; accelerometer; magnetometer; geolocation; xr-spatial-tracking"
           title="AR View">
@@ -96,11 +96,11 @@
       <div class="controls-row" id="controlsRow" style="margin-top:12px; display: flex; flex-wrap: wrap; justify-content: center; align-items: center;">
         
         <div style="color:#666; order: 10; width: 100%; text-align: center; margin-top: 10px;">
-          Starte das Augmented Reality-Erlebnis auf deinem mobilen Endgerät (Android & IOS)
+          Start Augmented Reality on Smartphones (Android & IOS)
         </div>
         
-        <!-- Button für AR in Vollbild-Modus -->
-        <button id="openFullscreenBtn" class="btn-primary" style="margin: 5px; background-color: #28a745;">Herrenhäuser Gärten WebAR (als Vollbild-Ansicht in neuem Browsertab)</button>
+        <!-- Neuer Button für Vollbild -->
+        <button id="openFullscreenBtn" class="btn-primary" style="margin: 5px; background-color: #28a745;">Herrenhäuser Gärten Web-AR (Vollbild/Neuer Tab)</button>
 
         <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_WebXR)</button>
         <button id="startARBtSL" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_GNSS)</button>
@@ -138,12 +138,12 @@
     </footer>
   </main>
 
-  <!-- Script für Vollbild-Button / final: Prototyp_WebAR_HerrenhaeuserGaerten_Juni2026 -->
+  <!-- Script für den neuen Vollbild-Button / WebAR_13022026_MA.html -->
   <script>
     (function () {
       const fsBtn = document.getElementById('openFullscreenBtn');
       fsBtn.addEventListener('click', () => {
-        const newWin = window.open('Prototyp_WebAR_HerrenhaeuserGaerten_Juni2026.html', '_blank');
+        const newWin = window.open('WebAR_MA_Stand14032026_Zwischenpraesentation.html', '_blank');
         if (!newWin) {
           alert('Bitte Popups erlauben, um die AR-Anwendung im Vollbild zu starten.');
         }
@@ -250,10 +250,10 @@
     })();
   </script>
 
-  <!-- Einbindung Leaflet für OSM -->
+  <!-- Leaflet -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-  <!-- Karten-Initialisierung mit Stationen, rotem Richtungspfeil und Ausrichtung sowie Berechtigung auf Sensorwerte -->
+  <!-- Karten-Initialisierung mit Stationen, rotem Richtungspfeil und Ausrichtung sowie Berechtigung auf Sensorwerte-->
   <script>
   (function () {
     const mapEl = document.getElementById('mapStations');
@@ -275,69 +275,70 @@
       { title: 'Niederdeutscher Blumengarten', coords: [52.388194, 9.697861] }
     ];
 
-    // OSM-Karte laden
+    // init map
     mapStations = L.map(mapEl).setView([52.3895, 9.6975], 16);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       maxZoom: 19,
       attribution: '&copy; OpenStreetMap contributors'
     }).addTo(mapStations);
 
-    // Stationen des virtuellen Rundgangs als Marker hinzufügen
+    // add station markers
     stations.forEach(s => {
       L.marker(s.coords).addTo(mapStations).bindPopup(`<strong>${s.title}</strong>`);
     });
 
-    // Layergruppe für den roten Richtungspfeil und die Genauigkeitskreis hinzufügen
+    // user layer
     userLayer = L.layerGroup().addTo(mapStations);
 
-    // Button für eigenen Standort
+    // locate button
     const locateBtn = document.getElementById('locateBtn');
     locateBtn.addEventListener('click', () => {
       if (lastPos) mapStations.setView([lastPos.latitude, lastPos.longitude], 17);
       else mapStations.locate({ setView: true, maxZoom: 17 });
     });
 
-    // Button für Zugriffsberechtigung auf interne Sensordaten -> Blickrichtung/Kompassdaten (für iOS  notwendig)
+    // orientation permission button (for iOS)
     const orientBtn = document.getElementById('orientBtn');
     orientBtn.addEventListener('click', async () => {
-      // ab iOS 13+ DeviceOrientationEvent.requestPermission() manuelle Erlaubnis notwendig
+      // iOS 13+ requires explicit permission via DeviceOrientationEvent.requestPermission()
       if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
         try {
           const res = await DeviceOrientationEvent.requestPermission();
           if (res === 'granted') {
             window.addEventListener('deviceorientation', onDeviceOrientation, true);
-            orientBtn.textContent = 'Berechtigung Sensorzugriff für Geräteausrichtung erlaubt';
+            orientBtn.textContent = 'Orientation allowed';
             orientBtn.disabled = true;
           } else {
-            alert('Berechtigung Sensorzugriff für Geräteausrichtung verweigert');
+            alert('Orientation permission denied');
           }
         } catch (e) {
           console.warn('Orientation permission error', e);
-          alert('Berechtigung Sensorzugriff für Geräteausrichtung fehlgeschlagen');
+          alert('Orientation permission failed');
         }
       } else {
-        // Alternativzugriff auf Sensordaten, kein IOS
+        // non-iOS: just bind the event
         window.addEventListener('deviceorientationabsolute' in window ? 'deviceorientationabsolute' : 'deviceorientation', onDeviceOrientation, true);
-        orientBtn.textContent = 'Berechtigung Sensorzugriff für Geräteausrichtung erlaubt';
+        orientBtn.textContent = 'Orientation enabled';
         orientBtn.disabled = true;
       }
     });
 
-    // GNSS-Abfrage starten, um die Position des Nutzers zu erhalten und den roten Richtungspfeil auf der Karte zu aktualisieren
+    // watch GPS
     if (navigator.geolocation) {
-      navigator.geolocation.watchPosition(onPos, err => console.warn('Fehler Standortzugriff', err), {
+      navigator.geolocation.watchPosition(onPos, err => console.warn('Geolocation error', err), {
         enableHighAccuracy: true,
         maximumAge: 2000,
         timeout: 10000
       });
     } else {
-      console.warn('Standortzugriff nicht verfügbar');
+      console.warn('Geolocation not available');
     }
 
     function onDeviceOrientation(e) {
-      // abruf Kompasswert für Ausrichtung
+      // best-effort conversion: alpha -> compass heading
       let alpha = e.alpha;
       if (alpha == null) return;
+      // many devices: heading = 360 - alpha
       heading = (360 - alpha) % 360;
       if (lastPos) drawUser(lastPos);
     }
@@ -358,7 +359,7 @@
     function drawUser(p) {
       userLayer.clearLayers();
 
-      // Roter Kreis um Standort einblenden zur Darstellung der Genauigkeit (Radius = Genauigkeit in Metern)
+      // accuracy circle
       L.circle([p.latitude, p.longitude], {
         radius: Math.max(p.accuracy, 4),
         color: 'rgba(255,0,0,0.6)',
@@ -366,7 +367,7 @@
         weight: 1
       }).addTo(userLayer);
 
-      // Ausrichtung visualisieren: roter Richtungspfeil, der die Blickrichtung des Geräts anzeigt
+      // SVG red arrow rotated by heading (arrow points toward heading)
       const svg = `
         <svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48">
           <g transform="translate(24,24) rotate(${heading})">
@@ -387,10 +388,9 @@
       L.marker([p.latitude, p.longitude], { icon: icon, interactive: false }).addTo(userLayer);
     }
 
+    // expose helper for debugging
     window._mapStations = mapStations;
   })();
   </script>
 </body>
 </html>
-
-// Dieser Code wurde mit Gemini 3 Flash zur Erstellung einer interaktiven Benutzeroberfläche stellenweise optimiert (letzter Zugriff: 29.05.2026)
