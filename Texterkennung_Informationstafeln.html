@@ -1,3 +1,17 @@
+// Lars Oliver Niehsen, Masterarbeit WebAR, Matrikelnummer:10031818
+// =====================================================================
+// Texterkennung auf natürlichen Markern mit Tesseract-OCR
+// =====================================================================
+
+<!-- Github-Notes:
+  Copyright (c) 2026 Lars Niehsen. All rights reserved.
+
+  This repository and all files contained herein are protected under full copyright.
+  Any reproduction, distribution, public performance, modification, transmission,
+  or other use in any form is prohibited without the prior express written permission
+  of the copyright holder, for both private and commercial purposes.
+-->
+  
 <!-- HTML5-Standard-Dokumenttyp -->
 <!DOCTYPE html>
 <!-- Start des HTML-Dokuments mit Sprachfestlegung Deutsch -->
@@ -6,7 +20,7 @@
 <head>
     <!-- Zeichensatzkodierung für Sonderzeichen wie Umlaute -->
     <meta charset="UTF-8">
-    <!-- Optimierung der Darstellung auf Mobilgeräten (Skalierung und Kamera-Ausschnitt) -->
+    <!-- Optimierung der Darstellung auf mobilen Endgeräten -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
     <!-- Farbe der Statusleiste im mobilen Browser -->
     <meta name="theme-color" content="#064e3b">
@@ -19,18 +33,18 @@
         /* Einbindung der Schriftarten Playfair Display und Inter von Google Fonts */
         @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:ital,wght@0,700;1,700&family=Inter:wght@400;600&display=swap');
 
-        /* Grundeinstellungen für den Körper der Seite: kein Scrollen, schwarzer Hintergrund */
+        /* Design: kein Scrollen, schwarzer Hintergrund */
         body { 
             margin: 0; padding: 0; overflow: hidden; 
             background-color: #000; color: white; user-select: none;
             font-family: 'Inter', sans-serif;
         }
-        /* Zuweisung der Serifenschrift für Überschriften */
+        /* Schriftart Überschriften */
         h1, h2 { font-family: 'Playfair Display', serif; }
         /* Grafiken im Canvas-Element füllen den gesamten Platz aus */
         canvas { display: block; }
         
-        /* Gestaltung der Nutzeroberfläche mit Glas-Effekt und Goldrand */
+        /* Gestaltung der Nutzeroberfläche */
         .royal-glass { 
             background: rgba(6, 78, 59, 0.85); 
             backdrop-filter: blur(16px); 
@@ -50,16 +64,16 @@
             animation: scan-line 10s linear infinite;
         }
 
-        /* Hilfsklassen für Farben und Rahmen */
+        /* Farben und Rahmen */
         .border-gold { border-color: #fbbf24; }
         .text-gold { color: #fbbf24; }
         .bg-gold { background-color: #fbbf24; }
 
-        /* Verstecken der Scrollleiste für die Begriffsliste */
+        /* Keine Scrollleiste für die Begriffsliste */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
-    <!-- Festlegung der Import-Quellen für JavaScript-Bibliotheken -->
+    <!-- Festlegung der Import-Quellen für JavaScript-Bibliotheken: Three.Js und Tesseract-OCR -->
     <script type="importmap">
     {
       "imports": {
@@ -74,7 +88,7 @@
 </head>
 <!-- Sichtbarer Teil der Webseite -->
 <body>
-    <!-- Container, in den React die Anwendung zeichnet -->
+    <!-- Container für Hauptanwendung -->
     <div id="root"></div>
 
     <!-- Hauptskript als Modul zur Nutzung moderner JavaScript-Funktionen -->
@@ -86,7 +100,6 @@
         import { createWorker } from 'tesseract.js';
         import htm from 'htm';
 
-        /* Verknüpfung von React mit htm für eine schreibfreundlichere Struktur */
         const html = htm.bind(React.createElement);
 
         /* Liste der Begriffe, die das System auf Informationstafeln erkennen soll */
@@ -115,14 +128,14 @@
             /* Rückgabe der visuellen Struktur der App */
             return html`
                 <div className="relative w-full h-screen overflow-hidden bg-emerald-950">
-                    <!-- Einbindung des Kamerascanners -->
+                    <!-- Einbindung Abscannen des Kamerabildes -->
                     <${ARScanner} 
                         onStatus=${setStatus} 
                         onError=${setError} 
                         onFound=${setLastFound}
                     />
                     
-                    <!-- Überlagerung für die grafische Oberfläche (UI Overlay) -->
+                    <!-- Überlagerung für die grafische Oberfläche -->
                     <div className="absolute inset-0 pointer-events-none flex flex-col justify-between p-6 z-10">
                         <!-- Oberer Bereich mit Statusanzeige -->
                         <header className="flex justify-between items-start pointer-events-auto">
@@ -130,7 +143,7 @@
                                 <!-- Kleiner Punkt, der bei Aktivität pulsiert -->
                                 <div className=${`w-2 h-2 rounded-full ${status === 'SCANNING' ? 'bg-amber-400 animate-pulse' : 'bg-emerald-400'}`} />
                                 <span className="text-[10px] font-bold tracking-[0.2em] uppercase text-amber-100">
-                                    ${status === 'SCANNING' ? 'Analysiere Tafel...' : 'Scanner Bereit'}
+                                    ${status === 'SCANNING' ? 'Analysiere Informationsschild' : 'Umgebungsscanner bereit'}
                                 </span>
                             </div>
                         </header>
@@ -186,14 +199,14 @@
                     ${status === 'LOADING' && html`
                         <div className="absolute inset-0 bg-[#064e3b] z-50 flex flex-col items-center justify-center text-center p-10">
                             <div className="w-16 h-16 border-b-2 border-amber-400 rounded-full animate-spin mb-8" />
-                            <h2 className="text-2xl font-bold italic text-amber-100">Herrenhäuser Gärten - AR Erkennung von Informationstafeln</h2>
+                            <h2 className="text-2xl font-bold italic text-amber-100">Herrenhäuser Gärten - AR-Erkennung von Informationstafeln</h2>
                             <p className="text-[10px] uppercase tracking-[0.4em] text-amber-100/40 mt-4 leading-loose">
                                 INITIALISIERUNG<br/>HERRENHÄUSER GÄRTEN
                             </p>
                         </div>
                     `}
 
-                    <!-- Anzeige bei Fehlern (z.B. Kamera abgelehnt) -->
+                    <!-- Anzeige bei Fehlern (z.B. Kamerazugriff abgelehnt) -->
                     ${status === 'ERROR' && html`
                         <div className="absolute inset-0 bg-emerald-950 z-50 flex flex-col items-center justify-center p-12 text-center">
                             <h2 className="text-2xl font-bold italic mb-4 text-red-200">Kamerafehler</h2>
@@ -221,7 +234,7 @@
                 let active = true;
                 let renderer, scene, camera, highlight, video, stream;
 
-                /* OPTIMIERUNG: Vorzeitige Erstellung des Tesseract-Workers */
+                /* OPTIMIERUNG: Erstellung eines Tesseract-Workers */
                 const workerPromise = createWorker('deu');
 
                 /* Funktion zum Starten der Kamera und Grafik-Engine */
@@ -251,7 +264,7 @@
                         video.autoplay = true;
                         await video.play();
 
-                        /* Erstellung des 3D-Raums (Three.js) */
+                        /* Erstellung der 3D-Szene mit Three.js */
                         scene = new THREE.Scene();
                         /* Erstellung der virtuellen Kamera für 3D-Inhalte */
                         camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
@@ -264,7 +277,7 @@
                         /* Anfügen der Grafik an die Webseite */
                         if (containerRef.current) containerRef.current.appendChild(renderer.domElement);
 
-                        /* Nutzung des Videobildes als Hintergrund für den 3D-Raum */
+                        /* Nutzung des Videobildes als Hintergrund für die 3D-Szene */
                         const texture = new THREE.VideoTexture(video);
                         scene.background = texture;
 
@@ -280,27 +293,26 @@
                         highlight.visible = false;
                         scene.add(highlight);
 
-                        /* Hinzufügen eines deutlicheren Rahmens zur Markierung */
+                        /* Hinzufügen einer Umrandung zur Markierung */
                         const outline = new THREE.LineSegments(
                             new THREE.EdgesGeometry(geo),
                             new THREE.LineBasicMaterial({ color: 0xff0000, linewidth: 4 })
                         );
                         highlight.add(outline);
 
-                        /* Meldung an die Haupt-App: Scanner ist bereit */
+                        /* Meldung an die Haupt-Anwendung: Umgebungsscanner ist bereit */
                         onStatus('READY');
 
                         /* Animationsschleife für die flüssige Darstellung der Grafik */
                         const animate = () => {
                             if (!active) return;
-                            /* Ausblenden der Markierung nach Ablauf der Persistence-Zeit */
+                            /* Ausblenden der Markierung nach Ablauf der Darstellungszeit */
                             if (highlight.visible && Date.now() - lastFoundTimeRef.current > PERSISTENCE_MS) {
                                 highlight.visible = false;
                                 onFound("");
                             }
-                            /* Zeichnen des 3D-Bildes */
+                            /* Rendern der 3D-Szene */
                             renderer.render(scene, camera);
-                            /* Planung des nächsten Bildes */
                             requestAnimationFrame(animate);
                         };
                         animate();
@@ -310,7 +322,7 @@
                             if (!active || !workerRef.current) return;
                             onStatus('SCANNING');
 
-                            /* Erstellung eines unsichtbaren "Leinwand"-Bildes vom Videoausschnitt */
+                            /* Canvas-Erstellung vom Videoausschnitt */
                             const canvas = document.createElement('canvas');
                             /* Festlegung des Bereichs (ROI), der analysiert wird (Zentrum des Bildes) */
                             const roiW = video.videoWidth * 0.8;
@@ -322,7 +334,7 @@
                             canvas.height = roiH;
                             const ctx = canvas.getContext('2d');
                             if (ctx) {
-                                /* Kopieren des aktuellen Videobildes in das Leinwand-Bild */
+                                /* Kopieren des aktuellen Videobildes in Canvas-Element */
                                 ctx.drawImage(video, roiX, roiY, roiW, roiH, 0, 0, roiW, roiH);
                                 try {
                                     /* Ausführung der Texterkennung auf dem Standbild */
@@ -374,7 +386,7 @@
                                             highlight.visible = true;
                                             /* Aktualisierung des Zeitstempels */
                                             lastFoundTimeRef.current = Date.now();
-                                            /* Meldung des Erfolgs an die Benutzeroberfläche */
+                                            /* Erfolgreiche Erkennung Nutzerinformation*/
                                             onFound(bestMatch.toUpperCase());
                                         }
                                     }
@@ -398,10 +410,10 @@
                 /* Start der Initialisierung */
                 start();
 
-                /* Aufräumarbeiten beim Schließen der Anwendung */
+                /* Ressourcen löschen beim Schließen der Anwendung */
                 return () => {
                     active = false;
-                    /* Beenden des Hintergrund-Prozesses der KI */
+                    /* Beenden des Hintergrund-Prozesses */
                     if (workerRef.current) workerRef.current.terminate();
                     /* Freigabe von Grafikressourcen */
                     if (renderer) renderer.dispose();
@@ -410,7 +422,7 @@
                 };
             }, []);
 
-            /* Rückgabe des 3D-Containers */
+            /* Schließen des 3D-Containers */
             return html`<div ref=${containerRef} className="absolute inset-0" />`;
         };
 
@@ -423,3 +435,5 @@
     </script>
 </body>
 </html>
+
+// Dieser Code wurde mit Gemini 3 Flash zur Erstellung des Websitedesigns und einer performanten Ausführung stellenweise optimiert (letzter Zugriff: 29.05.2026)

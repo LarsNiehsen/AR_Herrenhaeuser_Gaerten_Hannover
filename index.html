@@ -102,15 +102,8 @@
         <!-- Button für AR in Vollbild-Modus -->
         <button id="openFullscreenBtn" class="btn-primary" style="margin: 5px; background-color: #28a745;">Herrenhäuser Gärten WebAR (als Vollbild-Ansicht in neuem Browsertab)</button>
 
-        <button id="startARBtp" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_WebXR)</button>
-        <button id="startARBtSL" class="btn-primary" style="margin: 5px;">Start AR (Positionsbasiert_GNSS)</button>
-        <button id="startARBmv" class="btn-primary" style="margin: 5px;">Start AR (ModelViewer_WebAR)</button>
         <button id="startARBaniMo" class="btn-primary" style="margin: 5px;">Start AR (Animation 3D-Modelle_WebAR)</button>
-        <button id="startARBtm" class="btn-primary" style="margin: 5px;">Start AR (Markerbasiert)</button>
-        <button id="startARBtIT" class="btn-primary" style="margin: 5px;">Start AR (Image-Tracking & Markerbasiert)</button>
-        <!-- auskommentieren -->
-        <button id="startARBtT" class="btn-primary" style="margin: 5px;">Start AR (experimental)</button> 
-        
+
       </div>
     </div>
 
@@ -151,76 +144,6 @@
     })();
   </script>
 
-  <!-- START AR: neues Tab synchron öffnen -->
-  <script>
-    (function () {
-      const startBtn = document.getElementById('startARBtp');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
-          return;
-        }
-        newWin.location.href = 'AR_HitTest_Positionsbasiert.html';
-      });
-    })();
-  </script>
-
-    <script>
-    (function () {
-      const startBtn = document.getElementById('startARBmv');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne ModelViewer_WebAR.html manuell.');
-          return;
-        }
-        newWin.location.href = 'Model_Viewer_AR_MA.html';
-      });
-    })();
-  </script>
-
-    <script>
-    (function () {
-      const startBtn = document.getElementById('startARBtSL');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne AR_HitTest_Positionsbasiert.html manuell.');
-          return;
-        }
-        newWin.location.href = 'AR_HitTest_Positionsbasiert_MA.html';
-      });
-    })();
-  </script>
-
-    <script>
-    (function () {
-      const startBtn = document.getElementById('startARBtm');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
-          return;
-        }
-        newWin.location.href = 'AR_ArUcoJS2_Markerbasiert.html';
-      });
-    })();
-  </script>
-
-    <script>
-    (function () {
-      const startBtn = document.getElementById('startARBtIT');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
-          return;
-        }
-        newWin.location.href = 'AR_Positionsbasiert_MA_ohneWebXR.html';
-      });
-    })();
-  </script>
 
     <script>
     (function () {
@@ -236,19 +159,6 @@
     })();
   </script>
 
-      <script>
-    (function () {
-      const startBtn = document.getElementById('startARBtT');
-      startBtn.addEventListener('click', (ev) => {
-        const newWin = window.open('', '_blank');
-        if (!newWin) {
-          alert('Das Öffnen des AR-Tabs wurde vom Browser blockiert. Erlaube Popups oder öffne HitTest.html manuell.');
-          return;
-        }
-        newWin.location.href = 'WebAR_12052026_MA.html'; // AR_Test.html
-      });
-    })();
-  </script>
 
   <!-- Einbindung Leaflet für OSM -->
   <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
@@ -393,4 +303,4 @@
 </body>
 </html>
 
-// Dieser Code wurde mit Gemini 3 Flash zur Erstellung einer interaktiven Benutzeroberfläche stellenweise optimiert (letzter Zugriff: 29.05.2026)
+// Dieser Code wurde mit Gemini 3 Flash zur Erstellung des Websitedesigns stellenweise optimiert (letzter Zugriff: 29.05.2026)
