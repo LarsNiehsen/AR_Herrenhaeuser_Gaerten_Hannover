@@ -1,4 +1,4 @@
-// Lars Oliver Niehsen, Masterarbeit WebAR, Matrikelnummer:10031818
+// Lars Oliver Niehsen, Masterarbeit WebAR, Matrikelnummer: 10031818
 // =====================================================================
 // WEB WORKER für Deep-Learning in eigenem Thread
 // =====================================================================
@@ -72,3 +72,5 @@ self.onmessage = async function(event) {
         console.error("Fehler bei der DL-Erkennung:", err);
     }
 };
+
+// Dieser Code wurde mit Gemini 3 Flash für eine performante Ausführung stellenweise optimiert (letzter Zugriff: 29.05.2026)
