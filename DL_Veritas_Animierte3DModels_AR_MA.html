@@ -17,28 +17,28 @@ Github-Notes:
 <!DOCTYPE html>
 <!-- Startet das HTML-Dokument und setzt die Hauptsprache auf Deutsch -->
 <html lang="de">
-<!-- Der Kopfbereich enthält versteckte Metadaten und Einstellungen -->
+<!-- Kopfbereich mit Metadaten und Einstellungen -->
 <head>
     <!-- Legt die Zeichenkodierung fest, damit Umlaute korrekt dargestellt werden -->
     <meta charset="UTF-8">
-    <!-- Passt das Bild an die Bildschirmgröße von Smartphones an und verhindert manuelles Zoomen -->
+    <!-- Passt das Bild an die Bildschirmgröße von mobilen Endgeräten an und verhindert manuelles Zoomen -->
     <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
     <!-- Setzt den Titel, der im Tab des Webbrowsers angezeigt wird -->
     <title>WebAR - Animierte 3D-Modelle mit Deep-Learning Objekterkennung</title>
     
-    <!-- Bereich für das Aussehen (CSS-Design) -->
+    <!-- CSS -> Designelemente -->
     <style>
-        /* Design für den gesamten sichtbaren Hintergrund (body) */
+        /* Design für den gesamten sichtbaren Hintergrund */
         body {
-            /* Entfernt alle äußeren Ränder */
+            /* kein Randbereich */
             margin: 0;
             /* Verhindert das Scrollen der Seite */
             overflow: hidden;
-            /* Setzt die Hintergrundfarbe auf Schwarz */
+            /* Hintergrundfarbe auf Schwarz */
             background-color: #000;
-            /* Bestimmt die Standard-Schriftart für Texte auf der Seite */
+            /* Standard-Schriftart */
             font-family: sans-serif;
-            /* Deaktiviert Wisch-Gesten auf Mobilgeräten */
+            /* Deaktiviert Wisch-Gesten auf mobilen Endgeräten */
             touch-action: none; 
         }
         
@@ -48,15 +48,15 @@ Github-Notes:
             position: absolute;
             /* Ausrichtung an der oberen linken Ecke */
             top: 0; left: 0;
-            /* Füllt die volle Breite und Höhe des Bildschirms aus */
+            /* komplette Breite und Höhe des Bildschirms nutzen */
             width: 100vw; height: 100vh;
-            /* Skaliert das Video proportional, bis es den Bildschirm ausfüllt (ohne Verzerrung) */
+            /* Skaliert das Video proportional, bis es den Bildschirm ausfüllt */
             object-fit: cover;
             /* Setzt das Video auf die unterste Ebene */
             z-index: 1;
         }
         
-        /* Container für die virtuelle 3D-Welt */
+        /* Container für die virtuelle 3D-Szene */
         #container {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
@@ -64,7 +64,7 @@ Github-Notes:
             z-index: 2;
         }
 
-        /* Ein unsichtbares Canvas-Element für die KI-Rahmen (Bounding Boxes) */
+        /* Canvas-Element für die Bounding Boxen */
         #box-canvas {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh; 
@@ -79,7 +79,7 @@ Github-Notes:
         #ui {
             position: absolute; top: 0; left: 0;
             width: 100vw; height: 100vh;
-            /* Platziert das Menü ganz nach vorne */
+            /* Platziert das Menü auf vorderster Ebene */
             z-index: 10;
             /* Zentriert den Inhalt horizontal und vertikal */
             display: flex; justify-content: center; align-items: center;
@@ -87,21 +87,21 @@ Github-Notes:
             background: rgba(0, 0, 0, 0.85);
         }
         
-        /* Design für Interaktions-Buttons */
+        /* Design für Buttons zur Interaktion*/
         button {
             padding: 15px 40px; font-size: 20px; cursor: pointer;
             background-color: #ff0000; color: white; border: none;
             border-radius: 8px; font-weight: bold;
         }
         
-        /* Design für das Informations-Textfeld (leicht nach unten verschoben wegen Distanz-Anzeige) */
+        /* Design für das Textfeldmit Informationen (unterhalb der Distanz-Anzeige) */
         #info {
             position: absolute; top: 50px; left: 10px; color: white;
             z-index: 5; background: rgba(0,0,0,0.5); padding: 5px 10px;
             border-radius: 4px; display: none; pointer-events: none;
         }
 
-        /* NEU: Anzeige der KI-Entfernung oben links */
+        /* Anzeige der Distanzbestimmung mittels DL */
         #distance-info {
             position: absolute; top: 10px; left: 10px; color: white;
             z-index: 5; background: rgba(0,0,0,0.7); padding: 5px 10px;
@@ -120,7 +120,7 @@ Github-Notes:
             background: rgba(255, 255, 255, 0.3); border: 2px solid white; border-radius: 50%;
             color: white; font-size: 20px; display: flex; justify-content: center; align-items: center; user-select: none;
         }
-        /* Designänderung bei aktiver Betätigung */
+        /* Farbänderung, wenn aktiv */
         .ctrl-btn:active { background: rgba(255, 0, 0, 0.6); }
         
         /* Definition der Raster-Positionen für die Tasten */
@@ -129,14 +129,14 @@ Github-Notes:
         #btn-right { grid-column: 3; grid-row: 2; }
         #btn-down { grid-column: 2; grid-row: 3; }
 
-        /* Steuerungselement für die Höhenanpassung */
+        /* Slider für die Höhenanpassung */
         #height-control {
             position: absolute; top: 50%; left: 20px; transform: translateY(-50%); 
             z-index: 10; display: none; flex-direction: column; align-items: center;
             background: rgba(0, 0, 0, 0.6); padding: 20px 10px; border-radius: 30px;
         }
 
-        /* Steuerungselement für die Modell-Rotation */
+        /* Button für die Rotation der 3D-Modelle*/
         #rotation-control {
             position: absolute; bottom: 20px; left: 50%; transform: translateX(-50%); 
             z-index: 10; display: none; flex-direction: column; align-items: center;
@@ -150,7 +150,7 @@ Github-Notes:
         #heightSlider { -webkit-appearance: slider-vertical; appearance: slider-vertical; width: 8px; height: 120px; margin: 10px 0; cursor: pointer; }
     </style>
     
-    <!-- Deklaration der Bezugsquellen für die benötigten 3D-Bibliotheken -->
+    <!-- Einbindung Three.Js -->
     <script type="importmap">
         {
             "imports": {
@@ -172,14 +172,14 @@ Github-Notes:
     <!-- Container zur Aufnahme der durch JavaScript gerenderten 3D-Szene -->
     <div id="container"></div>
     
-    <!-- Canvas-Element zur Darstellung der KI-Begrenzungsrahmen -->
+    <!-- Canvas-Element zur Darstellung der Bounding-Box -->
     <canvas id="box-canvas"></canvas> 
     
-    <!-- Anzeige für die berechnete Entfernung -->
+    <!-- Anzeige für die berechnete DL-Entfernung -->
     <div id="distance-info">Entfernung: -- m</div>
 
     <!-- Informations-Textfeld für Systemstatus-Meldungen -->
-    <div id="info">Lade...</div>
+    <div id="info">Lade 3D-Modele</div>
 
     <!-- Steuerungselemente für die Navigation in der 3D-Welt -->
     <div id="walk-controls">
@@ -219,7 +219,7 @@ Github-Notes:
         // SYSTEM-ERKENNUNG FÜR SPEICHER-OPTIMIERUNG
         // ==========================================
         // Überprüfung des User-Agents zur Identifikation von iOS-Geräten.
-        // iOS besitzt strikte RAM-Limits pro Tab. Wird dieses Limit überschritten, wird der Tab beendet.
+        // iOS besitzt strikte RAM-Limits pro Browsertab. Wird dieses Limit überschritten, wird der Tab beendet.
         const isIOS = /iPad|iPhone|iPod/.test(navigator.userAgent) || 
                       (navigator.platform === 'MacIntel' && navigator.maxTouchPoints > 1);
 
@@ -227,12 +227,12 @@ Github-Notes:
         // Bei iOS wird die Auflösung reduziert, um den Arbeitsspeicher zu schonen.
         const WORKER_SIZE = isIOS ? 320 : 640;
 
-        // Wartezeit in Millisekunden zwischen zwei KI-Auswertungen.
+        // Wartezeit in Millisekunden zwischen der Anlayse zur Objekterkennung
         // Eine längere Pause bei iOS verhindert eine Überlastung der CPU und des Speichermanagements.
         const AI_DELAY = isIOS ? 300 : 100;
         // ==========================================
 
-        // Variablen für den Hintergrundprozess (Web Worker) und den Berechnungsstatus
+        // Variablen für die Auslagerung in den Web Worker und den Berechnungsstatus
         let aiWorker;
         let isDetecting = false;
 
@@ -240,7 +240,7 @@ Github-Notes:
         let aiStatueDistance = null;
         let aiStatueDistanceTime = 0;
         
-        // Referenzierung des Canvas-Elements für die Rahmenzeichnung
+        // Canvas-Element für die Bounding Boxen und dessen Kontext
         const boxCanvas = document.getElementById('box-canvas');
         const boxCtx = boxCanvas.getContext('2d');
         
@@ -248,7 +248,7 @@ Github-Notes:
         const hiddenCanvas = document.createElement('canvas');
         const hiddenCtx = hiddenCanvas.getContext('2d', { willReadFrequently: true });
 
-        // Referenzierung von DOM-Elementen zur Steuerung der Benutzeroberfläche
+        // Steuerung der Benutzeroberfläche
         const startButton = document.getElementById('startButton');
         const ui = document.getElementById('ui');
         const webcam = document.getElementById('webcam');
@@ -259,13 +259,13 @@ Github-Notes:
         const URL_STATIC_MODEL = '3D_models/BorghesischerFechter_WebAR.glb';
         const URL_ANIMATED_MODEL = '3D_models/BorghesischerFechter_iPhone17Pro_animiert_JumpDown.glb';
 
-        // NEU: Bild-Objekt für den roten Vorhang erstellen
+        // Verdeckung erkanntes Objekt mit Bild eines roten Vorhangs
         const curtainImg = new Image();
         curtainImg.src = 'ImageMatching/Vorhang_rot.png'; 
 
         // Event-Listener für den Start-Button
         startButton.addEventListener('click', async () => {
-            // Prüfung und Anforderung von Berechtigungen für Bewegungssensoren (häufig bei iOS erforderlich)
+            // Prüfung und Anforderung von Berechtigungen für Bewegungssensoren (bei iOS erforderlich)
             if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function') {
                 try {
                     const permission = await DeviceOrientationEvent.requestPermission();
@@ -297,7 +297,7 @@ Github-Notes:
         });
 
         // ==========================================
-        // Deep-Learning-Erkennung
+        // Deep-Learning-Objekterkennung
         // ==========================================
         
         // Initialisiert den Web Worker für die asynchrone Bildanalyse
@@ -306,7 +306,7 @@ Github-Notes:
             boxCanvas.width = window.innerWidth;
             boxCanvas.height = window.innerHeight;
 
-            info.innerText = 'Lade Modelle & KI...';
+            info.innerText = 'Lade 3D-Modelle & DL-Objekterkennung';
 
             // Start des Worker-Skripts im Hintergrund
             aiWorker = new Worker('worker.js');
@@ -314,7 +314,7 @@ Github-Notes:
             // Event-Listener zum Empfang von Nachrichten des Workers
             aiWorker.onmessage = function(event) {
                 if (event.data.type === 'ready') {
-                    console.log("KI bereit!");
+                    console.log("DL-Objekterkennung bereit!");
                     // Der Startimpuls für den ersten Frame wird gesendet
                     requestNextFrame(); 
                 } 
@@ -336,28 +336,26 @@ Github-Notes:
             // Abbruch, falls aktuell eine Berechnung stattfindet oder das Video nicht bereit ist
             if (isDetecting || webcam.readyState < 2) return;
             
-            // Anpassung des versteckten Canvas auf die berechnete Zielauflösung
+            // Anpassung Canvas für Detektion auf die berechnete Bildauflösung
             hiddenCanvas.width = WORKER_SIZE;
             hiddenCanvas.height = WORKER_SIZE;
             
             // Der Video-Frame wird auf den Canvas gezeichnet und skaliert
             hiddenCtx.drawImage(webcam, 0, 0, WORKER_SIZE, WORKER_SIZE);
             
-            // Die Pixeldaten werden aus dem Canvas extrahiert
+            // Pixelwerte werden aus dem Canvas extrahiert
             const imageData = hiddenCtx.getImageData(0, 0, WORKER_SIZE, WORKER_SIZE);
             
             // Sperrung weiterer Anfragen bis zum Abschluss der aktuellen Berechnung
             isDetecting = true;
             
             // Übermittlung der Daten an den Worker.
-            // Der ArrayBuffer wird als 'Transferable Object' übergeben. Dies verhindert ein Kopieren der Daten
-            // im Speicher und minimiert das Risiko von Speicherlecks.
             aiWorker.postMessage(
                 { type: 'predict', image: imageData },[imageData.data.buffer]
             );
         }
 
-        // Zeichnet die von der KI erkannten Begrenzungsrahmen
+        // Zeichnet bei erfolgreicher Detektion mit DL die Bounding Box
         function drawBoxes(predictions) {
             // Leerung des vorherigen Canvas-Inhalts
             boxCtx.clearRect(0, 0, boxCanvas.width, boxCanvas.height);
@@ -376,13 +374,13 @@ Github-Notes:
             const screenW = boxCanvas.width;
             const screenH = boxCanvas.height;
 
-            // Berechnung des Skalierungsfaktors für das Video (object-fit: cover)
+            // Berechnung des Skalierungsfaktors -> Wichtig für korrekte Darstellung der Bounding Boxen
             const scale = Math.max(screenW / videoW, screenH / videoH);
-            // Berechnung des resultierenden Versatzes durch das Abschneiden an den Rändern
+            // Berechnung des resultierenden Versatzes durch das Abschneiden des Bildschirminhaltes an den Rändern
             const offsetX = (screenW - (videoW * scale)) / 2;
             const offsetY = (screenH - (videoH * scale)) / 2;
 
-            // Definition der visuellen Eigenschaften für die Rahmen
+            // Darstellung Bounding Box Umrandung
             boxCtx.strokeStyle = '#00FF00';
             boxCtx.lineWidth = 4;
             boxCtx.fillStyle = 'rgba(0, 255, 0, 0.2)';
@@ -393,7 +391,7 @@ Github-Notes:
                 if (predictions.scores[i] > 0.9) {
                     let[x_center, y_center, width, height] = predictions.boxes[i];
 
-                    // Transformation der KI-Koordinaten zurück auf die Original-Videoauflösung
+                    // Transformation der Position der Bounding Box in die 3D-Szene
                     const origX = (x_center / WORKER_SIZE) * videoW;
                     const origY = (y_center / WORKER_SIZE) * videoH;
                     const origBoxW = (width / WORKER_SIZE) * videoW;
@@ -403,11 +401,11 @@ Github-Notes:
                     const finalBoxW = origBoxW * scale;
                     const finalBoxH = origBoxH * scale;
                     
-                    // Berechnung der finalen X- und Y-Startpunkte
+                    // Berechnung der finalen Eckpunkte
                     const finalX = (origX * scale) + offsetX - (finalBoxW / 2);
                     const finalY = (origY * scale) + offsetY - (finalBoxH / 2);
 
-                    // Auslesen der erkannten Klasse durch die KI
+                    // Klasse der Objekterkennung
                     let detectedClass = 'Statue';
                     if (predictions.classes && predictions.classes[i] !== undefined) {
                         detectedClass = predictions.classes[i].toString();
@@ -415,18 +413,17 @@ Github-Notes:
                         detectedClass = predictions.labels[i].toString();
                     }
 
-                    // Erkennen, ob es sich um eine "sonstige" Statue handelt
-                    // Wir checken auf den Namen "statue" ODER auf die ID "1" (für Web-Export)
+                    // Erkennen, ob es sich um eine "sonstige" Statue (ID=1) handelt
                     const isSonstige = detectedClass.toLowerCase().includes('statue') || detectedClass === '1';
 
                     if (isSonstige) {
                         // ENTFERNUNGSBERECHNUNG (Lochkamera-Modell / Strahlensatz)
-                        // Annahme: Statue ist 3,2 Meter groß, Brennweite (focal length) ca. 80% der Bildhöhe
+                        // Annahme: Statue ist 3,2 Meter groß, Brennweite 80% der Bildhöhe
                         const focalLength = videoH * 0.8;
                         aiStatueDistance = (3.2 * focalLength) / origBoxH;
                         aiStatueDistanceTime = Date.now();
 
-                        // Vorhang einblenden statt Rahmen für "sonstige" Statuen
+                        // Vorhang einblenden statt Rahmen für die restlichen Skulpturen
                         if (curtainImg.complete && curtainImg.naturalHeight !== 0) {
                             boxCtx.drawImage(curtainImg, finalX, finalY, finalBoxW, finalBoxH);
                         } else {
@@ -467,9 +464,6 @@ Github-Notes:
                 distanceInfo.style.display = 'none';
             }
         }
-        // ==========================================
-        // ENDE KI FUNKTIONEN
-        // ==========================================
 
         // Initialisiert die 3D-Szene und deren Komponenten
         function initThreeJS() {
@@ -540,11 +534,11 @@ Github-Notes:
                 }
             }
 
-            // Vorbereitung des 3D-Modell-Laders
+            // Loader 3D-Modelle im GLTF-Format
             const loader = new GLTFLoader();
             const modelScale = 200.0;
 
-            // Hilfsfunktion zur Zuweisung von Schatteneigenschaften an alle Teilnetze (Meshes)
+            // Schatteneigenschaften bei Mesh
             const enableShadows = (modelObj) => {
                 modelObj.traverse((child) => {
                     if (child.isMesh) {
@@ -564,7 +558,7 @@ Github-Notes:
 
                 info.innerText = 'Statisches Modell geladen. Lade animiertes...';
 
-                // Anschließender Ladevorgang des animierten Modells
+                // Ladevorgang des animierten Modells
                 loader.load(URL_ANIMATED_MODEL, (gltfAnim) => {
                     animatedModel = gltfAnim.scene;
                     animatedModel.scale.set(modelScale, modelScale, modelScale);
@@ -594,8 +588,7 @@ Github-Notes:
                             if (hControl) hControl.style.display = 'flex';
                         });
 
-                        // Kompilierung des Renderers mit Minimalgröße des Modells
-                        // Dies verhindert ein plötzliches Ruckeln während des ersten Aufrufs.
+                        // Kompilierung des Renderers mit Minimalgröße des Modells -> Verhindert plötzliches Ruckeln während des ersten Aufrufs
                         animatedModel.scale.set(0.0001, 0.0001, 0.0001);
                         animatedModel.visible = true;
                         mixer.update(0.01);
@@ -625,7 +618,7 @@ Github-Notes:
             window.addEventListener('pointerdown', onPointerDown);
             window.addEventListener('resize', onWindowResize);
 
-            // Anbindung des Höhenreglers
+            // Anbindung des Sliders für die Sichthöhe
             const hSlider = document.getElementById('heightSlider');
             if (hSlider) {
                 hSlider.addEventListener('input', (e) => {
@@ -669,7 +662,6 @@ Github-Notes:
         const raycaster = new THREE.Raycaster();
         const mouse = new THREE.Vector2();
 
-        // Wird bei einer Eingabe auf dem Bildschirm ausgelöst
         function onPointerDown(event) {
             // Prüfung, um versehentliche Interaktionen über Bedienelemente zu verhindern
             if ((event.target.classList && event.target.classList.contains('ctrl-btn')) || 
@@ -737,7 +729,6 @@ Github-Notes:
             camera.updateProjectionMatrix();
             renderer.setSize(window.innerWidth, window.innerHeight);
             
-            // Die Dimensionen des Zeichenbereichs werden ebenfalls synchronisiert
             boxCanvas.width = window.innerWidth;
             boxCanvas.height = window.innerHeight;
         }
